@@ -26,26 +26,30 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v0.2 — full game loop, 5 levels
+## Status: v0.3 — 7 levels, character stacking
 
-Title screen ("STELLA" on the asymmetric playfield, fire to start), then five
-levels following the story's staged introduction:
+Title screen ("STELLA", fire to start), then seven levels following the
+story's staged introduction:
 
 1. **Awakening** — Stella alone; learn to move and jump
 2. **Exploration** — Stella alone; climb the ledges to the high perch
-3. **Discovery** — Alex appears; only he fits under the pillar (8-du gap vs
-   Stella's 9-du height)
+3. **Discovery** — Alex appears; only he fits under the pillar, and low
+   blocks make both characters hop along the way
 4. **Connection** — Stella climbs to her perch while Alex slips underneath
 5. **Ascent** — both routes through the same tower
+6. **Boost** — the ledge is beyond Alex's jump: he leaps from Stella's head
+7. **Lift** — the perch is beyond even Stella's jump: she needs Alex's back
 
-Goal markers are color-matched missiles (red = Stella's, green = Alex's); a
-marker vanishes when its character reaches it, and the level ends when every
-present character is home. Solid boxes block sideways movement and bonk heads
-(one-way ledges don't), which is what makes Alex's low-gap ability real. TIA
-sounds: rising jump sweep, landing thump, two-note goal fanfare. Win screen
-cycles colors, then back to the title.
+Characters can stand on each other (one-way, no carrying — that's an 8K
+feature). Each character exits through its own color-matched goal marker and
+vanishes; the level ends when everyone present is home. Console **SELECT
+restarts the level** (needed if you send someone home in the wrong order in
+6/7), RESET returns to the title. Solid boxes block sideways movement and
+bonk heads; one-way ledges don't. TIA sounds throughout.
+
+ROM headroom: ~2.0KB of the 4KB still free.
 
 Next up:
 - The five narration text screens (48px text kernel) — the 4K script
-- Tune difficulty from playtesting; maybe a 6th level
+- More levels (69 bytes each) as playtesting suggests
 - Real hardware validation via flash cart

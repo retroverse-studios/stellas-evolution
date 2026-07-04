@@ -279,10 +279,12 @@ The interactions between characters evolve:
 
 #### "Stella Was Alone" (4K)
 - Characters can stand on platforms
-- No direct character-to-character interaction
+- Characters can stand on each other as a simple one-way surface
+  (no carrying — decided during v0.3 playtesting; it enables the
+  boost/lift puzzle levels)
 
 #### "Stella Was Together" (8K)
-- Characters can stand on each other
+- Characters carry each other while moving and can push each other
 - Basic pushing mechanics
 
 #### "Stella's Journey" (16K)

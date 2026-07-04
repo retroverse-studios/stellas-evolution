@@ -37,7 +37,8 @@ MAXFALL     = 3         ; terminal fall speed, du/frame
 
 MIN_X       = 4         ; outer walls are 4px, handled by clamping
 NUM_PLATS   = 6         ; collision boxes per level (pad with $FF)
-NUM_LEVELS  = 5
+NUM_LEVELS  = 7
+HIDE_Y      = $70       ; a du the kernel can never match: hides things
 
 STATE_TITLE = 0
 STATE_PLAY  = 1
@@ -171,6 +172,11 @@ MainLoop:
         jsr TitleLogic
         jmp .logicDone
 .doPlay:
+        lda SWCHB               ; console SELECT restarts the level
+        and #2
+        bne .noSel
+        jsr LoadLevel
+.noSel:
         jsr ReadInput
         jsr UpdatePhysics
         jsr CheckGoals
@@ -193,6 +199,8 @@ MainLoop:
         beq .titleK
         lda #1
         sta CTRLPF      ; mirrored playfield in-game
+        lda #COL_PF
+        sta COLUPF      ; back to white (the title dyes it red)
         jsr GameKernel
         jmp Overscan
 .titleK:
@@ -372,9 +380,8 @@ LoadLevel:
         lda CharCount
         cmp #2
         beq .twoChars
-        lda #$FF
+        lda #HIDE_Y
         sta GoalDY+1            ; hide Alex's goal marker
-        lda #$E0
         sta CharY+1             ; park Alex offscreen
 .twoChars:
         rts
@@ -465,7 +472,10 @@ ReadInput:
         bne .pressed            ; no one to switch to yet
         lda Active
         eor #1
-        sta Active
+        tay
+        lda GoalDone,y          ; can't control someone who exited
+        bne .pressed
+        sty Active
 .pressed:
         lda #0
         sta FirePrev
@@ -559,6 +569,10 @@ UpdatePhysics:
         ldx CharCount
         dex
 .charLoop:
+        lda GoalDone,x          ; exited characters are gone
+        beq .alive
+        jmp .nextChar
+.alive:
         lda CharY,x             ; where the feet started
         clc
         adc HeightTbl,x
@@ -638,6 +652,7 @@ UpdatePhysics:
         cmp LV
         bcc .landNext
         beq .landNext
+.doLand:
         ; landed. thump if this was a real fall
         lda OnGround,x
         bne .noSnd
@@ -669,6 +684,38 @@ UpdatePhysics:
 .landNext:
         dec BoxIdx
         bpl .landLoop
+        ; no box caught us — maybe the other character's head did
+        lda CharCount
+        cmp #2
+        bne .airborne
+        txa
+        eor #1
+        tay                     ; Y = the other character
+        lda GoalDone,y
+        bne .airborne           ; already exited
+        lda CharY,y             ; their head as a one-way surface
+        sta TopV
+        cmp PrevFeet
+        bcc .airborne
+        cmp NewFeet
+        beq .headHit
+        bcs .airborne
+.headHit:
+        lda CharX,y
+        clc
+        adc WidthTbl,y
+        sta RV
+        lda CharX,x
+        cmp RV
+        bcs .airborne
+        lda CharX,x
+        clc
+        adc WidthTbl,x
+        cmp CharX,y
+        bcc .airborne
+        beq .airborne
+        jmp .doLand             ; standing on a friend
+.airborne:
         lda #0
         sta OnGround,x
         jmp .nextChar
@@ -778,8 +825,16 @@ CheckGoals:
         beq .gnext
         lda #1                  ; reached!
         sta GoalDone,x
-        lda #$FF
+        lda #HIDE_Y
         sta GoalDY,x
+        sta CharY,x             ; the character exits with it
+        lda CharCount
+        cmp #2
+        bne .snd
+        txa                     ; hand control to whoever is left
+        eor #1
+        sta Active
+.snd:
         lda #3
         sta SoundId
         lda #16
@@ -1039,8 +1094,8 @@ HeightTbl:  .byte STELLA_H, ALEX_H
 WidthTbl:   .byte 8, 16
 SpeedTbl:   .byte 1, 2              ; Stella slow, Alex fast
 MaxXTbl:    .byte 156-8, 156-16
-JumpHiTbl:  .byte $FD, $FE          ; Stella -2.5 du/fr, Alex -1.75
-JumpLoTbl:  .byte $80, $40
+JumpHiTbl:  .byte $FD, $FE          ; Stella -2.875 du/fr, Alex -1.75
+JumpLoTbl:  .byte $20, $40          ; (Stella clears 16 du; 24 needs a boost)
 ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
 ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
 
@@ -1049,6 +1104,9 @@ ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
 ; Row 7 is blank (used for all non-logo lines).
 ; ---------------------------------------------------------------
 
+        ALIGN 8                 ; keep each 8-byte row table in one
+                                ; page so lda abs,y never pays the
+                                ; +1 page-cross cycle mid-kernel
 LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80,$00
 LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2,$00
 LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C,$00
@@ -1061,8 +1119,8 @@ LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11,$00
 ; Walls: PF0 $10 (4px each side). Ground: band 11, solid.
 ; ---------------------------------------------------------------
 
-LvlPtrLo:   .byte <Level1, <Level2, <Level3, <Level4, <Level5
-LvlPtrHi:   .byte >Level1, >Level2, >Level3, >Level4, >Level5
+LvlPtrLo:   .byte <Level1, <Level2, <Level3, <Level4, <Level5, <Level6, <Level7
+LvlPtrHi:   .byte >Level1, >Level2, >Level3, >Level4, >Level5, >Level6, >Level7
 
 ; --- Level 1 "Awakening": Stella alone; jump onto the block ----
 Level1:
@@ -1095,20 +1153,21 @@ Level2:
         .byte 80, $FF
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
-;     pillar (8 du gap; Stella is 9 du tall) ---------------------
+;     pillar (8 du gap; Stella is 9 du tall). Low blocks make
+;     both of them hop along the way ----------------------------
 Level3:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
-        .byte 88, 40, $FF,$FF,$FF,$FF
-        .byte 96, 80, $FF,$FF,$FF,$FF
-        .byte 0,  68, 0,  0,  0,  0
-        .byte 160,92, 0,  0,  0,  0
+        .byte 88, 40, 80, 80, $FF,$FF
+        .byte 96, 80, 88, 88, $FF,$FF
+        .byte 0,  68, 40, 112,0,  0
+        .byte 160,92, 48, 120,0,  0
         .byte 2
         .byte 60, 88-STELLA_H
-        .byte 40, 88-ALEX_H
+        .byte 30, 88-ALEX_H
         .byte 24, 85                      ; Stella's goal: her side
-        .byte 124,85                      ; Alex's goal: past the pillar
+        .byte 110,77                      ; Alex's: atop the far block
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -1141,6 +1200,38 @@ Level5:
         .byte 20, 88-ALEX_H
         .byte 76, 53                      ; Stella: top of the tower
         .byte 130,85                      ; Alex: beyond it
+
+; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
+;     to leap from Stella's head. (Do his goal before hers!) -----
+Level6:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte 88, 72, 72, $FF,$FF,$FF
+        .byte 96, 72, 72, $FF,$FF,$FF
+        .byte 0,  112,40, 0,  0,  0
+        .byte 160,120,48, 0,  0,  0
+        .byte 2
+        .byte 80, 88-STELLA_H
+        .byte 60, 88-ALEX_H
+        .byte 20, 85                      ; Stella: ground, far left
+        .byte 110,69                      ; Alex: the high right ledge
+
+; --- Level 7 "Lift": the perch is above even Stella's jump — she
+;     needs the extra height from Alex's back. (Her goal first!) -
+Level7:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte 88, 64, 64, $FF,$FF,$FF
+        .byte 96, 64, 64, $FF,$FF,$FF
+        .byte 0,  112,40, 0,  0,  0
+        .byte 160,120,48, 0,  0,  0
+        .byte 2
+        .byte 60, 88-STELLA_H
+        .byte 80, 88-ALEX_H
+        .byte 110,61                      ; Stella: the high right perch
+        .byte 20, 85                      ; Alex: ground, far left
 
 ; ---------------------------------------------------------------
 ; Vectors
