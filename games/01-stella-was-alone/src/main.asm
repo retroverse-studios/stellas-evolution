@@ -119,6 +119,7 @@ ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
 TimedFlag   ds 1        ; SELECT: 0 = story game, 1 = endless game
 SelPrev     ds 1
 Rand        ds 1        ; endless mode's level shuffler
+EndCnt      ds 1        ; endless levels survived (binary, capped)
 Quest       ds 1        ; 0 first run; 1 = the world turned over
 CharDrawY   ds 2        ; kernel y for each character (flipped in Q2)
 Band0       ds 1        ; kernel: first playfield band (0 or 11)
@@ -303,6 +304,7 @@ TitleLogic:
         sta SecOnes
         sta SecTens
         sta SecHund
+        sta EndCnt
         lda FrameCtr
         ora #1
         sta Rand                ; seed from the player's timing
@@ -534,6 +536,11 @@ DoneLogic:
         lda TimedFlag
         beq .storyAdv
         jsr IncDigits           ; endless: one more level survived
+        lda EndCnt              ; ...and the clock tightens
+        cmp #17
+        bcs .capped
+        inc EndCnt
+.capped:
         jsr NextRandom
         jsr LoadLevel
         lda #STATE_PLAY
@@ -693,9 +700,22 @@ LoadLevel:
         jsr FlipG
         sta GoalDY+1
 
-        lda #60                 ; timed mode gets a minute per level
-        sta TimerSec
+        lda #60
         sta TimerFrm
+        ldy TimedFlag
+        beq .storyTime          ; the story game gets a full minute
+        lda #45                 ; endless: 45s, two fewer for every
+        sec                     ; level survived, floored at 12
+        sbc EndCnt
+        sbc EndCnt
+        cmp #12
+        bcs .setTime
+        lda #12
+        bne .setTime
+.storyTime:
+        lda #60
+.setTime:
+        sta TimerSec
         ldy #73
         lda (PF0Ptr),y          ; exit-order lock for boost levels
         sta ExitOrder
