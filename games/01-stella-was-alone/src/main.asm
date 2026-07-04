@@ -147,15 +147,10 @@ Reset:
         pha
         bne .clear      ; clears TIA + RAM, leaves SP=$FF
 
-        lda #$30
-        sta NUSIZ0      ; Stella: normal player, 8px missile (goal)
-        lda #$35
-        sta NUSIZ1      ; Alex: double-width player, 8px missile
-        lda #COL_PF
-        sta COLUPF
         lda #$80
         sta FirePrev
-        ; State = STATE_TITLE (0) from the RAM clear
+        ; State = STATE_TITLE (0) from the RAM clear; NUSIZ, VDEL
+        ; and colors are all (re)set by the title and LoadLevel
 
 ; ---------------------------------------------------------------
 ; Frame loop
@@ -699,6 +694,24 @@ LoadLevel:
         sta CharDrawY+1
         rts
 
+; FetchLR: Y = box index + 6 (the bottom slot). Loads the box's
+; left and right edges into LV/RV.
+FetchLR:
+        SUBROUTINE
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y
+        sta LV
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y
+        sta RV
+        rts
+
 ; FlipG: A = a goal's y — returns the y the kernel should draw it
 ; at, which in quest 2 is mirrored top-for-bottom.
 FlipG:
@@ -847,18 +860,7 @@ ClampBoxes:
         cmp CYH
         bcs .next
         ; horizontal overlap with the proposed position
-        tya
-        clc
-        adc #6
-        tay
-        lda (PlatPtr),y         ; left
-        sta LV
-        tya
-        clc
-        adc #6
-        tay
-        lda (PlatPtr),y         ; right
-        sta RV
+        jsr FetchLR
         lda NewX
         cmp RV
         bcs .next
@@ -959,16 +961,9 @@ UpdatePhysics:
 .landHit:
         tya
         clc
-        adc #12
-        tay
-        lda (PlatPtr),y         ; left
-        sta LV
-        tya
-        clc
         adc #6
         tay
-        lda (PlatPtr),y         ; right
-        sta RV
+        jsr FetchLR
         lda CharX,x
         cmp RV
         bcs .landNext
@@ -1072,18 +1067,7 @@ UpdatePhysics:
         lda CharY,x
         cmp BotV
         bcs .bonkNext           ; hasn't reached it
-        tya
-        clc
-        adc #6
-        tay
-        lda (PlatPtr),y         ; left
-        sta LV
-        tya
-        clc
-        adc #6
-        tay
-        lda (PlatPtr),y         ; right
-        sta RV
+        jsr FetchLR
         lda CharX,x
         cmp RV
         bcs .bonkNext
@@ -1353,8 +1337,10 @@ PlayExtras:
         lsr
         and #3
         tay
-        ldx Level
-        lda DroneF,x
+        lda #23                 ; drone base = 23 - 2*level
+        sec
+        sbc Level
+        sbc Level
         clc
         adc ArpOff,y
         sta AUDF1
@@ -1551,10 +1537,7 @@ TitleKernel:
         sta PF1
         sta PF2
         ldx #46                 ; blank sky above the logo
-.top:
-        sta WSYNC
-        dex
-        bne .top
+        jsr BlankLines
         ldy #0                  ; seven logo rows, 8 du each
         lda #8
         sta BandLine
@@ -1609,16 +1592,10 @@ TitleKernel:
         sta PF1
         sta PF2
         ldx #10
-.gap:
-        sta WSYNC
-        dex
-        bne .gap
-        jsr DigitBlock          ; the caption: SELECT
+        jsr BlankLines
+        jsr DigitBlock          ; the caption: SELECT / TIMER
         ldx #10
-.tail:
-        sta WSYNC
-        dex
-        bne .tail
+        jsr BlankLines
         rts
 
 ; ---------------------------------------------------------------
@@ -1639,32 +1616,29 @@ WinKernel:
         sta ENAM0
         sta ENAM1
         ldx #30
-.top:
-        sta WSYNC
-        dex
-        bne .top
+        jsr BlankLines
         jsr DigitBlock          ; the run time, in white
         ldx #76
-.mid:
-        sta WSYNC
-        dex
-        bne .mid
+        jsr BlankLines
         lda SqCol               ; the stranger
         sta COLUP1
         lda #2
         sta ENAM1
         ldx #8
-.sq:
-        sta WSYNC
-        dex
-        bne .sq
+        jsr BlankLines
         lda #0
         sta ENAM1
         ldx #64
-.bot:
+        jsr BlankLines
+        rts
+
+; BlankLines: X = how many scanlines of nothing
+BlankLines:
+        SUBROUTINE
+.b:
         sta WSYNC
         dex
-        bne .bot
+        bne .b
         rts
 
 ; ---------------------------------------------------------------
@@ -1822,7 +1796,6 @@ DigitFont:
 CapSel:     .byte 11,12,13,12,14,15         ; S E L E C T
 CapTim:     .byte 15,16,17,12,18,10         ; T I M E R _
 
-DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 
