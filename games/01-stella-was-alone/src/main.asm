@@ -118,7 +118,6 @@ TimerFrm    ds 1
 ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
 TimedFlag   ds 1        ; SELECT on the title toggles timed mode
 SelPrev     ds 1
-ColrPtr     ds 2        ; title logo row colors (rainbow or ember)
 Quest       ds 1        ; 0 first run; 1 = the world turned over
 CharDrawY   ds 2        ; kernel y for each character (flipped in Q2)
 Band0       ds 1        ; kernel: first playfield band (0 or 11)
@@ -289,23 +288,12 @@ TitleLogic:
         lda #2
         sta SelPrev
 .selDone:
-        ldy TimedFlag           ; the logo shows the variation:
-        beq .rainbow            ; rainbow = relaxed, ember = timed
-        lda #<LogoColrT
-        sta ColrPtr
-        lda #>LogoColrT
-        sta ColrPtr+1
+        lda #0                  ; ember background = timed
+        ldy TimedFlag
+        beq .bg
         lda #$20
+.bg:
         sta COLUBK
-        bne .colrSet
-.rainbow:
-        lda #<LogoColr
-        sta ColrPtr
-        lda #>LogoColr
-        sta ColrPtr+1
-        lda #0
-        sta COLUBK
-.colrSet:
         lda #$03                ; the caption: sprite-text setup
         sta NUSIZ0
         sta NUSIZ1
@@ -316,12 +304,18 @@ TitleLogic:
         sta CharX
         lda #56
         sta CharX+1
-        ldx #10                 ; glyph pointers for S E L E C T
+        ldx #10                 ; caption: SELECT, or TIMER when on
 .glyphs:
         txa
         lsr
         tay
-        lda CaptionIds,y
+        lda TimedFlag
+        beq .relCap
+        lda CapTim,y
+        bne .haveCap            ; glyph ids are never zero
+.relCap:
+        lda CapSel,y
+.haveCap:
         jsr SetGlyph
         dex
         dex
@@ -1567,8 +1561,8 @@ TitleKernel:
         ldx #56
 .tloop:
         sta WSYNC               ; ---- line 1: cycle-anchored writes
-        lda (ColrPtr),y         ; per-row logo color
-        sta COLUPF              ; @8
+        lda LogoColr,y          ; per-row rainbow
+        sta COLUPF              ; @7
         lda LogoPF0L,y
         sta PF0                 ; @15
         lda LogoPF1L,y
@@ -1821,8 +1815,12 @@ DigitFont:
         .byte $7E,$60,$60,$60,$60,$60,$60   ; 13: L
         .byte $3C,$66,$60,$60,$60,$66,$3C   ; 14: C
         .byte $18,$18,$18,$18,$18,$18,$7E   ; 15: T
+        .byte $7E,$18,$18,$18,$18,$18,$7E   ; 16: I
+        .byte $63,$63,$63,$6B,$7F,$77,$63   ; 17: M
+        .byte $66,$66,$6C,$7C,$66,$66,$7C   ; 18: R
 
-CaptionIds: .byte 11,12,13,12,14,15         ; S E L E C T
+CapSel:     .byte 11,12,13,12,14,15         ; S E L E C T
+CapTim:     .byte 15,16,17,12,18,10         ; T I M E R _
 
 DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
@@ -1848,10 +1846,8 @@ LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
             ds 1
 LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
             ds 1
-; per-row logo colors: the Atari rainbow, or ember for timed mode
+; per-row logo colors: the Atari rainbow
 LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
-            ds 1
-LogoColrT:  .byte $42,$44,$46,$48,$46,$44,$42
 
 ; ---------------------------------------------------------------
 ; Levels. Bands are 16 scanlines; the playfield is mirrored.
@@ -1900,22 +1896,22 @@ Level2:
         .byte 0                           ; no exit-order lock
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
-;     pillar (8 du gap; Stella is 9 du tall). Low blocks make
-;     both of them hop along the way ----------------------------
+;     pillar (8 du gap; Stella is 9 du tall). His goal sits on a
+;     corner step: jump at the far wall and it catches you -------
 Level3:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$FF
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$70,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
         .byte 88, 40, 80, 80, $FF,$FF
         .byte 96, 80, 88, 88, $FF,$FF
-        .byte 0,  68, 40, 112,0,  0
-        .byte 160,92, 48, 120,0,  0
+        .byte 0,  68, 4,  148,0,  0
+        .byte 160,92, 12, 156,0,  0
         .byte 2
         .byte 60, 88-STELLA_H
         .byte 30, 88-ALEX_H
         .byte 24, 85                      ; Stella's goal: her side
-        .byte 110,77                      ; Alex's: atop the far block
-        .byte 4,  85, 124,85              ; alt: corner / past pillar
+        .byte 146,77                      ; Alex's: the far corner step
+        .byte 16, 85, 124,85              ; alt: near left / past pillar
         .byte 0                           ; no exit-order lock
 
 ; --- Level 4 "Connection": Stella climbs to her perch while

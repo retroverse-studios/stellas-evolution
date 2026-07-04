@@ -164,19 +164,24 @@ class Sim:
                 y < gy + self.p["goal_h"] and y + self.h > gy)
 
     def reachable(self, start, goal):
-        """BFS over standing states. Returns (goal_ok, footing) where
+        """BFS over standing states. Returns (goal_states, footing):
+        goal_states is the set of standing states from which the goal
+        gets touched (few states = a razor-thin, human-hostile level);
         footing maps surface top -> set of standable x."""
         sx, sy = start
         feet0 = sy + self.h
         seen, queue, footing = set(), [(sx, feet0)], {}
-        goal_ok = self.touch(sx, sy, goal)
+        goal_states = set()
+        if self.touch(sx, sy, goal):
+            goal_states.add((sx, feet0))
         while queue:
             x, feet = queue.pop()
             if (x, feet) in seen:
                 continue
             seen.add((x, feet))
             footing.setdefault(feet, set()).add(x)
-            goal_ok |= self.touch(x, feet - self.h, goal)
+            if self.touch(x, feet - self.h, goal):
+                goal_states.add((x, feet))
             moves = []
             for d in (-1, 0, 1):
                 moves.append((True, d))          # jump L/N/R
@@ -185,32 +190,36 @@ class Sim:
                 if nx != x:
                     if self.landing(feet, feet, nx) is not None:
                         queue.append((nx, feet))
-                        goal_ok |= self.touch(nx, feet - self.h, goal)
+                        if self.touch(nx, feet - self.h, goal):
+                            goal_states.add((nx, feet))
                     else:
                         moves.append((False, d))  # walked off an edge
             for jump, d in moves:
                 land, touched = self.arc(x, feet, jump, d, goal)
-                goal_ok |= touched
+                if touched:
+                    goal_states.add((x, feet))
                 if land is not None:
                     lx, ltop = land
                     queue.append((lx, ltop))
-        return goal_ok, footing
+        return goal_states, footing
+
+
+MIN_GOAL_STATES = 4   # fewer launch states than this = human-hostile
 
 
 def char_can_finish(lvl, phys, ci, goal, helper):
     """Can character ci reach its goal, optionally with the other
-    character available as a step stool?"""
+    character available as a step stool? Returns (ok, width)."""
     sim = Sim(lvl, phys, ci)
     if helper is not None:
         hsim = Sim(lvl, phys, helper)
         _, footing = hsim.reachable(lvl.starts[helper], (0, 200))
         for feet, xs in footing.items():
-            head = feet - phys["h"][helper] - phys["h"][ci] + phys["h"][ci]
             head_top = feet - phys["h"][helper]
             span_l, span_r = min(xs), max(xs) + phys["w"][helper]
             sim.extra.append((head_top, span_l, span_r))
-    ok, _ = sim.reachable(lvl.starts[ci], goal)
-    return ok
+    goal_states, _ = sim.reachable(lvl.starts[ci], goal)
+    return len(goal_states) > 0, len(goal_states)
 
 
 def check_level(idx, lvl, phys):
@@ -218,13 +227,24 @@ def check_level(idx, lvl, phys):
     for vi, goals in enumerate(lvl.goals):
         tag = "primary" if vi == 0 else "alternate"
         if lvl.cc == 1:
-            if not char_can_finish(lvl, phys, 0, goals[0], None):
+            ok, width = char_can_finish(lvl, phys, 0, goals[0], None)
+            if not ok:
                 problems.append(f"{tag}: Stella cannot reach her goal")
+            elif width < MIN_GOAL_STATES:
+                print(f"LEVEL {idx + 1}: WARNING {tag}: Stella's goal "
+                      f"reachable from only {width} state(s)")
             continue
-        s_solo = char_can_finish(lvl, phys, 0, goals[0], None)
-        a_solo = char_can_finish(lvl, phys, 1, goals[1], None)
-        s_help = s_solo or char_can_finish(lvl, phys, 0, goals[0], 1)
-        a_help = a_solo or char_can_finish(lvl, phys, 1, goals[1], 0)
+        s_solo, s_w = char_can_finish(lvl, phys, 0, goals[0], None)
+        a_solo, a_w = char_can_finish(lvl, phys, 1, goals[1], None)
+        s_help, s_hw = char_can_finish(lvl, phys, 0, goals[0], 1)
+        a_help, a_hw = char_can_finish(lvl, phys, 1, goals[1], 0)
+        s_help, s_hw = (s_help or s_solo), max(s_w, s_hw)
+        a_help, a_hw = (a_help or a_solo), max(a_w, a_hw)
+        for name, ok, width in (("Stella", s_help, s_hw),
+                                ("Alex", a_help, a_hw)):
+            if ok and width < MIN_GOAL_STATES:
+                print(f"LEVEL {idx + 1}: WARNING {tag}: {name}'s goal "
+                      f"reachable from only {width} state(s)")
         detail = (f"S(solo={s_solo},help={s_help}) "
                   f"A(solo={a_solo},help={a_help})")
         # someone must be able to go first (with help), and the other

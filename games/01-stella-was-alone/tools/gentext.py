@@ -54,7 +54,7 @@ SCREENS = [
     [" THERE HAD", "TO BE MORE"],                           # before L2
     [" AND THEN", "THERE WERE", "   TWO."],                 # before L3
     ["TOGETHER,", "THOUGH..."],                             # before L6
-    ["THE WORLD", " SHIFTED.", "EXPANDED.", " CHANGED."],   # ending
+    ["THE WORLD", " SHIFTED.", " CHANGED."],                # ending
 ]
 
 
