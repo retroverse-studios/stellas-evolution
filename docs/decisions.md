@@ -225,3 +225,86 @@
 - A children-friendly tone is preserved if the loss is quiet, chosen, and ultimately answered
 
 **Status:** DECIDED (2026-07-04) — Option A, with a consolation: Flicker sacrifices itself at the end of "Stella's Journey" (16K) to hold the way open, and the loss stands for the whole of that game's ending. In "Stella Was Aware" (ARM), Flicker is found persisting in the space between frames, among the echoes — transformed, not restored. The theme: what is loved persists, but not unchanged. Revisit tone during playtesting if it lands too heavy.
+
+---
+
+## 12. 4K Level Count and Narration Placement
+
+**Question:** How many levels in "Stella Was Alone", and does the narration live in ROM, the manual, or both?
+
+**Considerations:**
+- ~2.0KB of the 4KB ROM is free at v0.3 (7 levels)
+- A level costs 69 bytes; the 48px text kernel + font + the five script lines costs ~650-850 bytes — both fit together
+- Classic Atari games told the story in the manual; decision #2 chose hybrid narration
+- The five creative-brief moments are one-liners — cheap in ROM, and they're the emotional skeleton
+
+**Recommendation:** 10 levels + the five short in-ROM text screens (both fit), with the expanded prose version of the story in the manual for the physical release. Levels win any remaining space fight.
+
+**Status:** OPEN
+
+---
+
+## 13. Replayability Variations (4K)
+
+**Question:** Random/procedural levels, alternate goal placements, timed modes — how much replayability, and by what mechanism?
+
+**Considerations:**
+- Author preference: strong fixed storyline with small tweaks, not roguelike randomness
+- Runtime procedural generation can't be solvability-checked in 4K — an unsolvable level is a shipped bug
+- Pre-validated variety is safe: 2-3 authored goal positions per level, one picked at level start (costs ~2 bytes per extra spot + ~20 bytes of code)
+- Timed mode is the classic 2600 variation; the console difficulty switches are free UI (no menu needed). Per-level timer beats a global one (a global timer compounds early mistakes)
+- Timer display can be ambient: background color creeps toward red as time runs out — tension without a score kernel
+
+**Recommendation:** Fixed levels and story. Replayability = (a) alternate pre-validated goal spots chosen at random per playthrough, (b) Difficulty A switch = per-level timer with color-creep. No runtime procgen in the 4K game; revisit a generated "bonus room" mode for the 8K game.
+
+**Status:** OPEN
+
+---
+
+## 14. Level Solvability Tooling
+
+**Question:** Should an external tool verify that levels (and any physics/goal variations) are actually completable?
+
+**Considerations:**
+- Levels are pure data (69-byte records) and jump arcs are closed-form — a small Python solver can build the reachability graph per character, including head-boost edges
+- Every new variation axis (alternate goals, timers, tweaked physics) multiplies the combinations a human must hand-verify
+- The same solver enables the generate-offline / validate / hand-curate / bake-as-data pipeline if generated levels are ever wanted — generation happens on a modern machine, never in ROM
+
+**Recommendation:** Build `tools/check-levels.py`, run it from `make` so an unsolvable level breaks the build. Author levels by hand; use the solver as the safety net (and later, optionally, as the filter for generated candidates worth hand-curating).
+
+**Status:** OPEN
+
+---
+
+## 15. Next-Game Teaser in the 4K Ending
+
+**Question:** Should the 4K game end with a glimpse of what's coming in "Stella Was Together"?
+
+**Options:**
+- A) **Marcus cameo** — an inert blue square visible in the final level or on the win screen; he's the 8K game's headline
+- B) **Strange-physics room** — one low-gravity level as a 16K foreshadow
+- C) **Text only** — closing line hints at expansion ("The world shifted. Expanded.")
+
+**Considerations:**
+- The ball sprite is free; showing it blue needs a scanline color trick (kernel budget) or can simply appear on the win screen where budget is loose
+- Option A matches the story: the 8K game opens with Marcus's arrival
+- The creative brief's closing line already implies expansion — text costs nothing once the text kernel exists
+
+**Recommendation:** A + C: closing narration line, and a small blue square quietly present on the win screen (upgrade to an in-level cameo if kernel budget allows).
+
+**Status:** OPEN
+
+---
+
+## 16. Background Audio in the 4K Game
+
+**Question:** Is background music worth the bytes, or is that the 8K game's territory?
+
+**Considerations:**
+- Channel 1 is unused (all effects run on channel 0)
+- The gameplay-mechanics addendum already specifies the 4K approach: a single sustained drone (AUDC 1) whose pitch rises with progress — ~20-30 bytes total
+- Real melodies fight TIA's detuned scale and eat ROM; the addendum assigns two-voice harmony to the 8K game
+
+**Recommendation:** Implement the addendum's drone: low hum that rises in pitch each level — "the world waking up." Defer anything melodic to the 8K game.
+
+**Status:** OPEN
