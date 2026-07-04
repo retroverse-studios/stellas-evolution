@@ -1,0 +1,9 @@
+# macOS metadata (this repo lives on an exFAT external drive)
+._*
+.DS_Store
+
+# Build outputs (DASM)
+build/
+*.bin
+*.sym
+*.lst
