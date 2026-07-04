@@ -687,15 +687,20 @@ FetchLR:
 
 ; FlipG: A = a goal's y — returns the y the kernel should draw it
 ; at, which in quest 2 is mirrored top-for-bottom.
+; MUST preserve X and Y: LoadLevel calls it mid-way through walking
+; the level record with Y (that clobber put every Alex goal at the
+; playfield-data bytes — the floating-marker bug).
 FlipG:
         SUBROUTINE
-        ldy Quest
-        beq .out
         sta Temp
+        lda Quest
+        beq .out
         lda #96-GOAL_H
         sec
         sbc Temp
+        rts
 .out:
+        lda Temp
         rts
 
 ; ---------------------------------------------------------------
