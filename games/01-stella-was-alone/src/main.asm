@@ -116,8 +116,9 @@ StoryAfter  ds 1        ; 0 = play Level next, 1 = the win screen
 TimerSec    ds 1        ; timed mode
 TimerFrm    ds 1
 ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
-TimedFlag   ds 1        ; SELECT on the title toggles timed mode
+TimedFlag   ds 1        ; SELECT: 0 = story game, 1 = endless game
 SelPrev     ds 1
+Rand        ds 1        ; endless mode's level shuffler
 Quest       ds 1        ; 0 first run; 1 = the world turned over
 CharDrawY   ds 2        ; kernel y for each character (flipped in Q2)
 Band0       ds 1        ; kernel: first playfield band (0 or 11)
@@ -297,17 +298,53 @@ TitleLogic:
         lda #0
         sta Level
         sta FirePrev
-        sta Quest               ; a fresh run: quest 1, clock zeroed
+        sta Quest               ; a fresh run, clock/count zeroed
         sta TFrm
         sta SecOnes
         sta SecTens
         sta SecHund
+        lda FrameCtr
+        ora #1
+        sta Rand                ; seed from the player's timing
+        lda TimedFlag
+        beq .story
+        jsr NextRandom          ; endless: straight into the shuffle
+        jsr LoadLevel
+        lda #STATE_PLAY
+        sta State
+        rts
+.story:
         jsr EnterLevel
         rts
 .release:
         lda #$80
         sta FirePrev
 .done:
+        rts
+
+; ---------------------------------------------------------------
+; NextRandom: endless mode — pick a random level and a random
+; orientation (upright or upside-down) for the next round.
+; ---------------------------------------------------------------
+
+NextRandom:
+        SUBROUTINE
+        lda Rand
+        lsr
+        bcc .noEor
+        eor #$B4                ; 8-bit LFSR
+.noEor:
+        sta Rand
+        and #1
+        sta Quest               ; heads: the world turns over
+        lda Rand
+.mod:
+        cmp #NUM_LEVELS
+        bcc .got
+        sbc #NUM_LEVELS
+        jmp .mod
+.got:
+        sta Level
         rts
 
 ; ---------------------------------------------------------------
@@ -352,20 +389,47 @@ StoryLogic:
         lda #0
         sta FirePrev
         lda StoryAfter
-        bne .toWin
+        beq .playNext
+        cmp #2
+        beq .quest2
+        jsr EnterWin            ; 1: the stranger is waiting
+        rts
+.quest2:
+        lda #1                  ; 2: the world turns over —
+        sta Quest               ;    same levels, upside-down,
+        lda #0                  ;    the clock keeps counting
+        sta Level
         jsr LoadLevel
         lda #STATE_PLAY
         sta State
         rts
-.toWin:
+.playNext:
+        jsr LoadLevel
+        lda #STATE_PLAY
+        sta State
+        rts
+.release:
+        lda #$80
+        sta FirePrev
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; EnterWin: the final screen — a question mark, the run's number
+; (seconds in the story game, levels survived in endless), and a
+; small blue square, breathing.
+; ---------------------------------------------------------------
+
+EnterWin:
+        SUBROUTINE
         lda #HIDE_Y             ; everyone has gone on ahead...
         sta GoalDY
         sta GoalDY+1
         lda #76
-        sta GoalX+1             ; ...a small blue square waits...
+        sta GoalX+1             ; ...a small blue square waits
         lda #48
-        sta CharX               ; ...above it, the time of the run,
-        lda #56                 ; as three 48px-kernel digits
+        sta CharX
+        lda #56
         sta CharX+1
         lda #$03
         sta NUSIZ0              ; three close copies of each player
@@ -374,7 +438,7 @@ StoryLogic:
         lda #1
         sta VDELP0
         sta VDELP1
-        lda #10                 ; glyph pointers: _ _ H T O _
+        lda #11                 ; glyph pointers: ? _ H T O _
         ldx #0
         jsr SetGlyph
         lda #10
@@ -396,11 +460,6 @@ StoryLogic:
         sta StateTimer
         lda #STATE_WIN
         sta State
-        rts
-.release:
-        lda #$80
-        sta FirePrev
-.done:
         rts
 
 ; SetGlyph: A = digit (10 = blank), X = TPtr slot offset
@@ -472,6 +531,15 @@ DoneLogic:
 .advance:
         lda #0
         sta COLUBK
+        lda TimedFlag
+        beq .storyAdv
+        jsr IncDigits           ; endless: one more level survived
+        jsr NextRandom
+        jsr LoadLevel
+        lda #STATE_PLAY
+        sta State
+        rts
+.storyAdv:
         inc Level
         lda Level
         cmp #NUM_LEVELS
@@ -479,10 +547,14 @@ DoneLogic:
         jsr EnterLevel
         rts
 .ending:
-        lda #4                  ; the closing narration...
+        lda #4                  ; "THE WORLD SHIFTED. CHANGED." ...
         jsr LoadStory
-        lda #1
-        sta StoryAfter          ; ...then the stranger
+        lda #2                  ; ...and then it literally does
+        ldy Quest
+        beq .after
+        lda #1                  ; both worlds done: the stranger
+.after:
+        sta StoryAfter
         lda #STATE_STORY
         sta State
         rts
@@ -493,6 +565,9 @@ WinLogic:
         lda #0
         sta AUDV1
         sta COLUBK
+        lda #$33
+        sta NUSIZ1              ; the kernel drops this to $30 for
+                                ; the square; digits need it back
         lda FrameCtr            ; the stranger, breathing quietly
         lsr
         lsr
@@ -514,19 +589,6 @@ WinLogic:
         bpl .done
         lda #0
         sta FirePrev
-        lda Quest
-        bne .allDone
-        inc Quest               ; quest 2: the world turned over
-        lda #0
-        sta TFrm
-        sta SecOnes
-        sta SecTens
-        sta SecHund
-        sta Level
-        jsr EnterLevel
-        rts
-.allDone:
-        lda #0
         sta Quest
         lda #STATE_TITLE
         sta State
@@ -665,6 +727,33 @@ LoadLevel:
         sta CharDrawY
         lda CharY+1
         sta CharDrawY+1
+        rts
+
+; IncDigits: bump the three-digit number (run seconds, or levels
+; survived in endless mode), pegged at 999.
+IncDigits:
+        SUBROUTINE
+        inc SecOnes
+        lda SecOnes
+        cmp #10
+        bcc .out
+        lda #0
+        sta SecOnes
+        inc SecTens
+        lda SecTens
+        cmp #10
+        bcc .out
+        lda #0
+        sta SecTens
+        inc SecHund
+        lda SecHund
+        cmp #10
+        bcc .out
+        lda #9
+        sta SecHund
+        sta SecTens
+        sta SecOnes
+.out:
         rts
 
 ; FetchLR: Y = box index + 6 (the bottom slot). Loads the box's
@@ -1238,32 +1327,15 @@ UpdateSound:
 
 PlayExtras:
         SUBROUTINE
-        inc TFrm                ; the run clock, in whole seconds
+        lda TimedFlag           ; endless: the digits count levels,
+        bne .clock              ; not seconds
+        inc TFrm                ; story: the run clock
         lda TFrm
         cmp #60
         bcc .clock
         lda #0
         sta TFrm
-        inc SecOnes
-        lda SecOnes
-        cmp #10
-        bcc .clock
-        lda #0
-        sta SecOnes
-        inc SecTens
-        lda SecTens
-        cmp #10
-        bcc .clock
-        lda #0
-        sta SecTens
-        inc SecHund
-        lda SecHund
-        cmp #10
-        bcc .clock
-        lda #9                  ; pegged at 999
-        sta SecHund
-        sta SecTens
-        sta SecOnes
+        jsr IncDigits
 .clock:
 
         ldx #1                  ; kernel draw positions (flipped in
@@ -1282,12 +1354,10 @@ PlayExtras:
         dex
         bpl .dy
 
-        lda SWCHB               ; timed if left difficulty A, the
-        and #$40                ; SELECT toggle, or quest 2
+        lda SWCHB               ; timed if left difficulty A, or
+        and #$40                ; playing the endless game
         bne .timed
         lda TimedFlag
-        bne .timed
-        lda Quest
         bne .timed
         lda #0
         beq .setT
@@ -1335,6 +1405,11 @@ PlayExtras:
         sta TimerFrm
         dec TimerSec
         bne .creep
+        lda TimedFlag
+        beq .again
+        jsr EnterWin            ; endless: the run ends here
+        rts
+.again:
         jsr LoadLevel           ; time's up — the level starts over
         rts
 .creep:
@@ -1595,6 +1670,8 @@ WinKernel:
         jsr DigitBlock          ; the run time, in white
         ldx #76
         jsr BlankLines
+        lda #$30                ; single 8px missile — the digits'
+        sta NUSIZ1              ; three-copy mode was tripling him
         lda SqCol               ; the stranger
         sta COLUP1
         lda #2
@@ -1759,6 +1836,7 @@ DigitFont:
         .byte $3C,$66,$66,$3C,$66,$66,$3C   ; 8
         .byte $3C,$66,$06,$3E,$66,$66,$3C   ; 9
         .byte $00,$00,$00,$00,$00,$00,$00   ; 10: blank
+        .byte $18,$00,$18,$0C,$06,$66,$3C   ; 11: ?
 
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
