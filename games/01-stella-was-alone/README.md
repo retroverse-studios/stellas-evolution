@@ -26,30 +26,33 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v0.3 — 7 levels, character stacking
+## Status: v0.4 — feature complete: 10 levels, narration, solver-verified
 
-Title screen ("STELLA", fire to start), then seven levels following the
-story's staged introduction:
+Title screen, then ten levels with narration screens at the story beats
+("STELLA WAS ALONE." … "AND THEN THERE WERE TWO." … "THE WORLD SHIFTED."):
 
-1. **Awakening** — Stella alone; learn to move and jump
-2. **Exploration** — Stella alone; climb the ledges to the high perch
-3. **Discovery** — Alex appears; only he fits under the pillar, and low
-   blocks make both characters hop along the way
-4. **Connection** — Stella climbs to her perch while Alex slips underneath
-5. **Ascent** — both routes through the same tower
-6. **Boost** — the ledge is beyond Alex's jump: he leaps from Stella's head
-7. **Lift** — the perch is beyond even Stella's jump: she needs Alex's back
+1. **Awakening** / 2. **Exploration** — Stella alone
+3. **Discovery** — Alex appears (only he fits under the pillar)
+4. **Connection** / 5. **Ascent** — ability-gated split routes
+6. **Boost** — Alex needs Stella's head; 7. **Lift** — Stella needs Alex's back
+8. **Steps** / 9. **Patience** — order matters: send the right one home first
+10. **The Exit** — over and under the same tower, goals side by side
 
-Characters can stand on each other (one-way, no carrying — that's an 8K
-feature). Each character exits through its own color-matched goal marker and
-vanishes; the level ends when everyone present is home. Console **SELECT
-restarts the level** (needed if you send someone home in the wrong order in
-6/7), RESET returns to the title. Solid boxes block sideways movement and
-bonk heads; one-way ledges don't. TIA sounds throughout.
+After level 10: the closing narration, then a small, unexplained blue square.
 
-ROM headroom: ~2.0KB of the 4KB still free.
+Features: character stacking (one-way), color-matched exit goals with two
+pre-validated placements picked at random per playthrough, a level drone
+that rises in pitch as the world wakes up, and **timed mode** on the left
+difficulty switch (A = one minute per level, the background creeps red).
+Console SELECT restarts a level; RESET returns to the title.
 
-Next up:
-- The five narration text screens (48px text kernel) — the 4K script
-- More levels (69 bytes each) as playtesting suggests
-- Real hardware validation via flash cart
+**Build-time solvability proof:** `make` runs `tools/check_levels.py`,
+which re-implements the game physics and proves every level and goal
+variant completable (including boost order) — an unsolvable level fails
+the build. It already caught one real bug: Alex couldn't jump onto
+Stella's head (she's 9 du tall, his jump rose 8.2).
+
+ROM: ~930 bytes of the 4KB still free.
+
+Remaining before release: playtest/tuning pass, real-hardware validation
+via flash cart, the manual (expanded story prose).

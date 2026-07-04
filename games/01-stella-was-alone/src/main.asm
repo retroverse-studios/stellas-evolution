@@ -2,13 +2,13 @@
 ; Stella Was Alone — game 1 of 4, Stella's Evolution
 ; Atari 2600, 4K ROM, no bankswitching
 ;
-; v0.2: title screen, five levels with staged character intro
-; (Stella alone -> Alex appears -> cooperation), goal markers,
-; solid-wall collision so Alex's low-gap ability works, and TIA
-; sound effects.
+; v0.4: ten solver-verified levels, in-game narration screens (the
+; 4K script), character stacking, a rising level drone, timed mode
+; on the left difficulty switch, alternate goal spots for variety,
+; and a certain blue square waiting at the end.
 ;
-; Story beats (creative brief): Awakening, Exploration, Discovery,
-; Connection, Ascent. Narration text screens come in a later rev.
+; Build runs tools/check_levels.py: every level and goal variant is
+; proven completable (including boost order) or the build fails.
 ;
 ; Engine code: MIT (see repository LICENSE).
 ; Story/characters: CC BY-NC-SA 4.0 (see repository LICENSE-DOCS).
@@ -37,13 +37,14 @@ MAXFALL     = 3         ; terminal fall speed, du/frame
 
 MIN_X       = 4         ; outer walls are 4px, handled by clamping
 NUM_PLATS   = 6         ; collision boxes per level (pad with $FF)
-NUM_LEVELS  = 7
+NUM_LEVELS  = 10
 HIDE_Y      = $70       ; a du the kernel can never match: hides things
 
 STATE_TITLE = 0
 STATE_PLAY  = 1
 STATE_DONE  = 2         ; level-complete pause
 STATE_WIN   = 3         ; finished all levels
+STATE_STORY = 4         ; narration screen
 
 LOGO_TOP    = 24        ; title logo: du 24-79, 7 rows of 8 du
 LOGO_H      = 56
@@ -57,9 +58,12 @@ COL_LOGO    = $36       ; title logo: Stella red
 ;   +24 12 bytes PF2 per band     +48  6 bytes box left x
 ;                                 +54  6 bytes box right x (excl)
 ;   +60 charCount, +61 SX, +62 SY, +63 AX, +64 AY,
-;   +65 G0X, +66 G0Y, +67 G1X, +68 G1Y
-; A box with top==bottom is one-way (land on top, pass sideways
-; and from below). top=$FF is an unused pad entry.
+;   +65 G0X, +66 G0Y, +67 G1X, +68 G1Y   (primary goal spots)
+;   +69 G0X, +70 G0Y, +71 G1X, +72 G1Y   (alternate goal spots)
+; One of the two goal layouts is picked at level load for variety;
+; both must pass tools/check_levels.py. A box with top==bottom is
+; one-way (land on top, pass sideways and from below). top=$FF is
+; an unused pad entry.
 
 ; ---------------------------------------------------------------
 ; RAM ($80-$FF). Character arrays: index 0 = Stella, 1 = Alex.
@@ -106,6 +110,12 @@ CYH         ds 1
 NewX        ds 1
 MoveDir     ds 1
 Temp        ds 1
+TPtr        ds 12       ; story kernel: six playfield plane pointers
+TextEnd     ds 1        ; index of the blank byte in each plane
+TextTop     ds 1        ; first du of the text block
+StoryAfter  ds 1        ; 0 = play Level next, 1 = the win screen
+TimerSec    ds 1        ; timed mode (left difficulty A)
+TimerFrm    ds 1
 
 ; ---------------------------------------------------------------
 ; Code
@@ -166,10 +176,15 @@ MainLoop:
         beq .doPlay
         cmp #STATE_DONE
         beq .doDone
+        cmp #STATE_STORY
+        beq .doStory
         jsr WinLogic
         jmp .logicDone
 .doTitle:
         jsr TitleLogic
+        jmp .logicDone
+.doStory:
+        jsr StoryLogic
         jmp .logicDone
 .doPlay:
         lda SWCHB               ; console SELECT restarts the level
@@ -182,8 +197,7 @@ MainLoop:
         jsr CheckGoals
         jsr UpdateSound
         jsr PositionSprites
-        lda #0
-        sta COLUBK
+        jsr PlayExtras
         jmp .logicDone
 .doDone:
         jsr DoneLogic
@@ -197,11 +211,20 @@ MainLoop:
 
         lda State
         beq .titleK
+        cmp #STATE_STORY
+        beq .storyK
         lda #1
         sta CTRLPF      ; mirrored playfield in-game
         lda #COL_PF
         sta COLUPF      ; back to white (the title dyes it red)
         jsr GameKernel
+        jmp Overscan
+.storyK:
+        lda #0
+        sta CTRLPF      ; asymmetric playfield for text
+        lda #COL_PF
+        sta COLUPF
+        jsr StoryKernel
         jmp Overscan
 .titleK:
         lda #0
@@ -233,6 +256,7 @@ TitleLogic:
         SUBROUTINE
         lda #0
         sta COLUBK
+        sta AUDV1
         lda INPT4
         and #$80
         bne .release
@@ -241,14 +265,113 @@ TitleLogic:
         lda #0
         sta Level
         sta FirePrev
+        jsr EnterLevel
+        rts
+.release:
+        lda #$80
+        sta FirePrev
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; EnterLevel: show the level's narration screen first, if it has
+; one; otherwise drop straight into play.
+; ---------------------------------------------------------------
+
+EnterLevel:
+        SUBROUTINE
+        ldx Level
+        lda LvlStory,x
+        cmp #$FF
+        beq .direct
+        jsr LoadStory
+        lda #0
+        sta StoryAfter
+        lda #STATE_STORY
+        sta State
+        rts
+.direct:
         jsr LoadLevel
         lda #STATE_PLAY
+        sta State
+        rts
+
+; ---------------------------------------------------------------
+; StoryLogic: hold on the text until fire, then continue.
+; ---------------------------------------------------------------
+
+StoryLogic:
+        SUBROUTINE
+        lda #0
+        sta COLUBK
+        sta AUDV1
+        lda INPT4
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .done
+        lda #0
+        sta FirePrev
+        lda StoryAfter
+        bne .toWin
+        jsr LoadLevel
+        lda #STATE_PLAY
+        sta State
+        rts
+.toWin:
+        lda #HIDE_Y             ; everyone has gone on ahead...
+        sta CharY
+        sta CharY+1
+        sta GoalDY
+        lda #60
+        sta GoalDY+1            ; ...and a small blue square waits
+        lda #76
+        sta GoalX+1
+        lda #240
+        sta StateTimer
+        lda #STATE_WIN
         sta State
         rts
 .release:
         lda #$80
         sta FirePrev
 .done:
+        rts
+
+; ---------------------------------------------------------------
+; LoadStory: A = screen id. Points the six plane pointers at the
+; generated text data and centers the block vertically.
+; ---------------------------------------------------------------
+
+LoadStory:
+        SUBROUTINE
+        tay
+        lda StoryLo,y
+        sta TPtr
+        lda StoryHi,y
+        sta TPtr+1
+        lda StoryLen,y
+        sta TextEnd
+        lda StoryStride,y
+        sta Temp
+        ldx #0
+.mk:
+        lda TPtr,x
+        clc
+        adc Temp
+        sta TPtr+2,x
+        lda TPtr+1,x
+        adc #0
+        sta TPtr+3,x
+        inx
+        inx
+        cpx #10
+        bne .mk
+        lda #96
+        sec
+        sbc TextEnd
+        lsr
+        sta TextTop
         rts
 
 ; ---------------------------------------------------------------
@@ -270,29 +393,31 @@ DoneLogic:
         inc Level
         lda Level
         cmp #NUM_LEVELS
-        bcs .win
-        jsr LoadLevel
-        lda #STATE_PLAY
-        sta State
+        bcs .ending
+        jsr EnterLevel
         rts
-.win:
-        lda #STATE_WIN
+.ending:
+        lda #4                  ; the closing narration...
+        jsr LoadStory
+        lda #1
+        sta StoryAfter          ; ...then the stranger
+        lda #STATE_STORY
         sta State
-        lda #240
-        sta StateTimer
         rts
 
 WinLogic:
         SUBROUTINE
         jsr UpdateSound
-        lda FrameCtr
-        sta COLUBK              ; celebrate: cycle the background
+        lda #0
+        sta AUDV1
+        sta COLUBK
+        lda #$86
+        sta COLUP1              ; Marcus-blue: missile 1 wears it
+        jsr PositionSprites
         dec StateTimer
         beq .toTitle
         rts
 .toTitle:
-        lda #0
-        sta COLUBK
         lda #STATE_TITLE
         sta State
         rts
@@ -346,7 +471,15 @@ LoadLevel:
         iny
         lda (PF0Ptr),y
         sta CharY+1
-        iny
+
+        lda FrameCtr            ; entropy from the player's timing:
+        and #1                  ; primary or alternate goal spots
+        beq .primary
+        ldy #69
+        bne .readGoals
+.primary:
+        ldy #65
+.readGoals:
         lda (PF0Ptr),y
         sta GoalX
         iny
@@ -360,6 +493,10 @@ LoadLevel:
         lda (PF0Ptr),y
         sta GoalY+1
         sta GoalDY+1
+
+        lda #60                 ; timed mode gets a minute per level
+        sta TimerSec
+        sta TimerFrm
 
         lda #0
         sta CharYLo
@@ -912,6 +1049,46 @@ UpdateSound:
         rts
 
 ; ---------------------------------------------------------------
+; PlayExtras: the level drone (channel 1, rising pitch per level —
+; the world waking up) and timed mode (left difficulty switch A:
+; one minute per level, the background creeping red near the end).
+; ---------------------------------------------------------------
+
+PlayExtras:
+        SUBROUTINE
+        lda #1
+        sta AUDC1
+        ldx Level
+        lda DroneF,x
+        sta AUDF1
+        lda #2
+        sta AUDV1
+        lda #0
+        sta COLUBK
+        lda SWCHB               ; left difficulty: A = timed
+        and #$40
+        beq .out
+        dec TimerFrm
+        bne .creep
+        lda #60
+        sta TimerFrm
+        dec TimerSec
+        bne .creep
+        jsr LoadLevel           ; time's up — the level starts over
+        rts
+.creep:
+        lda TimerSec
+        cmp #16
+        bcs .out
+        lda #16
+        sec
+        sbc TimerSec
+        ora #$40
+        sta COLUBK              ; red creeps in as time runs out
+.out:
+        rts
+
+; ---------------------------------------------------------------
 ; PositionSprites: players and goal missiles, during vblank.
 ; ---------------------------------------------------------------
 
@@ -1087,6 +1264,49 @@ TitleKernel:
         rts
 
 ; ---------------------------------------------------------------
+; StoryKernel: narration text on the asymmetric playfield. Line 1
+; of each pair rewrites all six PF bytes at fixed cycles from the
+; generated plane data; line 2 picks the next row index (TextEnd
+; is a blank byte, used for every non-text line).
+; ---------------------------------------------------------------
+
+StoryKernel:
+        SUBROUTINE
+        ldx #0
+        lda TextEnd
+        sta RowIdx
+.sloop:
+        sta WSYNC               ; ---- line 1: cycle-anchored writes
+        ldy RowIdx
+        lda (TPtr),y
+        sta PF0                 ; @11
+        lda (TPtr+2),y
+        sta PF1                 ; @19
+        lda (TPtr+4),y
+        sta PF2                 ; @27
+        lda (TPtr+6),y
+        sta PF0                 ; @35
+        lda (TPtr+8),y
+        sta PF1                 ; @43
+        lda (TPtr+10),y
+        sta PF2                 ; @51
+        sta WSYNC               ; ---- line 2: next row index
+        inx
+        txa
+        sec
+        sbc TextTop
+        bcc .blank
+        cmp TextEnd
+        bcc .store
+.blank:
+        lda TextEnd
+.store:
+        sta RowIdx
+        cpx #SCREEN_DU
+        bne .sloop
+        rts
+
+; ---------------------------------------------------------------
 ; Character data (index 0 = Stella, 1 = Alex)
 ; ---------------------------------------------------------------
 
@@ -1094,10 +1314,16 @@ HeightTbl:  .byte STELLA_H, ALEX_H
 WidthTbl:   .byte 8, 16
 SpeedTbl:   .byte 1, 2              ; Stella slow, Alex fast
 MaxXTbl:    .byte 156-8, 156-16
-JumpHiTbl:  .byte $FD, $FE          ; Stella -2.875 du/fr, Alex -1.75
-JumpLoTbl:  .byte $20, $40          ; (Stella clears 16 du; 24 needs a boost)
+JumpHiTbl:  .byte $FD, $FE          ; Stella -2.875 du/fr, Alex -1.9375
+JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
+                                    ; back); Alex clears 10 — enough to
+                                    ; board Stella's head (9) but nowhere
+                                    ; near the 16 du ledges
 ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
 ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
+
+DroneF:     .byte 30,28,26,24,22,20,18,16,14,12  ; world waking up
+LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 
 ; ---------------------------------------------------------------
 ; Title logo: "STELLA", 5x7 font on the 40-column playfield.
@@ -1119,8 +1345,10 @@ LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11,$00
 ; Walls: PF0 $10 (4px each side). Ground: band 11, solid.
 ; ---------------------------------------------------------------
 
-LvlPtrLo:   .byte <Level1, <Level2, <Level3, <Level4, <Level5, <Level6, <Level7
-LvlPtrHi:   .byte >Level1, >Level2, >Level3, >Level4, >Level5, >Level6, >Level7
+LvlPtrLo:   .byte <Level1, <Level2, <Level3, <Level4, <Level5
+            .byte <Level6, <Level7, <Level8, <Level9, <Level10
+LvlPtrHi:   .byte >Level1, >Level2, >Level3, >Level4, >Level5
+            .byte >Level6, >Level7, >Level8, >Level9, >Level10
 
 ; --- Level 1 "Awakening": Stella alone; jump onto the block ----
 Level1:
@@ -1136,6 +1364,7 @@ Level1:
         .byte 80, 85                      ; (Alex unused)
         .byte 76, 77                      ; Stella's goal: on the block
         .byte 80, $FF                     ; (no second goal)
+        .byte 120,85, 80,85               ; alt: ground, far right
 
 ; --- Level 2 "Exploration": climb ledges to the high perch -----
 Level2:
@@ -1151,6 +1380,7 @@ Level2:
         .byte 80, 85
         .byte 0,  53                      ; goal on the left perch
         .byte 80, $FF
+        .byte 152,53, 80,85               ; alt: the right perch
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
 ;     pillar (8 du gap; Stella is 9 du tall). Low blocks make
@@ -1168,6 +1398,7 @@ Level3:
         .byte 30, 88-ALEX_H
         .byte 24, 85                      ; Stella's goal: her side
         .byte 110,77                      ; Alex's: atop the far block
+        .byte 4,  85, 124,85              ; alt: corner / past pillar
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -1184,6 +1415,7 @@ Level4:
         .byte 30, 88-ALEX_H
         .byte 0,  53                      ; Stella: left perch
         .byte 130,85                      ; Alex: far right, under
+        .byte 0,  53, 100,85              ; alt: Alex just past it
 
 ; --- Level 5 "Ascent": Stella climbs the tower Alex slips
 ;     beneath — both routes through the same obstacle ------------
@@ -1200,6 +1432,7 @@ Level5:
         .byte 20, 88-ALEX_H
         .byte 76, 53                      ; Stella: top of the tower
         .byte 130,85                      ; Alex: beyond it
+        .byte 76, 53, 150,85              ; alt: Alex to the corner
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. (Do his goal before hers!) -----
@@ -1216,6 +1449,7 @@ Level6:
         .byte 60, 88-ALEX_H
         .byte 20, 85                      ; Stella: ground, far left
         .byte 110,69                      ; Alex: the high right ledge
+        .byte 140,85, 34,69               ; alt: mirrored
 
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
 ;     needs the extra height from Alex's back. (Her goal first!) -
@@ -1232,6 +1466,65 @@ Level7:
         .byte 80, 88-ALEX_H
         .byte 110,61                      ; Stella: the high right perch
         .byte 20, 85                      ; Alex: ground, far left
+        .byte 42, 61, 140,85              ; alt: mirrored
+
+; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
+;     crosses under the tower, then needs Stella (who crossed over
+;     it) as his step. Send him home first --------------------- --
+Level8:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
+        .byte 88, 56, 72, 72, $FF,$FF
+        .byte 96, 80, 72, 72, $FF,$FF
+        .byte 0,  60, 32, 112,0,  0
+        .byte 160,100,48, 128,0,  0
+        .byte 2
+        .byte 10, 88-STELLA_H
+        .byte 20, 88-ALEX_H
+        .byte 76, 53                      ; Stella: top of the tower
+        .byte 114,69                      ; Alex: the high right ledge
+        .byte 76, 53, 34, 69              ; alt: the left ledge instead
+
+; --- Level 9 "Patience": Stella's perch needs Alex's back before
+;     he leaves for his own goal beyond the pillar ---------------
+Level9:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
+        .byte 88, 40, 64, 64, $FF,$FF
+        .byte 96, 80, 64, 64, $FF,$FF
+        .byte 0,  68, 40, 112,0,  0
+        .byte 160,92, 48, 120,0,  0
+        .byte 2
+        .byte 30, 88-STELLA_H
+        .byte 50, 88-ALEX_H
+        .byte 42, 61                      ; Stella: the left perch, lifted
+        .byte 124,85                      ; Alex: beyond the pillar, after
+        .byte 42, 61, 144,85              ; alt: Alex further along
+
+; --- Level 10 "The Exit": over the tower and under it, and both
+;     goals waiting side by side beyond ---------------------------
+Level10:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
+        .byte 88, 56, 72, 72, $FF,$FF
+        .byte 96, 80, 72, 72, $FF,$FF
+        .byte 0,  60, 32, 112,0,  0
+        .byte 160,100,48, 128,0,  0
+        .byte 2
+        .byte 10, 88-STELLA_H
+        .byte 20, 88-ALEX_H
+        .byte 118,85                      ; side by side, at the exit
+        .byte 130,85
+        .byte 130,85, 118,85              ; alt: swapped
+
+; ---------------------------------------------------------------
+; Narration text (generated by tools/gentext.py)
+; ---------------------------------------------------------------
+
+        include "text.inc"
 
 ; ---------------------------------------------------------------
 ; Vectors
