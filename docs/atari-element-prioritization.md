@@ -82,7 +82,7 @@ The Atari 2600 has significant technical limitations that will shape your develo
 1. **Meta-Narrative Elements**
    - Character dialogue system
    - Fourth-wall breaking moments
-   - Cross-game references and interactions
+   - Cross-game references to earlier Stella games
 
 2. **Technical Showcase**
    - Advanced visual effects
@@ -168,7 +168,7 @@ The Atari 2600 has significant technical limitations that will shape your develo
 **ARM Strategy:**
 - Meta-gameplay elements
 - Cross-character abilities
-- Puzzles that reference original "Thomas Was Alone"
+- Puzzles that echo the series' own earlier games and its minimalist inspirations
 - Fourth-wall breaking mechanics
 
 ## Philosophical Elements to Prioritize
@@ -177,8 +177,8 @@ The Atari 2600 has significant technical limitations that will shape your develo
 |---------|---------------------|----------------|
 | 4K | Existence & Isolation | Simple text: "Stella was alone. Why?" |
 | 8K | Value of Differences | Level design requiring different abilities |
-| 16K | Purpose & Pattern | Visual patterns in levels that reveal meaning |
-| ARM | Meta-awareness | Breaking fourth wall with game references |
+| 16K | Purpose & Entropy | Corruption zones as visible entropy; Flicker's sacrifice gives the question of purpose an answer |
+| ARM | Meta-awareness | Breaking fourth wall; grief answered by Flicker's return among the echoes |
 
 ## Technical Tips for Implementation
 

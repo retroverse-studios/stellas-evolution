@@ -44,7 +44,7 @@ The level exists in two (or four) parallel states — one per ROM bank. The play
 - Some puzzles require chaining: switch A→B to move Stella, B→C to move Alex, C→D to move Marcus, then D→A to reach the goal
 - The Superchip's extra RAM could be represented as a "memory" mechanic — one piece of state that persists across ALL bank switches (e.g., a platform position, a switch state)
 
-**"Stella Meets Thomas" (ARM):**
+**"Stella Was Aware" (ARM):**
 - Banks become fluid — the world morphs rather than hard-switching
 - The characters can manipulate the transition itself
 - Breaking the frame: levels extend beyond the 192-scanline display
@@ -63,14 +63,14 @@ On the real 2600, when too many sprites share a scanline, the hardware alternate
 
 - In "Stella Was Together" and "Stella's Journey", when multiple characters are on the same scanline, they should visibly flicker — just like the real hardware
 - This creates strategic considerations: keeping characters vertically separated reduces flicker
-- In "Stella's Journey", the flicker could become a hazard — "corruption zones" where the display breaks down, killing characters on contact
-- In "Stella Meets Thomas", flicker fades as the ARM coprocessor "fixes" the limitation — a visual metaphor for transcending constraints
+- In "Stella's Journey", the flicker becomes the story's antagonist force — "corruption zones" where the display breaks down, killing characters on contact (now canon; see creative-brief.md)
+- In "Stella Was Aware", flicker fades as the ARM coprocessor "fixes" the limitation — a visual metaphor for transcending constraints
 
-### Optional: Flicker as a Character
+### Flicker as a Character
 
 A fourth character (circle shape) that naturally exists in a flickered state — visible every other frame. This character can pass through certain walls (because it's only "there" half the time) but is fragile.
 
-**Note:** The original design has 3 characters (Stella, Alex, Marcus) through the first 3 games, with crossover characters in the ARM game. A "Flicker" character could be introduced in "Stella's Journey" (16K) as a late-game addition, or reserved for the ARM crossover. Evaluate against the existing character roster.
+**Note:** ADOPTED (see decisions.md #3 and #11). Flicker joins mid-game in "Stella's Journey" (16K), born of the corruption zones, and is central to that game's story: it sacrifices itself at the finale to hold the way open, and returns transformed among the echoes in "Stella Was Aware". Playable if the 16K kernel budget allows a fourth multiplexed sprite; otherwise a scripted companion — the narrative works either way.
 
 ---
 
@@ -97,7 +97,7 @@ The original docs mention audio progression but don't detail TIA-specific sound 
 - Environmental audio: different zones have different background drones
 - Narrative moments marked by specific musical phrases
 
-**"Stella Meets Thomas" (ARM):**
+**"Stella Was Aware" (ARM):**
 - ARM can pre-compute complex audio waveforms and stream to TIA
 - Start each level in TIA-only sound, gradually introduce richer audio as you progress
 - Final level: TIA sound transforms into something approaching a real soundtrack

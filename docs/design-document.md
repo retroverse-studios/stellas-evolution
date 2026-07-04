@@ -27,10 +27,10 @@ The first entry focuses on the essentials with just two geometric characters nav
 The second entry introduces a third character and expands the gameplay possibilities with more complex puzzles and basic narrative elements between levels.
 
 ### 2.3 "Stella's Journey" (16K)
-The third entry features enhanced abilities, more sophisticated puzzles, and an expanded narrative that begins to reveal more of the characters' personalities and story.
+The third entry features enhanced abilities, more sophisticated puzzles, and the series' dramatic turn: a spreading "corruption" (built from the 2600's real flicker artifact) threatens the world, and a fragile fourth character — Flicker — joins mid-game and sacrifices itself at the finale (see decisions.md #3 and #11).
 
-### 2.4 "Stella Meets Thomas" (ARM)
-The final entry utilizes modern ARM coprocessor technology to create a crossover experience that bridges classic Atari gaming with the visual style and narrative depth of the original "Thomas Was Alone."
+### 2.4 "Stella Was Aware" (ARM)
+The final entry utilizes modern ARM coprocessor technology to create a meta-aware finale that bridges classic Atari gaming with the visual style and narrative depth of modern indie platformers — an open homage to "Thomas Was Alone" told through original characters (see decisions.md #6).
 
 ## 3. Gameplay Mechanics
 
@@ -57,14 +57,21 @@ Adds:
    - Perfect size for medium gaps
 
 #### "Stella's Journey" (16K)
-Enhanced abilities:
-- **Tall Rectangle**: Adds wall climbing
-- **Square**: Adds double jump
-- **Flat Rectangle**: Adds brief hover
+Enhanced abilities (matching the creative brief):
+- **Tall Rectangle (Stella)**: Adds wall cling — can grip walls briefly to reach new heights
+- **Flat Rectangle (Alex)**: Adds slide — can slip under barriers while moving at speed
+- **Square (Marcus)**: Adds boost — other characters bounce higher when jumping off Marcus
 
-#### "Stella Meets Thomas" (ARM)
+Adds mid-game:
+- **Circle (Flicker)**
+   - Rendered every other frame (the 2600's real flicker artifact as character design)
+   - Can pass through "unstable" barriers — it is only half-present
+   - Fragile: any hazard contact is fatal; corruption zones do not harm it
+   - Playable if the kernel budget allows; otherwise a scripted companion (see decisions.md #3)
+
+#### "Stella Was Aware" (ARM)
 - All previous characters with fluid animations
-- New crossover characters inspired by "Thomas Was Alone"
+- New "echo" characters — original designs that pay homage to the minimalist platformers that inspired the series
 - Complex ability combinations and interactions
 
 ### 3.2 Core Mechanics
@@ -89,7 +96,7 @@ The mechanics evolve across the series:
 - **Advanced Physics**: Variable jump heights, momentum
 - **Extended Narrative**: More detailed story elements
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Fluid Physics**: Modern physics engine capabilities
 - **Character Dialogue**: Visual indicators of character thoughts
 - **Dynamic Environments**: Responsive level elements
@@ -119,7 +126,7 @@ The complexity and scope of levels increase across the series:
 - Environmental hazards and moving elements
 - Dynamic color shifts for narrative
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - 15-20 richly detailed levels
 - Complex environmental storytelling
 - Multiple paths and secrets
@@ -154,7 +161,7 @@ Each game features a carefully designed difficulty curve:
 - More animation frames
 - Visual effects for abilities
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Fluid animations
 - Particle effects
 - Dynamic lighting
@@ -179,7 +186,7 @@ The environmental design grows richer across the series:
 - Parallax background elements
 - Environmental animations
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Rich textured environments
 - Dynamic lighting effects
 - Particle systems
@@ -206,7 +213,7 @@ Audio complexity increases with each iteration:
 - Environmental audio cues
 - Narrative moment accents
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Rich sound design
 - Multiple simultaneous effects
 - Positional audio
@@ -227,7 +234,7 @@ Background audio evolves throughout the series:
 - Dynamic audio that responds to progress
 - Emotional accents for narrative moments
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Full soundtrack
 - Adaptive music
 - Character themes
@@ -252,13 +259,13 @@ The project consists of four distinct games with increasing scope:
 - **Standard Levels**: 5-7 of increasing complexity
 
 #### "Stella's Journey" (16K)
-- **Characters**: 3 characters with enhanced abilities
+- **Characters**: 4 characters — the trio with enhanced abilities, plus Flicker joining mid-game
 - **Number of Levels**: 12-15 total
 - **Tutorial Levels**: 3 (one for each character)
 - **Standard Levels**: 9-12 with advanced puzzles
 
-#### "Stella Meets Thomas" (ARM)
-- **Characters**: 5+ characters including crossover elements
+#### "Stella Was Aware" (ARM)
+- **Characters**: 5+ characters including original "echo" characters
 - **Number of Levels**: 15-20 total
 - **Tutorial Levels**: 5+ (introducing new mechanics)
 - **Standard Levels**: 10-15 with sophisticated puzzles
@@ -290,7 +297,7 @@ Each version has its own feature priorities:
 5. **Audio**: Atmospheric sound elements
 6. **Narrative**: Extended storyline with more context
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 1. **Modern Mechanics**: Fluid physics, multiple abilities per character
 2. **Level Design**: Rich, intricate puzzle environments
 3. **Physics**: Modern physics engine capabilities
@@ -323,16 +330,20 @@ Each game in the series has its own success criteria:
 4. Extended narrative that develops characters
 5. Atmospheric elements that enhance immersion
 
-### "Stella Meets Thomas" (ARM)
+### "Stella Was Aware" (ARM)
 1. Successful integration of ARM coprocessor with Atari hardware
 2. Fluid, modern gameplay that remains true to the series
-3. Meaningful crossover elements with the original inspiration
+3. Meaningful homage elements that honor the original inspiration without borrowing its characters
 4. Visual and audio quality that bridges retro and modern
 5. Meta-narrative that comments on game development evolution
 
 ## 9. Development Timeline
 
-### Phase 1: "Stella Was Alone" (4K) - Q3 2025
+> Re-baselined July 2026. Dates for Phases 2-4 are provisional and will be
+> re-planned after each release ships (see decisions.md #4 — release one game
+> at a time).
+
+### Phase 1: "Stella Was Alone" (4K) - Q3 2026
 - **Prototype (4-6 weeks)**
   - Implement basic movement and jumping for two characters
   - Create simple test level
@@ -353,7 +364,7 @@ Each game in the series has its own success criteria:
   - Fine-tune level difficulty
   - Test on actual hardware
 
-### Phase 2: "Stella Was Together" (8K) - Q1 2026
+### Phase 2: "Stella Was Together" (8K) - Q1 2027
 - **Engine Expansion (6 weeks)**
   - Implement bankswitching
   - Add third character
@@ -374,7 +385,7 @@ Each game in the series has its own success criteria:
   - Balance difficulty curve
   - Improve game flow
 
-### Phase 3: "Stella's Journey" (16K) - Q4 2026
+### Phase 3: "Stella's Journey" (16K) - Q4 2027
 - **Advanced Engine (8 weeks)**
   - Implement 16K bankswitching
   - Create enhanced physics system
@@ -395,7 +406,7 @@ Each game in the series has its own success criteria:
   - Final difficulty balancing
   - Comprehensive testing
 
-### Phase 4: "Stella Meets Thomas" (ARM) - Q3 2027
+### Phase 4: "Stella Was Aware" (ARM) - Q3 2028
 - **Modern Framework (10 weeks)**
   - Set up ARM coprocessor development environment
   - Create interface between ARM and Atari hardware

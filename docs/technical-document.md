@@ -1,81 +1,33 @@
-## 11. Technical Risks and Mitigations
+# Stella's Evolution: Technical Specification
 
-Each version faces different technical challenges requiring specific mitigation strategies:
+## 1. Technical Overview
 
-### 11.1 "Stella Was Alone" (4K) Risks
+"Stella's Evolution" consists of four distinct implementations that showcase the progression of Atari 2600 development capabilities and beyond. Each version has its own technical constraints and opportunities that shape the implementation approach.
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Insufficient ROM space | Cannot fit complete game | Aggressive code optimization, minimal features |
-| RAM limitations | Game instability | Optimize data structures, reuse variables |
-| Cycle budget overrun | Screen tearing | Profile and optimize critical paths |
-| Basic collision detection | Gameplay issues | Simplify physics, focus on core mechanics |
-| Limited visual variety | Player boredom | Creative use of limited palette, focus on gameplay |
+### 1.1 Implementation Versions
 
-### 11.2 "Stella Was Together" (8K) Risks
+1. **"Stella Was Alone" (4K ROM)**
+   - Standard Atari 2600 cartridge with no bankswitching
+   - Maximum program size of 4,096 bytes
+   - Limited to basic TIA capabilities
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Bank switching overhead | Performance issues | Optimize bank transitions, careful code placement |
-| Three-character management | Memory pressure | Efficient character data structures |
-| Complex level designs | ROM space limitations | Advanced compression techniques |
-| Character interaction physics | Cycle budget issues | Simplified physics when characters interact |
-| Audio-visual enhancements | Resource conflicts | Prioritize most impactful enhancements |
+2. **"Stella Was Together" (8K ROM)**
+   - Atari 2600 cartridge with F8 bankswitching
+   - Maximum program size of 8,192 bytes
+   - More sophisticated TIA utilization
 
-### 11.3 "Stella's Journey" (16K) Risks
+3. **"Stella's Journey" (16K ROM)**
+   - Atari 2600 cartridge with F6 bankswitching
+   - Maximum program size of 16,384 bytes
+   - Advanced TIA techniques
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Multi-bank management | Code complexity | Clear bank organization, shared utility functions |
-| Enhanced physics | Performance degradation | Distributed calculations across frames |
-| Narrative elements | ROM space pressure | Text compression, efficient storytelling |
-| Advanced visual effects | Timing issues | Precomputed effects, optimization |
-| Feature creep | Development delays | Strict prioritization, phased implementation |
+4. **"Stella Was Aware" (ARM Coprocessor)**
+   - Modern ARM processor interfacing with Atari 2600 TIA
+   - Significantly expanded computational capabilities
+   - Enhanced graphics and sound while maintaining Atari compatibility
 
-### 11.4 "Stella Meets Thomas" (ARM) Risks
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| ARM-TIA synchronization | Display artifacts | Robust timing system, fallback mechanisms |
-| Hardware compatibility | Limited audience | Multiple hardware profiles, graceful degradation |
-| Development complexity | Extended timeline | Modular development, clear interfaces |
-| Balancing modern vs. retro | Identity confusion | Core design principles, aesthetic guidelines |
-| Technical ambition | Feature instability | Incremental development, comprehensive testing |
-
-## 12. Version Progression Strategy
-
-### 12.1 Code Reuse
-
-The development approach emphasizes code reuse across versions:
-
-- **Core Engine Components**: Basic physics, input handling, and rendering systems can be progressively enhanced
-- **Asset Management**: Level data structures evolve but maintain compatibility
-- **Architecture Patterns**: State machine and main loop structure remain consistent, though expanded
-
-### 12.2 Incremental Development
-
-Each version builds upon the previous:
-
-1. **4K Base** → **8K Enhancement** → **16K Expansion** → **ARM Modernization**
-2. Each transition focuses on preserving working code while adding new capabilities
-3. Modular design allows for subsystem replacement without full rewrites
-
-### 12.3 Technology Demonstration
-
-The progression showcases the evolution of Atari 2600 development:
-
-- **4K Version**: Demonstrates what was possible in early Atari development
-- **8K Version**: Shows how bankswitching expanded possibilities
-- **16K Version**: Illustrates advanced techniques of the platform's peak
-- **ARM Version**: Bridges classic hardware with modern computing approaches
-
-This progression not only creates an engaging series of games but also serves as a historical document of Atari 2600 development techniques.
-
-## 13. Conclusion
-
-"Stella's Evolution" presents a unique technical challenge that spans multiple generations of Atari 2600 development capability. By carefully managing resources, optimizing code, and progressively enhancing features, the project will demonstrate how the same core concept can evolve across technological boundaries while maintaining the essential gameplay experience.
-
-The four distinct implementations will serve as both entertaining games and technical showcases of what can be accomplished within different constraints. The culmination in an ARM-powered version creates a bridge between classic gaming and modern development approaches, honoring both the spirit of "Thomas Was Alone" and the legacy of Atari development.### 1.2 Atari 2600 Hardware Constraints
+### 1.2 Atari 2600 Hardware Constraints
 
 The Atari 2600 (VCS) presents several significant technical constraints that shape our implementation for the first three versions:
 
@@ -104,33 +56,7 @@ These varying constraints necessitate different design approaches for each versi
 - **4K Version**: Extreme optimization, minimal features, essential gameplay only
 - **8K Version**: Bankswitching management, expanded features within tight constraints
 - **16K Version**: More sophisticated bankswitching, advanced gameplay features
-- **ARM Version**: Modern programming approaches while respecting the TIA output limitations# Stella's Evolution: Technical Specification
-
-## 1. Technical Overview
-
-"Stella's Evolution" consists of four distinct implementations that showcase the progression of Atari 2600 development capabilities and beyond. Each version has its own technical constraints and opportunities that shape the implementation approach.
-
-### 1.1 Implementation Versions
-
-1. **"Stella Was Alone" (4K ROM)**
-   - Standard Atari 2600 cartridge with no bankswitching
-   - Maximum program size of 4,096 bytes
-   - Limited to basic TIA capabilities
-
-2. **"Stella Was Together" (8K ROM)**
-   - Atari 2600 cartridge with F8 bankswitching
-   - Maximum program size of 8,192 bytes
-   - More sophisticated TIA utilization
-
-3. **"Stella's Journey" (16K ROM)**
-   - Atari 2600 cartridge with F6 bankswitching
-   - Maximum program size of 16,384 bytes
-   - Advanced TIA techniques
-
-4. **"Stella Meets Thomas" (ARM Coprocessor)**
-   - Modern ARM processor interfacing with Atari 2600 TIA
-   - Significantly expanded computational capabilities
-   - Enhanced graphics and sound while maintaining Atari compatibility
+- **ARM Version**: Modern programming approaches while respecting the TIA output limitations
 
 ## 2. Memory Management
 
@@ -173,7 +99,7 @@ Each version must carefully utilize the same 128 bytes of RAM, with increasing s
 | $DC-$EB | 16 bytes | Collision detection temp space |
 | $EC-$FF | 20 bytes | Stack and miscellaneous |
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 For the ARM version, we still respect the Atari's 128 bytes of RAM while using the ARM's memory for pre-processing:
 
 - ARM memory: Several MB for game logic, physics, etc.
@@ -205,7 +131,7 @@ For the ARM version, we still respect the Atari's 128 bytes of RAM while using t
 | Bank 2: $F000-$FFFF | 4,096 bytes | Level data and management |
 | Bank 3: $F000-$FFFF | 4,096 bytes | Graphics, audio, and narrative elements |
 
-#### "Stella Meets Thomas" (ARM with Atari Interface)
+#### "Stella Was Aware" (ARM with Atari Interface)
 | Component | Usage |
 |-----------|-------|
 | ARM ROM | Modern game engine, physics, advanced rendering |
@@ -239,7 +165,7 @@ Sophisticated character representation:
 - Multiple sprite definitions for each character
 - Animation states for different actions
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 Modern character representation:
 - Pre-computed sprite data from ARM processor
 - Multiple animation frames for fluid movement
@@ -266,7 +192,7 @@ Each version uses progressively more sophisticated display kernels:
 - Sophisticated playfield manipulation
 - Color cycling and visual effects
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - ARM pre-computes frame data
 - Complex visual effects processed by ARM
 - TIA handles final display output
@@ -288,7 +214,7 @@ The technique evolves across versions:
 - Advanced multiplexing techniques
 - Multiple sprites per character when needed
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - ARM handles complex sprite calculations
 - Can simulate many more sprites than TIA hardware allows
 - Dynamic sprite priority and layering
@@ -317,7 +243,7 @@ Each version implements progressively more sophisticated physics:
 - **Collision**: Sophisticated system with predictive detection
 - **Sub-pixel precision** for smooth diagonal movement
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Full 2D Physics**: Modern physics engine running on ARM
 - **Fluid Movement**: High-precision floating point calculations
 - **Advanced Collision**: Pixel-perfect detection and response
@@ -342,7 +268,7 @@ The collision systems become increasingly sophisticated:
 - Multiple collision layers
 - Specialized collision responses for different surfaces
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - High-precision collision using ARM processor
 - Complex collision shapes beyond simple rectangles
 - Physics-based interaction between all game elements
@@ -364,7 +290,7 @@ The interactions between characters evolve:
 - Special ability combinations
 - Chain reactions
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Physics-based character interaction
 - Complex stacking and balancing
 - Momentum transfer between characters
@@ -399,7 +325,7 @@ A rich level format:
 - Narrative triggers and events
 - Background elements
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 A modern level format:
 - Full structured level data processed by ARM
 - Physics property definitions
@@ -427,7 +353,7 @@ The approach to level loading evolves:
 - Streaming level data as needed
 - Partial level preloading
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Complete levels stored in ARM memory
 - Dynamic level streaming
 - Procedural generation of certain elements
@@ -450,7 +376,7 @@ The level progression system becomes more complex:
 - Hub world with multiple level entrances
 - Level state persistence
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Fully non-linear world structure
 - Persistent game world
 - Multiple paths through the game
@@ -477,7 +403,7 @@ The input handling becomes more sophisticated:
 - Multi-frame input detection for special moves
 - Input prediction for smoother response
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - ARM-based input processing
 - Complex input combinations
 - Gesture recognition for special moves
@@ -505,7 +431,7 @@ The control schemes evolve with complexity:
 - Up+Fire: Secondary ability
 - Left/Right+Fire: Special moves
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Full range of controller inputs
 - Combination moves
 - Context-sensitive actions
@@ -540,7 +466,7 @@ The game loop evolves across versions:
   3. Advanced rendering during picture display
   4. Background processing distributed throughout frame
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Modern game engine architecture on ARM
 - True parallel processing:
   1. ARM handles game logic, physics, AI
@@ -571,12 +497,12 @@ The game state system becomes more complex:
 - **Ability Select**: Ability configuration
 - **Menu**: Game options and settings
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Complete state system:
 - **World Map**: Open navigation
 - **Cinematic**: Story sequences
 - **Challenge Rooms**: Special gameplay sections
-- **Crossover Events**: Character interactions
+- **Echo Events**: Wordless homage sequences
 - **Meta Commentary**: Fourth-wall breaking sequences
 
 ### 7.3 Subsystem Integration
@@ -598,7 +524,7 @@ The integration approach changes with complexity:
 - Event-based communication between systems
 - Complex subsystem interactions
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - Modern component-based architecture
 - Event-driven design
 - Resource management system
@@ -626,9 +552,9 @@ Each version has different cycle budgets and optimization approaches:
 - Advanced bank switching techniques
 - Frame-distributed computation
 - Precomputed lookup tables for complex math
-- DPCM-style compression for game data
+- DPC-style compression for game data
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - ARM handles complex calculations
 - Cycle-accurate TIA communication
 - DMA-style data transfer
@@ -656,7 +582,7 @@ The optimization approaches evolve with each version:
 - **Multi-frame calculations**: Distributing complex math across frames
 - **Predictive algorithms**: Processing only what's needed
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Modern optimization**: C/C++ with assembly when needed
 - **SIMD operations**: For parallel data processing
 - **Pipeline optimization**: For ARM processor efficiency
@@ -681,7 +607,7 @@ Memory usage strategies become more sophisticated:
 - **Dynamic memory allocation**: Simulated heap-like behavior
 - **State caching**: Preserving state across bank switches
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Modern memory management**: Dynamic allocation on ARM
 - **Buffer optimization**: Efficient ARM-to-TIA communication
 - **Streaming techniques**: Just-in-time data preparation
@@ -710,7 +636,7 @@ Each version requires specific development tools, with increasing sophistication
 - **Asset pipeline**: Tools for converting and compressing assets
 - **Automated testing**: ROM testing scripts
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Dual development environment**:
   - ARM C/C++ compiler (typically GCC)
   - DASM for Atari interface code
@@ -740,7 +666,7 @@ Testing approaches evolve with each version:
 - **Frame capture analysis**: For visual verification
 - **Performance profiling**: Cycle counting and optimization
 
-#### "Stella Meets Thomas" (ARM)
+#### "Stella Was Aware" (ARM)
 - **Dual debugging environment**:
   - ARM debugger for main code
   - Atari emulation for TIA interface
@@ -762,7 +688,7 @@ Development practices evolve across versions:
 
 ### 10.1 ARM Hardware Integration
 
-The "Stella Meets Thomas" version utilizes a custom ARM coprocessor setup:
+The "Stella Was Aware" version utilizes a custom ARM coprocessor setup:
 
 - **Hardware Platform**: Typically a Harmony/Melody cartridge or equivalent
 - **Processor**: ARM Cortex-M series (or equivalent) running at 48-200MHz
@@ -840,3 +766,82 @@ Working with the ARM-Atari hybrid system presents unique challenges:
 - **Hardware Compatibility**: Ensuring compatibility with different Atari versions
 - **Development Complexity**: Managing two different architectures simultaneously
 - **Testing Challenges**: Requiring specialized hardware for testing
+
+## 11. Technical Risks and Mitigations
+
+Each version faces different technical challenges requiring specific mitigation strategies:
+
+### 11.1 "Stella Was Alone" (4K) Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Insufficient ROM space | Cannot fit complete game | Aggressive code optimization, minimal features |
+| RAM limitations | Game instability | Optimize data structures, reuse variables |
+| Cycle budget overrun | Screen tearing | Profile and optimize critical paths |
+| Basic collision detection | Gameplay issues | Simplify physics, focus on core mechanics |
+| Limited visual variety | Player boredom | Creative use of limited palette, focus on gameplay |
+
+### 11.2 "Stella Was Together" (8K) Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Bank switching overhead | Performance issues | Optimize bank transitions, careful code placement |
+| Three-character management | Memory pressure | Efficient character data structures |
+| Complex level designs | ROM space limitations | Advanced compression techniques |
+| Character interaction physics | Cycle budget issues | Simplified physics when characters interact |
+| Audio-visual enhancements | Resource conflicts | Prioritize most impactful enhancements |
+
+### 11.3 "Stella's Journey" (16K) Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Multi-bank management | Code complexity | Clear bank organization, shared utility functions |
+| Enhanced physics | Performance degradation | Distributed calculations across frames |
+| Narrative elements | ROM space pressure | Text compression, efficient storytelling |
+| Advanced visual effects | Timing issues | Precomputed effects, optimization |
+| Feature creep | Development delays | Strict prioritization, phased implementation |
+
+### 11.4 "Stella Was Aware" (ARM) Risks
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| ARM-TIA synchronization | Display artifacts | Robust timing system, fallback mechanisms |
+| Hardware compatibility | Limited audience | Multiple hardware profiles, graceful degradation |
+| Development complexity | Extended timeline | Modular development, clear interfaces |
+| Balancing modern vs. retro | Identity confusion | Core design principles, aesthetic guidelines |
+| Technical ambition | Feature instability | Incremental development, comprehensive testing |
+
+## 12. Version Progression Strategy
+
+### 12.1 Code Reuse
+
+The development approach emphasizes code reuse across versions:
+
+- **Core Engine Components**: Basic physics, input handling, and rendering systems can be progressively enhanced
+- **Asset Management**: Level data structures evolve but maintain compatibility
+- **Architecture Patterns**: State machine and main loop structure remain consistent, though expanded
+
+### 12.2 Incremental Development
+
+Each version builds upon the previous:
+
+1. **4K Base** → **8K Enhancement** → **16K Expansion** → **ARM Modernization**
+2. Each transition focuses on preserving working code while adding new capabilities
+3. Modular design allows for subsystem replacement without full rewrites
+
+### 12.3 Technology Demonstration
+
+The progression showcases the evolution of Atari 2600 development:
+
+- **4K Version**: Demonstrates what was possible in early Atari development
+- **8K Version**: Shows how bankswitching expanded possibilities
+- **16K Version**: Illustrates advanced techniques of the platform's peak
+- **ARM Version**: Bridges classic hardware with modern computing approaches
+
+This progression not only creates an engaging series of games but also serves as a historical document of Atari 2600 development techniques.
+
+## 13. Conclusion
+
+"Stella's Evolution" presents a unique technical challenge that spans multiple generations of Atari 2600 development capability. By carefully managing resources, optimizing code, and progressively enhancing features, the project will demonstrate how the same core concept can evolve across technological boundaries while maintaining the essential gameplay experience.
+
+The four distinct implementations will serve as both entertaining games and technical showcases of what can be accomplished within different constraints. The culmination in an ARM-powered version creates a bridge between classic gaming and modern development approaches, honoring both the spirit of "Thomas Was Alone" and the legacy of Atari development.
