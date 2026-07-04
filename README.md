@@ -2,6 +2,9 @@
 
 > *Chase the beam.*
 
+**Landing page:** https://retroverse-studios.github.io/stellas-evolution/ ·
+**Download Stella Was Alone (RC1):** [`downloads/stella-was-alone-v1.0-rc1.bin`](downloads/stella-was-alone-v1.0-rc1.bin)
+
 A four-part puzzle-platformer series for the **Atari 2600**, inspired by Mike Bithell's
 *Thomas Was Alone*. Each game targets a real hardware tier of the 2600's lifespan —
 from a bare 4K cartridge to a modern ARM-coprocessor cart — and the story's

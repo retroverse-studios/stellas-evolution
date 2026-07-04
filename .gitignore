@@ -7,3 +7,6 @@ build/
 *.bin
 *.sym
 *.lst
+
+# Release ROMs are distributed, not build outputs
+!downloads/*.bin
