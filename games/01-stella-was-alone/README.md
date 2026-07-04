@@ -26,7 +26,19 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v0.6 — content complete: Quest 2, run clock, 62 bytes to spare
+## Status: v1.0-rc1 — release candidate
+
+The ROM is frozen pending real-hardware validation. Final form: **Game 1
+(The Story)** — 10 levels, then the world turns upside down for 10 more,
+ending at the ? screen with your total time; **Game 2 (Endless)** — SELECT
+at the title, random rooms in random orientations, the clock tightening
+every level (45s − 2/level, floor 12s), rooms survived as your score.
+
+- ROM: exactly 4096 bytes, 80 free; sha256 begins `9775c21c3ff6c901`
+- Manual draft: [MANUAL.md](MANUAL.md)
+- Remaining before v1.0: flash-cart hardware validation only
+
+## Earlier: v0.6 — content complete: Quest 2, run clock
 
 New since v0.4: **the run clock** — every playthrough is timed, and the
 epilogue shows your total seconds above the blue square (48px sprite-text
