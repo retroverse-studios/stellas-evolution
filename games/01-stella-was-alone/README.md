@@ -26,17 +26,26 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v0.1 sandbox — playable
+## Status: v0.2 — full game loop, 5 levels
 
-One room: walls, ground, a low center block (both characters), side ledges
-(Stella's jump only), and high corner perches (climb via the ledges). Both
-characters render with per-character physics; the active character is drawn
-brighter. 96 double-line kernel, 12-band mirrored playfield, swept landing
-collision, 8.8 fixed-point vertical physics.
+Title screen ("STELLA" on the asymmetric playfield, fire to start), then five
+levels following the story's staged introduction:
 
-Next up (roughly in order):
-- Goal markers (ball sprite) + level-complete detection for both characters
-- Multiple levels via level-data tables
-- Jump/land sounds (TIA: AUDC 4 rising sweep / AUDC 6 thump per the addendum)
-- Title screen and the five narration text screens
+1. **Awakening** — Stella alone; learn to move and jump
+2. **Exploration** — Stella alone; climb the ledges to the high perch
+3. **Discovery** — Alex appears; only he fits under the pillar (8-du gap vs
+   Stella's 9-du height)
+4. **Connection** — Stella climbs to her perch while Alex slips underneath
+5. **Ascent** — both routes through the same tower
+
+Goal markers are color-matched missiles (red = Stella's, green = Alex's); a
+marker vanishes when its character reaches it, and the level ends when every
+present character is home. Solid boxes block sideways movement and bonk heads
+(one-way ledges don't), which is what makes Alex's low-gap ability real. TIA
+sounds: rising jump sweep, landing thump, two-note goal fanfare. Win screen
+cycles colors, then back to the title.
+
+Next up:
+- The five narration text screens (48px text kernel) — the 4K script
+- Tune difficulty from playtesting; maybe a 6th level
 - Real hardware validation via flash cart
