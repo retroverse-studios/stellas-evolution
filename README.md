@@ -58,6 +58,12 @@ Mike Bithell's *Thomas Was Alone* as the spark for this project.
 
 ## License
 
-- **Code** (everything under `games/`): [MIT](LICENSE)
-- **Design documents and other written content** (everything under `docs/`):
-  [Creative Commons Attribution 4.0](LICENSE-DOCS)
+- **Engine code** (under `games/`): [MIT](LICENSE) — use it freely, including
+  commercially, to build your own games.
+- **Creative content** — the design docs (`docs/`), story, characters, narration
+  text, and level narratives, *including where embedded in source code or ROMs*:
+  [CC BY-NC-SA 4.0](LICENSE-DOCS) — share and remix with credit, non-commercially,
+  under the same license.
+
+In short: take the engine and make your own thing, even to sell; but Stella's
+story and characters aren't for commercial reuse without permission.
