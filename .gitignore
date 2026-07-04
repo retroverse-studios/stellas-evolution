@@ -10,3 +10,4 @@ build/
 
 # Release ROMs are distributed, not build outputs
 !downloads/*.bin
+._*
