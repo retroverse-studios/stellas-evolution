@@ -20,7 +20,7 @@ Usage: python3 tools/check_levels.py build/stella-was-alone.bin build/main.sym s
 import re
 import sys
 
-RECORD = 73           # bytes per level record
+RECORD = 74           # bytes per level record
 NUM_BOXES = 6
 ROM_BASE = 0xF000
 
@@ -75,6 +75,7 @@ class Level:
             [(rec[65], rec[66]), (rec[67], rec[68])],   # primary
             [(rec[69], rec[70]), (rec[71], rec[72])],   # alternate
         ]
+        self.exit_order = rec[73]  # 0 any; 1 Stella last; 2 Alex last
         self.boxes = [i for i in range(NUM_BOXES) if self.tops[i] != 0xFF]
 
 
@@ -224,12 +225,24 @@ def check_level(idx, lvl, phys):
         a_solo = char_can_finish(lvl, phys, 1, goals[1], None)
         s_help = s_solo or char_can_finish(lvl, phys, 0, goals[0], 1)
         a_help = a_solo or char_can_finish(lvl, phys, 1, goals[1], 0)
+        detail = (f"S(solo={s_solo},help={s_help}) "
+                  f"A(solo={a_solo},help={a_help})")
         # someone must be able to go first (with help), and the other
-        # must then finish alone
-        if not ((s_help and a_solo) or (a_help and s_solo)):
-            detail = (f"S(solo={s_solo},help={s_help}) "
-                      f"A(solo={a_solo},help={a_help})")
-            problems.append(f"{tag}: no completable exit order — {detail}")
+        # must then finish alone — and the in-game exit-order lock, if
+        # set, must enforce an order that actually works
+        if lvl.exit_order == 1:      # Stella locked until Alex is home
+            ok = a_help and s_solo
+        elif lvl.exit_order == 2:    # Alex locked until Stella is home
+            ok = s_help and a_solo
+        else:
+            ok = (s_help and a_solo) or (a_help and s_solo)
+        if not ok:
+            problems.append(f"{tag}: no completable exit order "
+                            f"(lock={lvl.exit_order}) — {detail}")
+        # a lock should exist wherever exactly one order works
+        if lvl.exit_order == 0 and not (s_solo and a_solo):
+            problems.append(f"{tag}: order matters but no exit-order "
+                            f"lock is set — {detail}")
     return problems
 
 

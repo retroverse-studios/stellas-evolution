@@ -95,8 +95,7 @@ PF0Ptr      ds 2        ; -> level record base (PF0 bands)
 PF1Ptr      ds 2
 PF2Ptr      ds 2
 PlatPtr     ds 2        ; -> collision boxes
-BandLine    ds 1        ; kernel band countdown / title row index
-RowIdx      ds 1
+BandLine    ds 1        ; kernel band countdown / title row counter
 PrevFeet    ds 1        ; physics scratch
 NewFeet     ds 1
 PrevTop     ds 1
@@ -114,8 +113,11 @@ TPtr        ds 12       ; story kernel: six playfield plane pointers
 TextEnd     ds 1        ; index of the blank byte in each plane
 TextTop     ds 1        ; first du of the text block
 StoryAfter  ds 1        ; 0 = play Level next, 1 = the win screen
-TimerSec    ds 1        ; timed mode (left difficulty A)
+TimerSec    ds 1        ; timed mode
 TimerFrm    ds 1
+ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
+TimedFlag   ds 1        ; SELECT on the title toggles timed mode
+SelPrev     ds 1
 
 ; ---------------------------------------------------------------
 ; Code
@@ -255,8 +257,29 @@ Overscan:
 TitleLogic:
         SUBROUTINE
         lda #0
-        sta COLUBK
         sta AUDV1
+        lda SWCHB               ; SELECT toggles the game variation
+        and #2
+        bne .selUp
+        lda SelPrev
+        beq .selHeld
+        lda TimedFlag
+        eor #1
+        sta TimedFlag
+.selHeld:
+        lda #0
+        sta SelPrev
+        beq .selDone
+.selUp:
+        lda #2
+        sta SelPrev
+.selDone:
+        lda #0                  ; background hints the variation:
+        ldy TimedFlag           ; black = relaxed, ember = timed
+        beq .bg
+        lda #$42
+.bg:
+        sta COLUBK
         lda INPT4
         and #$80
         bne .release
@@ -497,6 +520,9 @@ LoadLevel:
         lda #60                 ; timed mode gets a minute per level
         sta TimerSec
         sta TimerFrm
+        ldy #73
+        lda (PF0Ptr),y          ; exit-order lock for boost levels
+        sta ExitOrder
 
         lda #0
         sta CharYLo
@@ -960,6 +986,27 @@ CheckGoals:
         cmp GoalY,x
         bcc .gnext
         beq .gnext
+        ; exit-order lock: the needed helper can't leave first
+        lda ExitOrder
+        beq .free
+        sec
+        sbc #1
+        sta Temp
+        cpx Temp
+        bne .free               ; not the locked character
+        txa
+        eor #1
+        tay
+        lda GoalDone,y
+        bne .free               ; partner is home: unlocked now
+        lda SoundT              ; denied: buzz, stay in the level
+        bne .gnext
+        lda #4
+        sta SoundId
+        lda #6
+        sta SoundT
+        jmp .gnext
+.free:
         lda #1                  ; reached!
         sta GoalDone,x
         lda #HIDE_Y
@@ -1014,6 +1061,8 @@ UpdateSound:
         beq .jump
         cmp #2
         beq .land
+        cmp #4
+        beq .denied
         ; goal fanfare: low note then high note
         lda #12
         sta AUDC0
@@ -1047,6 +1096,14 @@ UpdateSound:
         lda #8
         sta AUDV0
         rts
+.denied:
+        lda #2                  ; flat "not yet" buzz
+        sta AUDC0
+        lda #28
+        sta AUDF0
+        lda #5
+        sta AUDV0
+        rts
 
 ; ---------------------------------------------------------------
 ; PlayExtras: the level drone (channel 1, rising pitch per level —
@@ -1056,18 +1113,49 @@ UpdateSound:
 
 PlayExtras:
         SUBROUTINE
+        lda SWCHB               ; timed if left difficulty A, or the
+        and #$40                ; title-screen SELECT toggle is on
+        bne .timed
+        lda TimedFlag
+        bne .timed
+        lda #0
+        beq .setT
+.timed:
+        lda #1
+.setT:
+        sta Temp
+
+        ; drone: a slow four-note rising figure, transposed up each
+        ; level; under time pressure the figure doubles its tempo
         lda #1
         sta AUDC1
+        lda FrameCtr
+        ldx Temp
+        beq .calm
+        ldy TimerSec
+        cpy #16
+        bcs .calm
+        asl
+.calm:
+        lsr
+        lsr
+        lsr
+        lsr
+        lsr
+        and #3
+        tay
         ldx Level
         lda DroneF,x
+        clc
+        adc ArpOff,y
         sta AUDF1
         lda #2
         sta AUDV1
+
         lda #0
         sta COLUBK
-        lda SWCHB               ; left difficulty: A = timed
-        and #$40
-        beq .out
+        lda Temp
+        beq .noTimer
         dec TimerFrm
         bne .creep
         lda #60
@@ -1079,13 +1167,36 @@ PlayExtras:
 .creep:
         lda TimerSec
         cmp #16
-        bcs .out
+        bcs .noTimer
         lda #16
         sec
         sbc TimerSec
         ora #$40
         sta COLUBK              ; red creeps in as time runs out
-.out:
+.noTimer:
+
+        ; a locked goal blinks until the partner is home
+        ldx ExitOrder
+        beq .noLock
+        dex                     ; X = the character who exits last
+        lda GoalDone,x
+        bne .noLock             ; already gone: leave it hidden
+        txa
+        eor #1
+        tay
+        lda GoalDone,y
+        bne .steady             ; partner home: unlocked, steady
+        lda FrameCtr
+        and #2
+        bne .blinkOff
+.steady:
+        lda GoalY,x
+        sta GoalDY,x
+        rts
+.blinkOff:
+        lda #HIDE_Y
+        sta GoalDY,x
+.noLock:
         rts
 
 ; ---------------------------------------------------------------
@@ -1222,44 +1333,52 @@ GameKernel:
 
 TitleKernel:
         SUBROUTINE
-        ldx #0
-        lda #7
-        sta RowIdx
+        ldx #SCREEN_DU          ; pairs remaining
+        ldy #0                  ; the row map is padded with blanks
+        lda #8
+        sta BandLine            ; du left in the current row
 .tloop:
         sta WSYNC               ; ---- line 1: cycle-anchored writes
-        ldy RowIdx
         lda LogoPF0L,y
-        sta PF0                 ; @10
+        sta PF0                 ; @7
         lda LogoPF1L,y
-        sta PF1                 ; @17
+        sta PF1                 ; @14
         lda LogoPF2L,y
-        sta PF2                 ; @24
+        sta PF2                 ; @21
+        nop
+        nop
         nop
         lda LogoPF0R,y
-        sta PF0                 ; @33
+        sta PF0                 ; @34
         lda LogoPF1R,y
-        sta PF1                 ; @40
-        nop
+        sta PF1                 ; @41
         nop
         lda LogoPF2R,y
-        sta PF2                 ; @51
-        sta WSYNC               ; ---- line 2: pick next row
-        inx
-        txa
-        sec
-        sbc #LOGO_TOP
-        bcc .blank
-        cmp #LOGO_H
-        bcs .blank
-        lsr
-        lsr
-        lsr
-        jmp .store
-.blank:
-        lda #7
-.store:
-        sta RowIdx
-        cpx #SCREEN_DU
+        sta PF2                 ; @50
+        sta WSYNC               ; ---- line 2: the same six writes —
+        lda LogoPF0L,y          ; asymmetric playfields need feeding
+        sta PF0                 ; every single scanline
+        lda LogoPF1L,y
+        sta PF1
+        lda LogoPF2L,y
+        sta PF2
+        nop
+        nop
+        nop
+        lda LogoPF0R,y
+        sta PF0
+        lda LogoPF1R,y
+        sta PF1
+        nop
+        lda LogoPF2R,y
+        sta PF2
+        dec BandLine
+        bne .hold
+        lda #8
+        sta BandLine
+        iny                     ; next row of the padded map
+.hold:
+        dex
         bne .tloop
         rts
 
@@ -1273,35 +1392,45 @@ TitleKernel:
 StoryKernel:
         SUBROUTINE
         ldx #0
-        lda TextEnd
-        sta RowIdx
+        ldy TextEnd             ; blank row until the text block starts
 .sloop:
         sta WSYNC               ; ---- line 1: cycle-anchored writes
-        ldy RowIdx
         lda (TPtr),y
-        sta PF0                 ; @11
+        sta PF0                 ; @8
         lda (TPtr+2),y
-        sta PF1                 ; @19
+        sta PF1                 ; @16
         lda (TPtr+4),y
-        sta PF2                 ; @27
+        sta PF2                 ; @24
         lda (TPtr+6),y
-        sta PF0                 ; @35
+        sta PF0                 ; @32
         lda (TPtr+8),y
-        sta PF1                 ; @43
+        sta PF1                 ; @40
+        nop
         lda (TPtr+10),y
-        sta PF2                 ; @51
-        sta WSYNC               ; ---- line 2: next row index
+        sta PF2                 ; @50
+        sta WSYNC               ; ---- line 2: the same six writes —
+        lda (TPtr),y            ; an asymmetric playfield must be
+        sta PF0                 ; re-fed on EVERY scanline or the
+        lda (TPtr+2),y          ; right-half values bleed into the
+        sta PF1                 ; left half of alternate lines
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
         inx
-        txa
-        sec
-        sbc TextTop
-        bcc .blank
-        cmp TextEnd
-        bcc .store
-.blank:
-        lda TextEnd
-.store:
-        sta RowIdx
+        cpx TextTop
+        bne .noStart
+        ldy #$FF                ; so the iny below lands on row 0
+.noStart:
+        cpy TextEnd
+        beq .hold               ; stay on the blank row
+        iny
+.hold:
         cpx #SCREEN_DU
         bne .sloop
         rts
@@ -1322,7 +1451,8 @@ JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
 ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
 ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
 
-DroneF:     .byte 30,28,26,24,22,20,18,16,14,12  ; world waking up
+DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
+ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 
 ; ---------------------------------------------------------------
@@ -1330,15 +1460,22 @@ LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 ; Row 7 is blank (used for all non-logo lines).
 ; ---------------------------------------------------------------
 
-        ALIGN 8                 ; keep each 8-byte row table in one
-                                ; page so lda abs,y never pays the
+; 13-row map: 3 blank rows (du 0-23), the 7 letter rows, 3 blank
+; rows — the kernel just walks the map, 8 du per row.
+        ALIGN 16                ; keep each 13-byte table inside one
+                                ; page: lda abs,y must never pay the
                                 ; +1 page-cross cycle mid-kernel
-LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80,$00
-LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2,$00
-LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C,$00
-LogoPF0R:   .byte $10,$10,$10,$10,$10,$10,$F0,$00
-LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE,$00
-LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11,$00
+LogoPF0L:   .byte $00,$00,$00,$80,$40,$40,$80,$00,$40,$80,$00,$00,$00
+            ds 3
+LogoPF1L:   .byte $00,$00,$00,$CF,$22,$02,$C2,$22,$22,$C2,$00,$00,$00
+            ds 3
+LogoPF2L:   .byte $00,$00,$00,$7D,$04,$04,$3C,$04,$04,$7C,$00,$00,$00
+            ds 3
+LogoPF0R:   .byte $00,$00,$00,$10,$10,$10,$10,$10,$10,$F0,$00,$00,$00
+            ds 3
+LogoPF1R:   .byte $00,$00,$00,$20,$20,$20,$20,$20,$20,$BE,$00,$00,$00
+            ds 3
+LogoPF2R:   .byte $00,$00,$00,$0E,$11,$11,$1F,$11,$11,$11,$00,$00,$00
 
 ; ---------------------------------------------------------------
 ; Levels. Bands are 16 scanlines; the playfield is mirrored.
@@ -1365,6 +1502,7 @@ Level1:
         .byte 76, 77                      ; Stella's goal: on the block
         .byte 80, $FF                     ; (no second goal)
         .byte 120,85, 80,85               ; alt: ground, far right
+        .byte 0                           ; no exit-order lock
 
 ; --- Level 2 "Exploration": climb ledges to the high perch -----
 Level2:
@@ -1381,6 +1519,7 @@ Level2:
         .byte 0,  53                      ; goal on the left perch
         .byte 80, $FF
         .byte 152,53, 80,85               ; alt: the right perch
+        .byte 0                           ; no exit-order lock
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
 ;     pillar (8 du gap; Stella is 9 du tall). Low blocks make
@@ -1399,6 +1538,7 @@ Level3:
         .byte 24, 85                      ; Stella's goal: her side
         .byte 110,77                      ; Alex's: atop the far block
         .byte 4,  85, 124,85              ; alt: corner / past pillar
+        .byte 0                           ; no exit-order lock
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -1416,6 +1556,7 @@ Level4:
         .byte 0,  53                      ; Stella: left perch
         .byte 130,85                      ; Alex: far right, under
         .byte 0,  53, 100,85              ; alt: Alex just past it
+        .byte 0                           ; no exit-order lock
 
 ; --- Level 5 "Ascent": Stella climbs the tower Alex slips
 ;     beneath — both routes through the same obstacle ------------
@@ -1433,6 +1574,7 @@ Level5:
         .byte 76, 53                      ; Stella: top of the tower
         .byte 130,85                      ; Alex: beyond it
         .byte 76, 53, 150,85              ; alt: Alex to the corner
+        .byte 0                           ; no exit-order lock
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. (Do his goal before hers!) -----
@@ -1450,6 +1592,7 @@ Level6:
         .byte 20, 85                      ; Stella: ground, far left
         .byte 110,69                      ; Alex: the high right ledge
         .byte 140,85, 34,69               ; alt: mirrored
+        .byte 1                           ; Stella must exit last
 
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
 ;     needs the extra height from Alex's back. (Her goal first!) -
@@ -1467,6 +1610,7 @@ Level7:
         .byte 110,61                      ; Stella: the high right perch
         .byte 20, 85                      ; Alex: ground, far left
         .byte 42, 61, 140,85              ; alt: mirrored
+        .byte 2                           ; Alex must exit last
 
 ; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
 ;     crosses under the tower, then needs Stella (who crossed over
@@ -1485,6 +1629,7 @@ Level8:
         .byte 76, 53                      ; Stella: top of the tower
         .byte 114,69                      ; Alex: the high right ledge
         .byte 76, 53, 34, 69              ; alt: the left ledge instead
+        .byte 1                           ; Stella must exit last
 
 ; --- Level 9 "Patience": Stella's perch needs Alex's back before
 ;     he leaves for his own goal beyond the pillar ---------------
@@ -1502,6 +1647,7 @@ Level9:
         .byte 42, 61                      ; Stella: the left perch, lifted
         .byte 124,85                      ; Alex: beyond the pillar, after
         .byte 42, 61, 144,85              ; alt: Alex further along
+        .byte 2                           ; Alex must exit last
 
 ; --- Level 10 "The Exit": over the tower and under it, and both
 ;     goals waiting side by side beyond ---------------------------
@@ -1519,6 +1665,7 @@ Level10:
         .byte 118,85                      ; side by side, at the exit
         .byte 130,85
         .byte 130,85, 118,85              ; alt: swapped
+        .byte 0                           ; no exit-order lock
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py)
