@@ -350,7 +350,15 @@ StoryLogic:
         sta GoalDY+1            ; ...and a small blue square waits
         lda #76
         sta GoalX+1
-        lda #240
+        lda #<BlankPF           ; an empty void, not a leftover level
+        sta PF0Ptr
+        sta PF1Ptr
+        sta PF2Ptr
+        lda #>BlankPF
+        sta PF0Ptr+1
+        sta PF1Ptr+1
+        sta PF2Ptr+1
+        lda #60                 ; a beat before fire is accepted
         sta StateTimer
         lda #STATE_WIN
         sta State
@@ -434,15 +442,34 @@ WinLogic:
         lda #0
         sta AUDV1
         sta COLUBK
-        lda #$86
-        sta COLUP1              ; Marcus-blue: missile 1 wears it
+        lda FrameCtr            ; the stranger, breathing quietly
+        lsr
+        lsr
+        lsr
+        lsr
+        and #3
+        ora #$84
+        sta COLUP1
         jsr PositionSprites
+        lda StateTimer
+        beq .fireCheck
         dec StateTimer
-        beq .toTitle
         rts
-.toTitle:
+.fireCheck:                     ; linger until the player is ready
+        lda INPT4
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .done
+        lda #0
+        sta FirePrev
         lda #STATE_TITLE
         sta State
+.done:
+        rts
+.release:
+        lda #$80
+        sta FirePrev
         rts
 
 ; ---------------------------------------------------------------
@@ -1451,6 +1478,7 @@ JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
 ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
 ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
 
+BlankPF:    ds 12                               ; the epilogue's void
 DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
