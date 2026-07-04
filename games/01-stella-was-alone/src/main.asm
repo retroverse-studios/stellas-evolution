@@ -118,6 +118,7 @@ TimerFrm    ds 1
 ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
 TimedFlag   ds 1        ; SELECT on the title toggles timed mode
 SelPrev     ds 1
+ColrPtr     ds 2        ; title logo row colors (rainbow or ember)
 
 ; ---------------------------------------------------------------
 ; Code
@@ -274,12 +275,23 @@ TitleLogic:
         lda #2
         sta SelPrev
 .selDone:
-        lda #0                  ; background hints the variation:
-        ldy TimedFlag           ; black = relaxed, ember = timed
-        beq .bg
-        lda #$42
-.bg:
+        ldy TimedFlag           ; the logo shows the variation:
+        beq .rainbow            ; rainbow = relaxed, ember = timed
+        lda #<LogoColrT
+        sta ColrPtr
+        lda #>LogoColrT
+        sta ColrPtr+1
+        lda #$20
         sta COLUBK
+        bne .colrSet
+.rainbow:
+        lda #<LogoColr
+        sta ColrPtr
+        lda #>LogoColr
+        sta ColrPtr+1
+        lda #0
+        sta COLUBK
+.colrSet:
         lda INPT4
         and #$80
         bne .release
@@ -1366,22 +1378,24 @@ TitleKernel:
         sta BandLine            ; du left in the current row
 .tloop:
         sta WSYNC               ; ---- line 1: cycle-anchored writes
+        lda (ColrPtr),y         ; per-row logo color
+        sta COLUPF              ; @8
         lda LogoPF0L,y
-        sta PF0                 ; @7
+        sta PF0                 ; @15
         lda LogoPF1L,y
-        sta PF1                 ; @14
+        sta PF1                 ; @22
         lda LogoPF2L,y
-        sta PF2                 ; @21
+        sta PF2                 ; @29
         nop
         nop
         nop
         lda LogoPF0R,y
-        sta PF0                 ; @34
+        sta PF0                 ; @42
         lda LogoPF1R,y
-        sta PF1                 ; @41
+        sta PF1                 ; @49
         nop
         lda LogoPF2R,y
-        sta PF2                 ; @50
+        sta PF2                 ; @58
         sta WSYNC               ; ---- line 2: the same six writes —
         lda LogoPF0L,y          ; asymmetric playfields need feeding
         sta PF0                 ; every single scanline
@@ -1504,6 +1518,11 @@ LogoPF0R:   .byte $00,$00,$00,$10,$10,$10,$10,$10,$10,$F0,$00,$00,$00
 LogoPF1R:   .byte $00,$00,$00,$20,$20,$20,$20,$20,$20,$BE,$00,$00,$00
             ds 3
 LogoPF2R:   .byte $00,$00,$00,$0E,$11,$11,$1F,$11,$11,$11,$00,$00,$00
+            ds 3
+; per-row logo colors: the Atari rainbow, or ember for timed mode
+LogoColr:   .byte $00,$00,$00,$46,$36,$26,$16,$C6,$86,$66,$00,$00,$00
+            ds 3
+LogoColrT:  .byte $00,$00,$00,$42,$44,$46,$48,$46,$44,$42,$00,$00,$00
 
 ; ---------------------------------------------------------------
 ; Levels. Bands are 16 scanlines; the playfield is mirrored.
@@ -1532,15 +1551,17 @@ Level1:
         .byte 120,85, 80,85               ; alt: ground, far right
         .byte 0                           ; no exit-order lock
 
-; --- Level 2 "Exploration": climb ledges to the high perch -----
+; --- Level 2 "Exploration": climb wide ledges to the high perch.
+;     Far above, out of any reach, hang structures she can only
+;     look at — there had to be more --------------------------- --
 Level2:
         .byte $10,$10,$10,$10,$10,$10,$10,$30,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$1F,$00,$FF
+        .byte $00,$00,$18,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 72, 72, 56, 56, $FF
         .byte 96, 72, 72, 56, 56, $FF
-        .byte 0,  32, 112,0,  152,0
-        .byte 160,48, 128,8,  160,0
+        .byte 0,  28, 112,0,  152,0
+        .byte 160,48, 132,8,  160,0
         .byte 1
         .byte 74, 88-STELLA_H
         .byte 80, 85
@@ -1682,7 +1703,7 @@ Level9:
 Level10:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
+        .byte $00,$81,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
         .byte 88, 56, 72, 72, $FF,$FF
         .byte 96, 80, 72, 72, $FF,$FF
         .byte 0,  60, 32, 112,0,  0
