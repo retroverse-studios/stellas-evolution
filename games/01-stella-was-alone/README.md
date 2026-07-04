@@ -26,7 +26,18 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v0.4 — feature complete: 10 levels, narration, solver-verified
+## Status: v0.6 — content complete: Quest 2, run clock, 62 bytes to spare
+
+New since v0.4: **the run clock** — every playthrough is timed, and the
+epilogue shows your total seconds above the blue square (48px sprite-text
+kernel) — and **Quest 2**: press fire at the epilogue and the whole world
+turns upside-down (the view flips; physics, controls and puzzles are
+unchanged) with the timer always on. Finish Quest 2 to see your inverted
+time. Also: the title logo wears the Atari rainbow (ember = timed mode via
+SELECT), exit-order locks with blinking goals, and a four-note arpeggio
+that rises each level and doubles tempo under time pressure.
+
+## v0.4 baseline: 10 levels, narration, solver-verified
 
 Title screen, then ten levels with narration screens at the story beats
 ("STELLA WAS ALONE." … "AND THEN THERE WERE TWO." … "THE WORLD SHIFTED."):

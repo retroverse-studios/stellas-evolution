@@ -119,6 +119,15 @@ ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
 TimedFlag   ds 1        ; SELECT on the title toggles timed mode
 SelPrev     ds 1
 ColrPtr     ds 2        ; title logo row colors (rainbow or ember)
+Quest       ds 1        ; 0 first run; 1 = the world turned over
+CharDrawY   ds 2        ; kernel y for each character (flipped in Q2)
+Band0       ds 1        ; kernel: first playfield band (0 or 11)
+BandStep    ds 1        ; kernel: band direction (+1 or -1)
+TFrm        ds 1        ; run clock: frames, then seconds in digits
+SecOnes     ds 1
+SecTens     ds 1
+SecHund     ds 1
+SqCol       ds 1        ; the epilogue square's breathing color
 
 ; ---------------------------------------------------------------
 ; Code
@@ -216,6 +225,11 @@ MainLoop:
         beq .titleK
         cmp #STATE_STORY
         beq .storyK
+        cmp #STATE_WIN
+        bne .gameK
+        jsr WinKernel
+        jmp Overscan
+.gameK:
         lda #1
         sta CTRLPF      ; mirrored playfield in-game
         lda #COL_PF
@@ -300,6 +314,11 @@ TitleLogic:
         lda #0
         sta Level
         sta FirePrev
+        sta Quest               ; a fresh run: quest 1, clock zeroed
+        sta TFrm
+        sta SecOnes
+        sta SecTens
+        sta SecHund
         jsr EnterLevel
         rts
 .release:
@@ -315,6 +334,8 @@ TitleLogic:
 
 EnterLevel:
         SUBROUTINE
+        lda Quest               ; quest 2 skips the narration
+        bne .direct
         ldx Level
         lda LvlStory,x
         cmp #$FF
@@ -355,21 +376,39 @@ StoryLogic:
         rts
 .toWin:
         lda #HIDE_Y             ; everyone has gone on ahead...
-        sta CharY
-        sta CharY+1
         sta GoalDY
-        lda #60
-        sta GoalDY+1            ; ...and a small blue square waits
+        sta GoalDY+1
         lda #76
-        sta GoalX+1
-        lda #<BlankPF           ; an empty void, not a leftover level
-        sta PF0Ptr
-        sta PF1Ptr
-        sta PF2Ptr
-        lda #>BlankPF
-        sta PF0Ptr+1
-        sta PF1Ptr+1
-        sta PF2Ptr+1
+        sta GoalX+1             ; ...a small blue square waits...
+        lda #48
+        sta CharX               ; ...above it, the time of the run,
+        lda #56                 ; as three 48px-kernel digits
+        sta CharX+1
+        lda #$03
+        sta NUSIZ0              ; three close copies of each player
+        lda #$33
+        sta NUSIZ1              ; (and keep the 8px missile square)
+        lda #1
+        sta VDELP0
+        sta VDELP1
+        lda #10                 ; glyph pointers: _ _ H T O _
+        ldx #0
+        jsr SetGlyph
+        lda #10
+        ldx #2
+        jsr SetGlyph
+        lda SecHund
+        ldx #4
+        jsr SetGlyph
+        lda SecTens
+        ldx #6
+        jsr SetGlyph
+        lda SecOnes
+        ldx #8
+        jsr SetGlyph
+        lda #10
+        ldx #10
+        jsr SetGlyph
         lda #60                 ; a beat before fire is accepted
         sta StateTimer
         lda #STATE_WIN
@@ -379,6 +418,23 @@ StoryLogic:
         lda #$80
         sta FirePrev
 .done:
+        rts
+
+; SetGlyph: A = digit (10 = blank), X = TPtr slot offset
+SetGlyph:
+        SUBROUTINE
+        sta Temp
+        asl
+        asl
+        asl
+        sec
+        sbc Temp                ; A = digit * 7
+        clc
+        adc #<DigitFont
+        sta TPtr,x
+        lda #>DigitFont
+        adc #0
+        sta TPtr+1,x
         rts
 
 ; ---------------------------------------------------------------
@@ -461,7 +517,7 @@ WinLogic:
         lsr
         and #3
         ora #$84
-        sta COLUP1
+        sta SqCol
         jsr PositionSprites
         lda StateTimer
         beq .fireCheck
@@ -475,6 +531,20 @@ WinLogic:
         bpl .done
         lda #0
         sta FirePrev
+        lda Quest
+        bne .allDone
+        inc Quest               ; quest 2: the world turned over
+        lda #0
+        sta TFrm
+        sta SecOnes
+        sta SecTens
+        sta SecHund
+        sta Level
+        jsr EnterLevel
+        rts
+.allDone:
+        lda #0
+        sta Quest
         lda #STATE_TITLE
         sta State
 .done:
@@ -491,6 +561,26 @@ WinLogic:
 
 LoadLevel:
         SUBROUTINE
+        lda #$30
+        sta NUSIZ0              ; undo the epilogue's text setup
+        lda #$35
+        sta NUSIZ1
+        lda #0
+        sta VDELP0
+        sta VDELP1
+        ldy Quest               ; quest 2: the world turned over
+        beq .upright
+        lda #11
+        sta Band0
+        lda #$FF
+        sta BandStep
+        bne .oriented
+.upright:
+        lda #0
+        sta Band0
+        lda #1
+        sta BandStep
+.oriented:
         ldx Level
         lda LvlPtrLo,x
         sta PF0Ptr
@@ -547,6 +637,7 @@ LoadLevel:
         iny
         lda (PF0Ptr),y
         sta GoalY
+        jsr FlipG
         sta GoalDY
         iny
         lda (PF0Ptr),y
@@ -554,6 +645,7 @@ LoadLevel:
         iny
         lda (PF0Ptr),y
         sta GoalY+1
+        jsr FlipG
         sta GoalDY+1
 
         lda #60                 ; timed mode gets a minute per level
@@ -586,6 +678,23 @@ LoadLevel:
         sta GoalDY+1            ; hide Alex's goal marker
         sta CharY+1             ; park Alex offscreen
 .twoChars:
+        lda CharY               ; seed the kernel draw positions
+        sta CharDrawY
+        lda CharY+1
+        sta CharDrawY+1
+        rts
+
+; FlipG: A = a goal's y — returns the y the kernel should draw it
+; at, which in quest 2 is mirrored top-for-bottom.
+FlipG:
+        SUBROUTINE
+        ldy Quest
+        beq .out
+        sta Temp
+        lda #96-GOAL_H
+        sec
+        sbc Temp
+.out:
         rts
 
 ; ---------------------------------------------------------------
@@ -1152,10 +1261,56 @@ UpdateSound:
 
 PlayExtras:
         SUBROUTINE
-        lda SWCHB               ; timed if left difficulty A, or the
-        and #$40                ; title-screen SELECT toggle is on
+        inc TFrm                ; the run clock, in whole seconds
+        lda TFrm
+        cmp #60
+        bcc .clock
+        lda #0
+        sta TFrm
+        inc SecOnes
+        lda SecOnes
+        cmp #10
+        bcc .clock
+        lda #0
+        sta SecOnes
+        inc SecTens
+        lda SecTens
+        cmp #10
+        bcc .clock
+        lda #0
+        sta SecTens
+        inc SecHund
+        lda SecHund
+        cmp #10
+        bcc .clock
+        lda #9                  ; pegged at 999
+        sta SecHund
+        sta SecTens
+        sta SecOnes
+.clock:
+
+        ldx #1                  ; kernel draw positions (flipped in
+.dy:                            ; quest 2 — the view, not the world)
+        lda CharY,x
+        ldy Quest
+        beq .keepY
+        sta Temp
+        lda #96
+        sec
+        sbc Temp
+        sec
+        sbc HeightTbl,x
+.keepY:
+        sta CharDrawY,x
+        dex
+        bpl .dy
+
+        lda SWCHB               ; timed if left difficulty A, the
+        and #$40                ; SELECT toggle, or quest 2
         bne .timed
         lda TimedFlag
+        bne .timed
+        lda Quest
         bne .timed
         lda #0
         beq .setT
@@ -1230,6 +1385,7 @@ PlayExtras:
         bne .blinkOff
 .steady:
         lda GoalY,x
+        jsr FlipG
         sta GoalDY,x
         rts
 .blinkOff:
@@ -1291,7 +1447,7 @@ SetHorizPos:
 GameKernel:
         SUBROUTINE
         ldx #0
-        ldy #0
+        ldy Band0               ; quest 2 walks the bands backwards
         lda #9
         sta BandLine
         lda (PF0Ptr),y
@@ -1304,7 +1460,10 @@ GameKernel:
         sta WSYNC               ; ---- line 1
         dec BandLine
         bne .noBand
-        iny
+        tya
+        clc
+        adc BandStep
+        tay
         lda (PF0Ptr),y
         sta PF0
         lda (PF1Ptr),y
@@ -1328,7 +1487,7 @@ GameKernel:
         sta WSYNC               ; ---- line 2
         txa                     ; Stella
         sec
-        sbc CharY
+        sbc CharDrawY
         cmp #STELLA_H
         bcs .np0
         lda #$FF
@@ -1339,7 +1498,7 @@ GameKernel:
         sta GRP0
         txa                     ; Alex
         sec
-        sbc CharY+1
+        sbc CharDrawY+1
         cmp #ALEX_H
         bcs .np1
         lda #$FF
@@ -1424,6 +1583,100 @@ TitleKernel:
         rts
 
 ; ---------------------------------------------------------------
+; WinKernel: the epilogue. A void, the run time in the classic
+; 48-pixel six-glyph display (three close-spaced copies of each
+; player, VDEL-cascaded), and below it a small blue square.
+; 30 + 14 + 76 + 8 + 64 = 192 scanlines.
+; ---------------------------------------------------------------
+
+WinKernel:
+        SUBROUTINE
+        lda #0
+        sta PF0
+        sta PF1
+        sta PF2
+        sta GRP0
+        sta GRP1
+        sta ENAM0
+        sta ENAM1
+        ldx #30
+.top:
+        sta WSYNC
+        dex
+        bne .top
+        lda #$0E
+        sta COLUP0              ; the digits, in white
+        sta COLUP1
+        lda #6
+        sta BoxIdx              ; glyph row (stored bottom-up)
+.drow:
+        ldy BoxIdx
+        lda (TPtr),y
+        sta GRP0                ; VDEL: pending until GRP1 write
+        sta WSYNC               ; ---- row, first scanline
+        lda (TPtr+2),y
+        sta GRP1
+        lda (TPtr+4),y
+        sta GRP0
+        lda (TPtr+6),y
+        sta Temp
+        lda (TPtr+8),y
+        tax
+        lda (TPtr+10),y
+        tay
+        lda Temp
+        sta GRP1
+        stx GRP0
+        sty GRP1
+        sta GRP0
+        ldy BoxIdx
+        lda (TPtr),y
+        sta GRP0
+        sta WSYNC               ; ---- row, second scanline
+        lda (TPtr+2),y
+        sta GRP1
+        lda (TPtr+4),y
+        sta GRP0
+        lda (TPtr+6),y
+        sta Temp
+        lda (TPtr+8),y
+        tax
+        lda (TPtr+10),y
+        tay
+        lda Temp
+        sta GRP1
+        stx GRP0
+        sty GRP1
+        sta GRP0
+        dec BoxIdx
+        bpl .drow
+        lda #0
+        sta GRP0
+        sta GRP1
+        ldx #76
+.mid:
+        sta WSYNC
+        dex
+        bne .mid
+        lda SqCol               ; the stranger
+        sta COLUP1
+        lda #2
+        sta ENAM1
+        ldx #8
+.sq:
+        sta WSYNC
+        dex
+        bne .sq
+        lda #0
+        sta ENAM1
+        ldx #64
+.bot:
+        sta WSYNC
+        dex
+        bne .bot
+        rts
+
+; ---------------------------------------------------------------
 ; StoryKernel: narration text on the asymmetric playfield. Line 1
 ; of each pair rewrites all six PF bytes at fixed cycles from the
 ; generated plane data; line 2 picks the next row index (TextEnd
@@ -1492,7 +1745,21 @@ JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
 ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
 ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
 
-BlankPF:    ds 12                               ; the epilogue's void
+; 8x7 digit glyphs for the epilogue clock, rows stored BOTTOM-UP
+; (the win kernel walks its row counter 6 -> 0). Glyph 10 = blank.
+DigitFont:
+        .byte $3C,$66,$66,$66,$66,$66,$3C   ; 0
+        .byte $7E,$18,$18,$18,$18,$38,$18   ; 1
+        .byte $7E,$60,$30,$0C,$06,$66,$3C   ; 2
+        .byte $3C,$66,$06,$1C,$06,$66,$3C   ; 3
+        .byte $0C,$0C,$7E,$6C,$3C,$1C,$0C   ; 4
+        .byte $3C,$66,$06,$06,$7C,$60,$7E   ; 5
+        .byte $3C,$66,$66,$7C,$60,$66,$3C   ; 6
+        .byte $30,$30,$30,$18,$0C,$06,$7E   ; 7
+        .byte $3C,$66,$66,$3C,$66,$66,$3C   ; 8
+        .byte $3C,$66,$06,$3E,$66,$66,$3C   ; 9
+        .byte $00,$00,$00,$00,$00,$00,$00   ; blank
+
 DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens

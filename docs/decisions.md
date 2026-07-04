@@ -87,7 +87,7 @@
 
 **Recommendation:** Option B. Ship "Stella Was Alone" first. It's the purest expression of the concept.
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-04) — Option A, per the author: develop the games sequentially but hold the official release so all four ship together as an anthology (the "evolution boxed set"). Mitigation for the long feedback gap: share each finished game's ROM with the AtariAge homebrew community as a beta — playtesting and buzz build across the years while the boxed set stays the event.
 
 ---
 
@@ -257,7 +257,7 @@
 
 **Recommendation:** Fixed levels and story. Replayability = (a) alternate pre-validated goal spots chosen at random per playthrough, (b) Difficulty A switch = per-level timer with color-creep. No runtime procgen in the 4K game; revisit a generated "bonus room" mode for the 8K game.
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-04) — implemented as: alternate goal spots; timed mode (SELECT on title or difficulty A); a run clock with the total shown on the epilogue; and **Quest 2** — after the ending, fire replays all ten levels with the *view* rendered upside-down (physics/controls unchanged, timer forced). Note: rotating level *geometry* was investigated and rejected — flipping geometry breaks jump-chain solvability, and 90°/270° can't be represented by the playfield hardware. Runtime procgen rejected for 4K; revisit for the 8K game.
 
 ---
 
