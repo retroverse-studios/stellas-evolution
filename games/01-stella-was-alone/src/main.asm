@@ -289,33 +289,6 @@ TitleLogic:
         lda #$20
 .bg:
         sta COLUBK
-        lda #$03                ; the caption: sprite-text setup
-        sta NUSIZ0
-        sta NUSIZ1
-        lda #1
-        sta VDELP0
-        sta VDELP1
-        lda #48
-        sta CharX
-        lda #56
-        sta CharX+1
-        ldx #10                 ; caption: SELECT, or TIMER when on
-.glyphs:
-        txa
-        lsr
-        tay
-        lda TimedFlag
-        beq .relCap
-        lda CapTim,y
-        bne .haveCap            ; glyph ids are never zero
-.relCap:
-        lda CapSel,y
-.haveCap:
-        jsr SetGlyph
-        dex
-        dex
-        bpl .glyphs
-        jsr PositionSprites
         lda INPT4
         and #$80
         bne .release
@@ -1591,10 +1564,7 @@ TitleKernel:
         sta PF0
         sta PF1
         sta PF2
-        ldx #10
-        jsr BlankLines
-        jsr DigitBlock          ; the caption: SELECT / TIMER
-        ldx #10
+        ldx #34
         jsr BlankLines
         rts
 
@@ -1784,17 +1754,6 @@ DigitFont:
         .byte $3C,$66,$66,$3C,$66,$66,$3C   ; 8
         .byte $3C,$66,$06,$3E,$66,$66,$3C   ; 9
         .byte $00,$00,$00,$00,$00,$00,$00   ; 10: blank
-        .byte $3C,$66,$06,$3C,$60,$66,$3C   ; 11: S
-        .byte $7E,$60,$60,$7C,$60,$60,$7E   ; 12: E
-        .byte $7E,$60,$60,$60,$60,$60,$60   ; 13: L
-        .byte $3C,$66,$60,$60,$60,$66,$3C   ; 14: C
-        .byte $18,$18,$18,$18,$18,$18,$7E   ; 15: T
-        .byte $7E,$18,$18,$18,$18,$18,$7E   ; 16: I
-        .byte $63,$63,$63,$6B,$7F,$77,$63   ; 17: M
-        .byte $66,$66,$6C,$7C,$66,$66,$7C   ; 18: R
-
-CapSel:     .byte 11,12,13,12,14,15         ; S E L E C T
-CapTim:     .byte 15,16,17,12,18,10         ; T I M E R _
 
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
