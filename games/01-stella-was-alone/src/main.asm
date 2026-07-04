@@ -306,6 +306,27 @@ TitleLogic:
         lda #0
         sta COLUBK
 .colrSet:
+        lda #$03                ; the caption: sprite-text setup
+        sta NUSIZ0
+        sta NUSIZ1
+        lda #1
+        sta VDELP0
+        sta VDELP1
+        lda #48
+        sta CharX
+        lda #56
+        sta CharX+1
+        ldx #10                 ; glyph pointers for S E L E C T
+.glyphs:
+        txa
+        lsr
+        tay
+        lda CaptionIds,y
+        jsr SetGlyph
+        dex
+        dex
+        bpl .glyphs
+        jsr PositionSprites
         lda INPT4
         and #$80
         bne .release
@@ -1531,10 +1552,19 @@ GameKernel:
 
 TitleKernel:
         SUBROUTINE
-        ldx #SCREEN_DU          ; pairs remaining
-        ldy #0                  ; the row map is padded with blanks
+        lda #0
+        sta PF0
+        sta PF1
+        sta PF2
+        ldx #46                 ; blank sky above the logo
+.top:
+        sta WSYNC
+        dex
+        bne .top
+        ldy #0                  ; seven logo rows, 8 du each
         lda #8
-        sta BandLine            ; du left in the current row
+        sta BandLine
+        ldx #56
 .tloop:
         sta WSYNC               ; ---- line 1: cycle-anchored writes
         lda (ColrPtr),y         ; per-row logo color
@@ -1576,10 +1606,25 @@ TitleKernel:
         bne .hold
         lda #8
         sta BandLine
-        iny                     ; next row of the padded map
+        iny
 .hold:
         dex
         bne .tloop
+        lda #0                  ; clear the playfield below the logo
+        sta PF0
+        sta PF1
+        sta PF2
+        ldx #10
+.gap:
+        sta WSYNC
+        dex
+        bne .gap
+        jsr DigitBlock          ; the caption: SELECT
+        ldx #10
+.tail:
+        sta WSYNC
+        dex
+        bne .tail
         rts
 
 ; ---------------------------------------------------------------
@@ -1604,8 +1649,41 @@ WinKernel:
         sta WSYNC
         dex
         bne .top
+        jsr DigitBlock          ; the run time, in white
+        ldx #76
+.mid:
+        sta WSYNC
+        dex
+        bne .mid
+        lda SqCol               ; the stranger
+        sta COLUP1
+        lda #2
+        sta ENAM1
+        ldx #8
+.sq:
+        sta WSYNC
+        dex
+        bne .sq
+        lda #0
+        sta ENAM1
+        ldx #64
+.bot:
+        sta WSYNC
+        dex
+        bne .bot
+        rts
+
+; ---------------------------------------------------------------
+; DigitBlock: fourteen scanlines of six-glyph 48px sprite text
+; (VDEL cascade, three close copies per player), rows from the
+; TPtr glyph pointers. Used by the epilogue clock and the title
+; caption.
+; ---------------------------------------------------------------
+
+DigitBlock:
+        SUBROUTINE
         lda #$0E
-        sta COLUP0              ; the digits, in white
+        sta COLUP0
         sta COLUP1
         lda #6
         sta BoxIdx              ; glyph row (stored bottom-up)
@@ -1653,27 +1731,6 @@ WinKernel:
         lda #0
         sta GRP0
         sta GRP1
-        ldx #76
-.mid:
-        sta WSYNC
-        dex
-        bne .mid
-        lda SqCol               ; the stranger
-        sta COLUP1
-        lda #2
-        sta ENAM1
-        ldx #8
-.sq:
-        sta WSYNC
-        dex
-        bne .sq
-        lda #0
-        sta ENAM1
-        ldx #64
-.bot:
-        sta WSYNC
-        dex
-        bne .bot
         rts
 
 ; ---------------------------------------------------------------
@@ -1758,7 +1815,14 @@ DigitFont:
         .byte $30,$30,$30,$18,$0C,$06,$7E   ; 7
         .byte $3C,$66,$66,$3C,$66,$66,$3C   ; 8
         .byte $3C,$66,$06,$3E,$66,$66,$3C   ; 9
-        .byte $00,$00,$00,$00,$00,$00,$00   ; blank
+        .byte $00,$00,$00,$00,$00,$00,$00   ; 10: blank
+        .byte $3C,$66,$06,$3C,$60,$66,$3C   ; 11: S
+        .byte $7E,$60,$60,$7C,$60,$60,$7E   ; 12: E
+        .byte $7E,$60,$60,$60,$60,$60,$60   ; 13: L
+        .byte $3C,$66,$60,$60,$60,$66,$3C   ; 14: C
+        .byte $18,$18,$18,$18,$18,$18,$7E   ; 15: T
+
+CaptionIds: .byte 11,12,13,12,14,15         ; S E L E C T
 
 DroneF:     .byte 23,21,19,17,15,13,11,9,7,5    ; world waking up
 ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
@@ -1769,27 +1833,25 @@ LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 ; Row 7 is blank (used for all non-logo lines).
 ; ---------------------------------------------------------------
 
-; 13-row map: 3 blank rows (du 0-23), the 7 letter rows, 3 blank
-; rows — the kernel just walks the map, 8 du per row.
-        ALIGN 16                ; keep each 13-byte table inside one
-                                ; page: lda abs,y must never pay the
-                                ; +1 page-cross cycle mid-kernel
-LogoPF0L:   .byte $00,$00,$00,$80,$40,$40,$80,$00,$40,$80,$00,$00,$00
-            ds 3
-LogoPF1L:   .byte $00,$00,$00,$CF,$22,$02,$C2,$22,$22,$C2,$00,$00,$00
-            ds 3
-LogoPF2L:   .byte $00,$00,$00,$7D,$04,$04,$3C,$04,$04,$7C,$00,$00,$00
-            ds 3
-LogoPF0R:   .byte $00,$00,$00,$10,$10,$10,$10,$10,$10,$F0,$00,$00,$00
-            ds 3
-LogoPF1R:   .byte $00,$00,$00,$20,$20,$20,$20,$20,$20,$BE,$00,$00,$00
-            ds 3
-LogoPF2R:   .byte $00,$00,$00,$0E,$11,$11,$1F,$11,$11,$11,$00,$00,$00
-            ds 3
+; The seven logo rows (blank padding now lives in the kernel's
+; section loops). 8-byte tables can't cross a page.
+        ALIGN 8
+LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80
+            ds 1
+LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2
+            ds 1
+LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C
+            ds 1
+LogoPF0R:   .byte $10,$10,$10,$10,$10,$10,$F0
+            ds 1
+LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
+            ds 1
+LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
+            ds 1
 ; per-row logo colors: the Atari rainbow, or ember for timed mode
-LogoColr:   .byte $00,$00,$00,$46,$36,$26,$16,$C6,$86,$66,$00,$00,$00
-            ds 3
-LogoColrT:  .byte $00,$00,$00,$42,$44,$46,$48,$46,$44,$42,$00,$00,$00
+LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
+            ds 1
+LogoColrT:  .byte $42,$44,$46,$48,$46,$44,$42
 
 ; ---------------------------------------------------------------
 ; Levels. Bands are 16 scanlines; the playfield is mirrored.
