@@ -13,14 +13,30 @@ learn that some heights and gaps can only be crossed together.
 
 ## Building
 
-Requires [DASM](https://dasm-assembler.github.io/). Test in the
-[Stella](https://stella-emu.github.io/) emulator.
+Requires [DASM](https://dasm-assembler.github.io/) and the
+[Stella](https://stella-emu.github.io/) emulator (`brew install dasm stella`).
 
 ```sh
-# (build scripts to come)
-dasm src/main.asm -f3 -obuild/stella-was-alone.bin
+make        # assembles src/main.asm -> build/stella-was-alone.bin (4096 bytes)
+make run    # builds and launches in the Stella emulator
 ```
+
+`src/vcs.h` is a hand-written set of TIA/RIOT register equates; `src/main.asm`
+is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-**Status:** in design — first prototype target: one rectangle moving on one level.
+## Status: v0.1 sandbox — playable
+
+One room: walls, ground, a low center block (both characters), side ledges
+(Stella's jump only), and high corner perches (climb via the ledges). Both
+characters render with per-character physics; the active character is drawn
+brighter. 96 double-line kernel, 12-band mirrored playfield, swept landing
+collision, 8.8 fixed-point vertical physics.
+
+Next up (roughly in order):
+- Goal markers (ball sprite) + level-complete detection for both characters
+- Multiple levels via level-data tables
+- Jump/land sounds (TIA: AUDC 4 rising sweep / AUDC 6 thump per the addendum)
+- Title screen and the five narration text screens
+- Real hardware validation via flash cart
