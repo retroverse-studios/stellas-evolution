@@ -94,9 +94,46 @@ as separate verbs first.
       worlds, position persists
 - [ ] Playfield collision works against *the current bank's* geometry
 - [ ] Record #9 as DECIDED in `docs/decisions.md` with the prototype verdict
-- [ ] Kernel spike: 3 multiplexed sprites (Stella + Alex + Marcus) on one
-      screen, flicker only when scanlines overlap
+- [x] Kernel spike: 3 multiplexed sprites (Stella + Alex + Marcus) on one
+      screen, flicker only when scanlines overlap — **done in v0.1-visual**
 - [ ] `make` runs the solver on Game 2 levels (even if only trivially)
 
-Stretch: Marcus's arrival vignette — the blue square from Game 1's win
-screen, now awake.
+### v0.1-visual (shipped in bank 0, 2026-07)
+
+The kernel spike grew into a playable one-level demo that also banks the
+8K visual budget's first installment:
+
+- **Three-sprite multiplexer:** P0 is Stella's alone; Alex and Marcus
+  time-share P1. When their scanlines don't collide (≥ 2 du gap) the kernel
+  repositions P1 mid-frame — one du spent on an inline RESP1/HMOVE hop —
+  and all three draw solid at 60Hz. When they do collide, P1 alternates
+  tenants at 30Hz, per the flicker-is-embraced rule. The hop is nudged off
+  playfield band boundaries so no PF update is ever missed.
+- **Per-level palette:** `LvlSkyTbl`/`LvlPFTbl` drive COLUBK/COLUPF; the
+  demo level is dusk blue with warm tan platforms — visibly not Game 1.
+- **Banded sky gradient:** 5 shades over the 12 playfield bands, built in
+  RAM at level load from the palette base.
+- **Eyes:** each character has an eye row that sits on the side last
+  walked toward and blinks (~every 2 s). Marcus (blue square, balanced
+  stats — 1.5 px/frame walk, jump apex between Alex's and Stella's) is in.
+- **Squash & stretch:** 1 du taller while rising, 1 du shorter for 4
+  frames on a real landing — draw-only, physics untouched.
+- Game 1's physics (8.8 gravity, box collision, bonk, head-standing — now
+  against either friend) and the Down+Fire switch verb (extended to a
+  3-cycle) are ported. Fire is jump; decision #9 remains open and bank 1
+  still holds the skeleton's placeholder frame.
+- Not yet: goals/levels beyond the demo screen, narration, two-voice
+  audio, the solver, any bank-1 gameplay.
+
+## The opening: waking Marcus (promoted from stretch, 2026-07-15)
+
+Game 2 opens on a recreation of Game 1's epilogue: black screen, the small
+blue square, silent. Then the world *evolves in* — the banded sky gradient
+assembles step by step (one band color, then 2, 3, 4… until the full
+gradient stands), color saturating as it goes, and Marcus's eyes appear
+(first blink = the moment he wakes). Stella drops in from the left,
+Alex slides in under her, and the first level begins.
+
+Cost estimate: ~200-300 bytes (a color-ramp table + a state that reuses
+the existing gradient builder and eye code). The morph doubles as the
+series' visual thesis: each game, the world gains fidelity.

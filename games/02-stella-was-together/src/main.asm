@@ -2,11 +2,16 @@
 ; Stella Was Together — game 2 of 4, Stella's Evolution
 ; Atari 2600, 8K ROM, F8 bankswitching (2 x 4K banks)
 ;
-; v0.0: the F8 skeleton. Two banks, each drawing its own stable
-; 262-line NTSC frame — bank 0 in Stella red, bank 1 in Marcus
-; blue — and the fire button hops between them. Nothing else yet:
-; this ROM exists to prove the bankswitch plumbing on real
-; hardware before any game moves in.
+; v0.1-visual: the three-sprite kernel spike, playable. One demo
+; level in bank 0 with Stella, Alex and the new arrival Marcus on
+; screen together: P0 is Stella's alone, P1 is time-shared between
+; the other two — repositioned mid-frame when they are vertically
+; separated (all three solid), alternated at 30Hz only when their
+; scanlines overlap. Plus the 8K visual budget's first installment:
+; a per-level palette, a banded sky gradient, eyes that face where
+; you last walked and blink, and squash & stretch on jump/landing.
+; Bank 1 still holds the skeleton's placeholder frame; decision #9
+; (bank-switching-as-puzzle) remains open — fire is JUMP here.
 ;
 ; F8 in one breath: the 6507 sees a 4K window at $1000-$1FFF
 ; (mirrored at $F000-$FFFF, which is how this file addresses it).
@@ -21,15 +26,19 @@
 ; Story/characters: CC BY-NC-SA 4.0 (see repository LICENSE-DOCS).
 ;
 ; Controls:
-;   Fire        switch banks (watch the world change color)
-;   RESET       cold start (back to bank 0)
+;   Left/Right  move active character
+;   Fire        jump
+;   Down+Fire   cycle Stella -> Alex -> Marcus (brightest = active)
+;   RESET       cold start
 ; ---------------------------------------------------------------
 
         processor 6502
         include "vcs.h"
 
 ; ---------------------------------------------------------------
-; Constants
+; Constants. The 192 visible scanlines are 96 double-lines ("du");
+; all vertical positions/physics are in du with 8.8 fixed point,
+; exactly as in game 1.
 ; ---------------------------------------------------------------
 
 BANK0HOT    = $FFF8     ; F8 hotspots ($1FF8/$1FF9 mirrored):
@@ -37,23 +46,103 @@ BANK1HOT    = $FFF9     ; reading either one swaps the 4K window
 
 COL_BANK0   = $42       ; Stella red — bank 0's calling card
 COL_BANK1   = $84       ; Marcus blue — bank 1's calling card
-COL_PF      = $0E       ; platforms: white (as in game 1)
+COL_PF      = $0E       ; bank 1's placeholder platforms
 
-SKY_LINES   = 176       ; kernel: open air above ...
-FLOOR_LINES = 16        ; ... a solid floor. 176 + 16 = 192 visible
+SKY_LINES   = 176       ; bank 1's placeholder kernel shape
+FLOOR_LINES = 16
+
+SCREEN_DU   = 96
+NUM_CHARS   = 3         ; index 0 = Stella, 1 = Alex, 2 = Marcus
+STELLA_H    = 9         ; tall red rectangle: 8px wide, 18 scanlines
+ALEX_H      = 3         ; flat green rectangle: 16px wide (doubled)
+MARCUS_H    = 6         ; blue square: 8px wide, 12 scanlines —
+                        ; a TIA pixel is wider than a scanline is
+                        ; tall, so 12 lines is what reads square
+
+EYEROW      = 1         ; the eye row: 1 du below the drawn top
+EYES_L      = %10101111 ; two dark pixels toward the left edge
+EYES_R      = %11110101 ; ...and toward the right
+EYES_LSQ    = %10111111 ; narrowed (idle) variants: the active
+EYES_RSQ    = %11111101 ; character is the wide-awake one
+
+GRAV_LO     = $30       ; gravity 0.1875 du/frame^2
+MAXFALL     = 3         ; terminal fall speed, du/frame
+
+MIN_X       = 4         ; outer walls are 4px, handled by clamping
+NUM_PLATS   = 6         ; collision boxes per level (pad with $FF)
+
+; Level record layout (66 bytes each):
+;   +0  12 bytes PF0 per band     +36  6 bytes box top (du)
+;   +12 12 bytes PF1 per band     +42  6 bytes box bottom (du)
+;   +24 12 bytes PF2 per band     +48  6 bytes box left x
+;                                 +54  6 bytes box right x (excl)
+;   +60 SX,SY, AX,AY, MX,MY       (three spawn points)
+; A box with top==bottom is one-way; top=$FF is an unused pad
+; entry. Same shape as game 1's record minus goals (v0.1 has none
+; yet) plus Marcus's spawn.
 
 ; ---------------------------------------------------------------
 ; RAM ($80-$FF). Both banks share the one 128-byte RAM — that is
 ; the whole trick: RAM is the only thing that survives a switch.
+; Character arrays: index 0 = Stella, 1 = Alex, 2 = Marcus.
 ; ---------------------------------------------------------------
 
         SEG.U VARS
         ORG $80
 
-FirePrev    ds 1        ; last INPT4 bit 7 ($80 = released)
+CharX       ds 3        ; x pixel of left edge
+CharY       ds 3        ; y du of top edge
+CharYLo     ds 3
+CharVYHi    ds 3        ; signed du/frame
+CharVYLo    ds 3
+OnGround    ds 3
+CharFace    ds 3        ; 0 = facing left, 1 = facing right
+SquashT     ds 3        ; frames of landing squash left
+
+Active      ds 1
+FirePrev    ds 1
 FrameCtr    ds 1
-CurBank     ds 1        ; which world is on screen (0 or 1) —
-                        ; the kernel doesn't need it, game logic will
+CurBank     ds 1        ; which world is on screen (0 or 1)
+SoundId     ds 1        ; 1=jump 2=land
+SoundT      ds 1
+
+PF0Ptr      ds 2        ; -> level record base (PF0 bands)
+PF1Ptr      ds 2
+PF2Ptr      ds 2
+PlatPtr     ds 2        ; -> collision boxes
+
+; --- kernel interface, rebuilt every frame by PrepSprites -------
+BandLine    ds 1        ; kernel band countdown
+DrawY       ds 3        ; drawn top per character (squash/stretch)
+DrawH       ds 3        ; drawn height per character
+EyeByte     ds 3        ; this frame's eye row per character
+P1Top       ds 1        ; P1's current tenant: top / height / eyes
+P1Hgt       ds 1
+P1Eye       ds 1
+P1XA        ds 1        ; P1's vblank position (first tenant's x)
+P1Y2        ds 1        ; P1's second tenant, taken over mid-frame
+P1H2        ds 1
+P1Eye2      ds 1
+P1X2        ds 1
+P1Col2      ds 1
+P1Nu2       ds 1
+RepoDU      ds 1        ; du of the mid-frame P1 hop ($FF = never)
+SkyGrad     ds 12       ; per-band sky colors (base + gradient)
+
+; --- physics / logic scratch ------------------------------------
+PrevFeet    ds 1
+NewFeet     ds 1
+PrevTop     ds 1
+TopV        ds 1
+BotV        ds 1
+LV          ds 1
+RV          ds 1
+BoxIdx      ds 1
+CY          ds 1
+CYH         ds 1
+NewX        ds 1
+MoveDir     ds 1
+Temp        ds 1
 
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
@@ -102,14 +191,13 @@ Bank0Init:
 
         lda #$80
         sta FirePrev
-        ; CurBank = 0 from the RAM clear; first frame starts clean
+        jsr LoadLevel   ; straight into the demo level — no title
+                        ; screen in v0.1-visual
 
 ; ---------------------------------------------------------------
 ; Bank 0 frame loop. Same skeleton as game 1: 3 lines VSYNC,
 ; ~37 lines vertical blank (logic runs here), 192 visible, ~30
-; overscan = 262. A bank switch happens inside vertical blank:
-; bank 1 lands at Bank1Entry with the RIOT timer still running
-; and finishes this same frame — no glitch line on the way over.
+; overscan = 262.
 ; ---------------------------------------------------------------
 
 Bank0Loop:
@@ -132,28 +220,18 @@ Bank0Loop:
         jmp ColdStart
 .noReset:
 
-        lda INPT4       ; fire (edge-triggered) = switch banks
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .fireDone   ; still held from last frame
-        lda #0
-        sta FirePrev
-        jmp GoBank1     ; see you on the other side
-.release:
-        lda #$80
-        sta FirePrev
-.fireDone:
+        jsr ReadInput
+        jsr UpdatePhysics
+        jsr UpdateSound
+        jsr PrepSprites ; draw params + P1 multiplexer + positioning
 
 Bank0Entry:             ; bank 1 arrives here (via GoBank0)
         lda #0
         sta CurBank
-        lda #COL_BANK0
-        sta COLUBK      ; Stella red: you are in bank 0
-        lda #COL_PF
-        sta COLUPF
         lda #1
         sta CTRLPF      ; mirrored playfield
+        lda LvlPFTbl    ; per-level platform color (demo = level 0)
+        sta COLUPF
 
 .waitVB:
         lda INTIM
@@ -161,10 +239,13 @@ Bank0Entry:             ; bank 1 arrives here (via GoBank0)
         sta WSYNC
         sta VBLANK      ; A=0: beam on
 
-        jsr Kernel0
+        jsr GameKernel
 
         lda #2          ; overscan
         sta VBLANK
+        lda #0
+        sta GRP0
+        sta GRP1
         lda #35
         sta TIM64T      ; ~30 scanlines
 .waitOS:
@@ -173,38 +254,921 @@ Bank0Entry:             ; bank 1 arrives here (via GoBank0)
         jmp Bank0Loop
 
 ; ---------------------------------------------------------------
-; Bank 0 kernel: 192 scanlines. Open sky over a solid floor,
-; with a pair of mirrored pillars so the two worlds differ in
-; shape as well as color.
+; LoadLevel: point the kernel and collision code at the demo
+; level record, place the three characters, and build the banded
+; sky gradient in RAM from the per-level palette.
 ; ---------------------------------------------------------------
 
-Kernel0:
+LoadLevel:
         SUBROUTINE
-        lda #%00010000  ; a thin outer wall
-        sta PF0
-        lda #%01000010  ; two pillars per half, mirrored
-        sta PF1
+        lda #<Level1
+        sta PF0Ptr
+        lda #>Level1
+        sta PF0Ptr+1
+        lda PF0Ptr
+        clc
+        adc #12
+        sta PF1Ptr
+        lda PF0Ptr+1
+        adc #0
+        sta PF1Ptr+1
+        lda PF0Ptr
+        clc
+        adc #24
+        sta PF2Ptr
+        lda PF0Ptr+1
+        adc #0
+        sta PF2Ptr+1
+        lda PF0Ptr
+        clc
+        adc #36
+        sta PlatPtr
+        lda PF0Ptr+1
+        adc #0
+        sta PlatPtr+1
+
+        ldy #60                 ; three spawn points
+        ldx #0
+.spawn:
+        lda (PF0Ptr),y
+        sta CharX,x
+        iny
+        lda (PF0Ptr),y
+        sta CharY,x
+        iny
+        inx
+        cpx #NUM_CHARS
+        bne .spawn
+
+        ldx #NUM_CHARS-1
+.zero:
         lda #0
-        sta PF2
-        ldx #SKY_LINES
-.sky:
-        sta WSYNC
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+        sta SquashT,x
+        lda #1
+        sta OnGround,x
+        sta CharFace,x          ; everyone wakes facing right
         dex
-        bne .sky
-        lda #$FF        ; the floor
-        sta PF0
-        sta PF1
-        sta PF2
-        ldx #FLOOR_LINES
-.floor:
-        sta WSYNC
+        bpl .zero
+        lda #0
+        sta Active
+        sta SoundId
+        sta SoundT
+        sta NUSIZ0              ; Stella: one 8px copy, always
+        sta VDELP0
+        sta VDELP1
+
+        ; per-level palette -> the banded sky gradient. Base sky
+        ; color from the level table, brightening toward the
+        ; horizon in 2-luma steps (5 shades over 12 bands).
+        ldx #0                  ; demo = level 0
+        lda LvlSkyTbl,x
+        sta Temp
+        ldx #11
+.grad:
+        lda GradOfs,x
+        clc
+        adc Temp
+        sta SkyGrad,x
         dex
-        bne .floor
-        lda #0          ; blank the playfield before overscan
-        sta PF0
-        sta PF1
-        sta PF2
+        bpl .grad
         rts
+
+; ---------------------------------------------------------------
+; ReadInput: move the active character (with solid-box blocking),
+; fire jumps, down+fire cycles through all three characters.
+; ---------------------------------------------------------------
+
+ReadInput:
+        SUBROUTINE
+        ldx Active
+        lda CharX,x
+        sta NewX
+        lda #$FF
+        sta MoveDir
+        lda SWCHA
+        and #%01000000          ; left (active low)
+        bne .noLeft
+        lda #0
+        sta MoveDir
+        sta CharFace,x          ; eyes follow the walk
+        jsr WalkSpeed
+        sta Temp
+        lda NewX
+        sec
+        sbc Temp
+        sta NewX
+.noLeft:
+        lda SWCHA
+        and #%10000000          ; right
+        bne .noRight
+        lda #1
+        sta MoveDir
+        sta CharFace,x
+        jsr WalkSpeed
+        sta Temp
+        lda NewX
+        clc
+        adc Temp
+        sta NewX
+.noRight:
+        lda MoveDir
+        cmp #$FF
+        beq .noMove
+        jsr ClampBoxes          ; solid walls block sideways motion
+        lda NewX
+        cmp #MIN_X
+        bcs .okMin
+        lda #MIN_X
+.okMin:
+        cmp MaxXTbl,x
+        bcc .okMax
+        lda MaxXTbl,x
+.okMax:
+        sta CharX,x
+.noMove:
+
+        lda INPT4
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .done
+        lda SWCHA
+        and #%00100000          ; holding down?
+        beq .switch
+        lda OnGround,x          ; fire alone: jump if grounded
+        beq .pressed
+        lda JumpHiTbl,x
+        sta CharVYHi,x
+        lda JumpLoTbl,x
+        sta CharVYLo,x
+        lda #0
+        sta OnGround,x
+        lda #1
+        sta SoundId
+        lda #10
+        sta SoundT
+        jmp .pressed
+.switch:
+        lda Active              ; the game 1 switch verb, extended:
+        clc                     ; Stella -> Alex -> Marcus -> ...
+        adc #1
+        cmp #NUM_CHARS
+        bcc .setA
+        lda #0
+.setA:
+        sta Active
+.pressed:
+        lda #0
+        sta FirePrev
+        rts
+.release:
+        lda #$80
+        sta FirePrev
+.done:
+        rts
+
+; WalkSpeed: X = char. A = this frame's step in pixels. Marcus
+; walks 1.5px/frame the cheap way: an extra pixel every other
+; frame (SpeedHalfTbl masks FrameCtr's low bit per character).
+WalkSpeed:
+        SUBROUTINE
+        lda FrameCtr
+        and SpeedHalfTbl,x
+        and #1
+        clc
+        adc SpeedTbl,x
+        rts
+
+; ---------------------------------------------------------------
+; ClampBoxes: block horizontal movement into solid boxes.
+; In: X = char, NewX = proposed x, MoveDir = 0 left / 1 right.
+; (Straight port from game 1.)
+; ---------------------------------------------------------------
+
+ClampBoxes:
+        SUBROUTINE
+        lda CharY,x
+        sta CY
+        clc
+        adc HeightTbl,x
+        sta CYH
+        lda #NUM_PLATS-1
+        sta BoxIdx
+.loop:
+        ldy BoxIdx
+        lda (PlatPtr),y         ; top
+        sta TopV
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y         ; bottom
+        sta BotV
+        cmp TopV
+        beq .next               ; one-way (or pad): never blocks
+        ; vertical overlap: CY < bottom and CYH > top
+        lda BotV
+        cmp CY
+        bcc .next
+        beq .next
+        lda TopV
+        cmp CYH
+        bcs .next
+        ; horizontal overlap with the proposed position
+        jsr FetchLR
+        lda NewX
+        cmp RV
+        bcs .next
+        lda NewX
+        clc
+        adc WidthTbl,x
+        cmp LV
+        bcc .next
+        beq .next
+        ; blocked: push back against the box edge
+        lda MoveDir
+        beq .fromRight
+        lda LV
+        sec
+        sbc WidthTbl,x
+        sta NewX
+        jmp .next
+.fromRight:
+        lda RV
+        sta NewX
+.next:
+        dec BoxIdx
+        bpl .loop
+        rts
+
+; FetchLR: Y = box index + 6 (the bottom slot). Loads the box's
+; left and right edges into LV/RV.
+FetchLR:
+        SUBROUTINE
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y
+        sta LV
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y
+        sta RV
+        rts
+
+; ---------------------------------------------------------------
+; UpdatePhysics: gravity + vertical motion for all three
+; characters; head bonks against solid boxes while rising, swept
+; landing on box tops — or on either friend's head — while
+; falling. Game 1's two-character code, generalized.
+; ---------------------------------------------------------------
+
+UpdatePhysics:
+        SUBROUTINE
+        ldx #NUM_CHARS-1
+.charLoop:
+        lda CharY,x             ; where the feet started
+        clc
+        adc HeightTbl,x
+        sta PrevFeet
+
+        lda CharVYLo,x          ; vy += gravity
+        clc
+        adc #GRAV_LO
+        sta CharVYLo,x
+        lda CharVYHi,x
+        adc #0
+        sta CharVYHi,x
+
+        bmi .applyVel           ; rising: no fall clamp
+        cmp #MAXFALL
+        bcc .applyVel
+        lda #MAXFALL
+        sta CharVYHi,x
+        lda #0
+        sta CharVYLo,x
+.applyVel:
+        lda CharYLo,x           ; y += vy
+        clc
+        adc CharVYLo,x
+        sta CharYLo,x
+        lda CharY,x
+        adc CharVYHi,x
+        sta CharY,x
+
+        bpl .phase              ; clamp at the top of the screen
+        lda #0
+        sta CharY,x
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+.phase:
+        lda CharVYHi,x
+        bpl .landPhase
+        jmp .bonkPhase
+
+; --- falling: swept landing on box tops -------------------------
+.landPhase:
+        lda CharY,x
+        clc
+        adc HeightTbl,x
+        sta NewFeet
+        lda #NUM_PLATS-1
+        sta BoxIdx
+.landLoop:
+        ldy BoxIdx
+        lda (PlatPtr),y         ; top
+        sta TopV
+        cmp PrevFeet
+        bcc .landNext           ; surface above where we started
+        cmp NewFeet
+        beq .landHit
+        bcs .landNext           ; feet haven't reached it yet
+.landHit:
+        tya
+        clc
+        adc #6
+        tay
+        jsr FetchLR
+        lda CharX,x
+        cmp RV
+        bcs .landNext
+        lda CharX,x
+        clc
+        adc WidthTbl,x
+        cmp LV
+        bcc .landNext
+        beq .landNext
+.doLand:
+        ; landed. thump + squash if this was a real fall
+        lda OnGround,x
+        bne .noSnd
+        lda CharVYHi,x
+        cmp #1
+        bcc .noSnd
+        lda #4
+        sta SquashT,x           ; a few frames, 1 du shorter
+        lda #2
+        sta SoundId
+        lda #4
+        sta SoundT
+.noSnd:
+        lda TopV
+        sec
+        sbc HeightTbl,x
+        sta CharY,x
+        lda #0
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+        lda #1
+        sta OnGround,x
+        jmp .nextChar
+.landNext:
+        dec BoxIdx
+        bpl .landLoop
+        ; no box caught us — maybe a friend's head did. Each
+        ; character has two possible perches now; test both.
+        lda OtherATbl,x
+        tay
+        jsr HeadTest
+        bcs .doLand             ; TopV = the friend's head
+        lda OtherBTbl,x
+        tay
+        jsr HeadTest
+        bcs .doLand
+        lda #0
+        sta OnGround,x
+        jmp .nextChar
+
+; --- rising: bonk the head on solid box bottoms -----------------
+.bonkPhase:
+        lda PrevFeet
+        sec
+        sbc HeightTbl,x
+        sta PrevTop
+        lda #NUM_PLATS-1
+        sta BoxIdx
+.bonkLoop:
+        ldy BoxIdx
+        lda (PlatPtr),y         ; top
+        sta TopV
+        tya
+        clc
+        adc #6
+        tay
+        lda (PlatPtr),y         ; bottom
+        sta BotV
+        cmp TopV
+        beq .bonkNext           ; one-way / pad
+        lda PrevTop
+        cmp BotV
+        bcc .bonkNext           ; head already above the underside
+        lda CharY,x
+        cmp BotV
+        bcs .bonkNext           ; hasn't reached it
+        jsr FetchLR
+        lda CharX,x
+        cmp RV
+        bcs .bonkNext
+        lda CharX,x
+        clc
+        adc WidthTbl,x
+        cmp LV
+        bcc .bonkNext
+        beq .bonkNext
+        lda BotV                ; bonk: stop under the box
+        sta CharY,x
+        lda #0
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+        jmp .nextChar
+.bonkNext:
+        dec BoxIdx
+        bpl .bonkLoop
+
+.nextChar:
+        dex
+        bmi .doneChars
+        jmp .charLoop
+.doneChars:
+        rts
+
+; HeadTest: can falling character X land on character Y's head
+; this frame? Uses PrevFeet/NewFeet from the caller's sweep.
+; Returns carry set (and TopV = the head's y) on a hit.
+HeadTest:
+        SUBROUTINE
+        lda CharY,y             ; the friend's head, one-way surface
+        sta TopV
+        cmp PrevFeet
+        bcc .no                 ; head above where we started
+        cmp NewFeet
+        beq .hit
+        bcs .no                 ; feet haven't reached it yet
+.hit:
+        lda CharX,y
+        clc
+        adc WidthTbl,y
+        sta RV
+        lda CharX,x
+        cmp RV
+        bcs .no
+        lda CharX,x
+        clc
+        adc WidthTbl,x
+        cmp CharX,y
+        bcc .no
+        beq .no
+        sec                     ; standing on a friend
+        rts
+.no:
+        clc
+        rts
+
+; ---------------------------------------------------------------
+; UpdateSound: game 1's one-channel effect engine, jump + land.
+; ---------------------------------------------------------------
+
+UpdateSound:
+        SUBROUTINE
+        lda SoundT
+        bne .active
+        lda #0
+        sta AUDV0
+        sta SoundId
+        rts
+.active:
+        dec SoundT
+        lda SoundId
+        cmp #2
+        beq .land
+        lda #4                  ; jump: rising pure tone
+        sta AUDC0
+        lda #8
+        clc
+        adc SoundT
+        sta AUDF0
+        lda #6
+        sta AUDV0
+        rts
+.land:
+        lda #6                  ; land: a low thump
+        sta AUDC0
+        lda #25
+        sta AUDF0
+        lda #8
+        sta AUDV0
+        rts
+
+; ---------------------------------------------------------------
+; PrepSprites: everything the kernel needs, rebuilt each vblank.
+;
+; 1. Per character: drawn top/height (squash & stretch) and this
+;    frame's eye byte (facing + blink).
+; 2. The P1 multiplexer. P0 is Stella's alone. Alex and Marcus
+;    share P1:
+;      - vertically separated (>= 2 du gap): P1 opens the frame as
+;        the upper of the two; at RepoDU (the first du past the
+;        upper sprite) the kernel spends one du repositioning P1
+;        onto the lower one. All three draw solid at 60Hz.
+;      - overlapping (or gap < 2 du, no room to hop): RepoDU=$FF
+;        and P1 alternates tenants each frame — 30Hz flicker, only
+;        when scanlines actually collide (the design doc's rule).
+;    RepoDU is nudged off band boundaries so the hop never eats a
+;    playfield update.
+; 3. Horizontal positioning for P0 and P1's first tenant.
+; ---------------------------------------------------------------
+
+PrepSprites:
+        SUBROUTINE
+        ldx #NUM_CHARS-1
+.each:
+        lda HeightTbl,x
+        sta Temp                ; drawn height
+        lda CharY,x
+        sta CY                  ; drawn top
+        lda SquashT,x
+        beq .noSquash
+        dec SquashT,x
+        inc CY                  ; landing: top drops 1 du, 1 du
+        dec Temp                ; shorter — the feet stay planted
+        jmp .eyes
+.noSquash:
+        lda CharVYHi,x
+        bpl .eyes
+        lda CY                  ; rising: 1 du taller, top 1 du
+        beq .eyes               ; higher (unless at the ceiling)
+        dec CY
+        inc Temp
+.eyes:
+        lda CY
+        sta DrawY,x
+        lda Temp
+        sta DrawH,x
+        lda FrameCtr            ; blink: 4 frames closed out of
+        and #$7F                ; every 128 (~every 2 seconds)
+        cmp #4
+        bcc .blink
+        lda CharFace,x
+        bne .faceR
+        cpx Active              ; awake eyes for the active
+        beq .wideL              ; character, narrowed for idle
+        lda #EYES_LSQ
+        bne .setEye
+.wideL:
+        lda #EYES_L
+        bne .setEye
+.faceR:
+        cpx Active
+        beq .wideR
+        lda #EYES_RSQ
+        bne .setEye
+.wideR:
+        lda #EYES_R
+        bne .setEye
+.blink:
+        lda #$FF                ; eyes shut: solid body
+.setEye:
+        sta EyeByte,x
+        dex
+        bpl .each
+
+        ldx #0                  ; Stella's color (P0)
+        jsr CharColor
+        sta COLUP0
+
+        ; ---- the P1 multiplexer: Alex (1) vs Marcus (2) --------
+        ldx #1
+        ldy #2
+        lda DrawY+1
+        cmp DrawY+2
+        bcc .order              ; Alex is the upper one
+        ldx #2
+        ldy #1
+.order:                         ; X = upper, Y = lower
+        lda DrawY,x
+        clc
+        adc DrawH,x
+        sta RepoDU              ; first du past the upper sprite
+        clc
+        adc #2                  ; hop needs 1 du + 1 du of margin
+        cmp DrawY,y
+        bcc .solid
+        beq .solid
+        ; overlap: alternate tenants at 30Hz
+        lda #$FF
+        sta RepoDU
+        lda FrameCtr
+        and #1
+        beq .showAlex
+        ldx #2
+        bne .fill
+.showAlex:
+        ldx #1
+.fill:
+        jsr FillP1              ; P1 = tonight's tenant, whole frame
+        jmp .position
+.solid:
+        lda RepoDU              ; never hop on a band boundary —
+        and #7                  ; that line 1 is busy with PF writes
+        bne .noShift
+        inc RepoDU              ; (gap margin guarantees the +1 fits)
+.noShift:
+        sty Temp
+        jsr FillP1              ; P1 opens as the upper character...
+        ldx Temp                ; ...and hops to the lower at RepoDU
+        lda CharX,x
+        sta P1X2
+        lda DrawY,x
+        sta P1Y2
+        lda DrawH,x
+        sta P1H2
+        lda EyeByte,x
+        sta P1Eye2
+        jsr CharColor
+        sta P1Col2
+        lda NusizTbl,x
+        sta P1Nu2
+
+.position:
+        lda CharX               ; P0 = Stella
+        ldx #0
+        jsr SetHorizPos
+        lda P1XA                ; P1 = its first tenant
+        ldx #1
+        jsr SetHorizPos
+        sta WSYNC
+        sta HMOVE
+        ldx #6                  ; HMCLR must wait 24+ cycles
+.wait:
+        dex
+        bne .wait
+        sta HMCLR
+        rts
+
+; FillP1: X = char. Loads P1's draw slot, color, size and vblank
+; position from that character.
+FillP1:
+        SUBROUTINE
+        lda DrawY,x
+        sta P1Top
+        lda DrawH,x
+        sta P1Hgt
+        lda EyeByte,x
+        sta P1Eye
+        lda CharX,x
+        sta P1XA
+        lda NusizTbl,x
+        sta NUSIZ1              ; Alex doubled, Marcus single
+        jsr CharColor
+        ldy RepoDU              ; 30Hz flicker dims the pair; lift
+        iny                     ; time-shared tenants ($FF -> 0) a
+        bne .noBoost            ; gentle 2 luma. More would whiten
+        clc                     ; the hue into pastel — saturation
+        adc #2                  ; lives at mid luma on the TIA
+.noBoost:
+        sta COLUP1
+        rts
+
+; CharColor: X = char. A = its color, brighter luma when active
+; (game 1's convention).
+CharColor:
+        SUBROUTINE
+        cpx Active
+        beq .bright
+        lda ColDimTbl,x
+        rts
+.bright:
+        lda ColBriTbl,x
+        rts
+
+; A = x pixel (0-159), X = object (0=P0 1=P1)
+SetHorizPos:
+        SUBROUTINE
+        sta WSYNC
+        sec
+.div:
+        sbc #15
+        bcs .div
+        eor #7
+        asl
+        asl
+        asl
+        asl
+        sta HMP0,x
+        sta RESP0,x
+        rts
+
+; ---------------------------------------------------------------
+; GameKernel: 96 double-lines, three characters on two players.
+;
+; Line 1 of each pair: playfield band switch + sky gradient step
+; (both start inside hblank). Line 2: GRP0 (Stella) and GRP1
+; (P1's current tenant), pattern = solid $FF except the eye row.
+;
+; The mid-frame P1 hop takes over exactly one du (two scanlines):
+;   repo line 1: the divide-by-15 RESP1 hit + HMP1 (the game 1
+;     SetHorizPos, inlined so post-WSYNC timing is identical)
+;   repo line 2: HMOVE @3, then Stella still draws, and P1's slot
+;     variables are swapped to the second tenant
+; RepoDU never lands on a band boundary (PrepSprites shifts it),
+; so repo line 2's dec keeps the band counter honest and no PF
+; update is ever missed.
+;
+; Cycle notes (worst cases, 76/line):
+;   line 1, band boundary: 45 — COLUBK @16 (hblank); PF0 @24, one
+;     cycle past the beam but bit 4 (the wall) never changes
+;     between bands so nothing shows; PF1 @32 / PF2 @40 are game
+;     1's proven boundary timing (level data keeps PF1 bits 7-5
+;     and PF2 bits 0-1 quiet across boundaries; the floor line's
+;     $FF rows show the same 1-line corner nick game 1 shipped
+;     with)
+;   line 2, normal: <= 64 (two eye-row draws + loop tail)
+;   repo line 1: <= 72 for x <= 148 — THE TIGHTEST LINE HERE
+;   repo line 2: <= 69
+; ---------------------------------------------------------------
+
+GameKernel:
+        SUBROUTINE
+        ldx #0                  ; X = du counter (all 96 of them)
+        ldy #0                  ; Y = band index (never clobbered)
+        lda #9
+        sta BandLine
+        lda SkyGrad
+        sta COLUBK
+        lda (PF0Ptr),y
+        sta PF0
+        lda (PF1Ptr),y
+        sta PF1
+        lda (PF2Ptr),y
+        sta PF2
+.kloop:
+        sta WSYNC               ; ---- line 1
+        dec BandLine
+        bne .noBand
+        iny                     ; next band:
+        lda SkyGrad,y           ; gradient step (@16, in hblank)
+        sta COLUBK
+        lda (PF0Ptr),y
+        sta PF0                 ; @24 (bit-4 wall constant: safe)
+        lda (PF1Ptr),y
+        sta PF1                 ; @32
+        lda (PF2Ptr),y
+        sta PF2                 ; @40
+        lda #8
+        sta BandLine
+.noBand:
+        sta WSYNC               ; ---- line 2
+        txa                     ; Stella (P0)
+        sec
+        sbc DrawY
+        cmp DrawH
+        bcs .p0off
+        cmp #EYEROW
+        beq .p0eye
+        lda #$FF
+        bne .p0set
+.p0eye:
+        lda EyeByte             ; never zero: blink = solid body
+        bne .p0set
+.p0off:
+        lda #0
+.p0set:
+        sta GRP0
+        txa                     ; P1's current tenant
+        sec
+        sbc P1Top
+        cmp P1Hgt
+        bcs .p1off
+        cmp #EYEROW
+        beq .p1eye
+        lda #$FF
+        bne .p1set
+.p1eye:
+        lda P1Eye
+        bne .p1set
+.p1off:
+        lda #0
+.p1set:
+        sta GRP1
+        inx
+        cpx RepoDU              ; time for the mid-frame P1 hop?
+        beq .repo
+        cpx #SCREEN_DU
+        bne .kloop
+        rts
+
+.repo:
+        lda #0                  ; the old tenant's pattern must die
+        sta GRP1                ; before RESP1 moves the sprite
+        lda P1X2
+        sta WSYNC               ; ---- repo line 1: reposition P1
+        sec                     ; (post-WSYNC timing = SetHorizPos)
+.rdiv:
+        sbc #15
+        bcs .rdiv
+        eor #7
+        asl
+        asl
+        asl
+        asl
+        sta HMP1
+        sta RESP1               ; @<=72 for x<=148: tightest line
+        sta WSYNC               ; ---- repo line 2
+        sta HMOVE               ; @3 — fine shift (costs the usual
+                                ; 8px HMOVE bar at the left edge
+                                ; of this one scanline)
+        dec BandLine            ; line 1's skipped bookkeeping;
+                                ; RepoDU is never a boundary du
+        txa                     ; Stella draws through the hop
+        sec
+        sbc DrawY
+        cmp DrawH
+        bcs .r0off
+        cmp #EYEROW
+        beq .r0eye
+        lda #$FF
+        bne .r0set
+.r0eye:
+        lda EyeByte
+        bne .r0set
+.r0off:
+        lda #0
+.r0set:
+        sta GRP0
+        lda P1Col2              ; P1 becomes the second tenant
+        sta COLUP1
+        lda P1Nu2
+        sta NUSIZ1
+        lda P1Y2
+        sta P1Top
+        lda P1H2
+        sta P1Hgt
+        lda P1Eye2
+        sta P1Eye
+        inx
+        jmp .kloop              ; (repo du is never du 95)
+
+; ---------------------------------------------------------------
+; Character data (index 0 = Stella, 1 = Alex, 2 = Marcus)
+; ---------------------------------------------------------------
+
+HeightTbl:  .byte STELLA_H, ALEX_H, MARCUS_H
+WidthTbl:   .byte 8, 16, 8
+SpeedTbl:   .byte 1, 2, 1           ; Stella slow, Alex fast...
+SpeedHalfTbl: .byte 0, 0, 1         ; ...Marcus 1.5 (the balance)
+MaxXTbl:    .byte 156-8, 156-16, 156-8
+JumpHiTbl:  .byte $FD, $FE, $FD     ; Stella -2.875 (apex ~22 du),
+JumpLoTbl:  .byte $20, $10, $A0     ; Alex -1.9375 (~10),
+                                    ; Marcus -2.375 (~15): highest,
+                                    ; lowest, and in between
+ColBriTbl:  .byte $46, $C8, $86     ; active = brighter luma, but
+ColDimTbl:  .byte $42, $C4, $82     ; kept mid-range: high TIA luma
+                                    ; whitens a hue, it does not
+                                    ; strengthen it
+NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
+OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
+OtherBTbl:  .byte 2, 2, 1           ; for each character
+
+; ---------------------------------------------------------------
+; Per-level palette + gradient shape. One level so far, but the
+; tables are the 8K contract: sky and platform color per level.
+; ---------------------------------------------------------------
+
+LvlSkyTbl:  .byte $62               ; dusk violet at the zenith —
+                                    ; blue is Marcus's color, the
+                                    ; sky must not compete with him
+LvlPFTbl:   .byte $2C               ; warm tan platforms
+GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; brighter toward the
+                                    ; horizon: 5 shades, subtle
+
+; ---------------------------------------------------------------
+; The demo level: "The Meeting Place". Ground, a center pedestal
+; (Marcus starts on it: instant vertical separation), two side
+; ledges and a high center platform — heights picked so Stella,
+; Marcus and Alex each top out at different tiers, and so Alex
+; and Marcus overlap scanlines the moment Marcus hops down.
+; ---------------------------------------------------------------
+
+Level1:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$1F,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$F0,$00,$00,$C0,$C0,$FF
+        .byte 88, 48, 64, 64,  72, $FF    ; box tops
+        .byte 96, 56, 72, 72,  88, $FF    ; box bottoms
+        .byte 0,  64, 28, 112, 72, 0      ; box left
+        .byte 160,96, 48, 132, 88, 0      ; box right (excl)
+        .byte 20, 88-STELLA_H             ; Stella: ground, left
+        .byte 40, 88-ALEX_H               ; Alex: ground, mid-left
+        .byte 76, 72-MARCUS_H             ; Marcus: on the pedestal
 
 ; ---------------------------------------------------------------
 ; Bank 0 hotspots + vectors
@@ -249,10 +1213,10 @@ Bank1Top:
         ENDIF
 
 ; ---------------------------------------------------------------
-; Bank 1 frame loop — the same 262-line skeleton as bank 0, in
-; Marcus blue. Deliberately duplicated rather than shared: once
-; real code moves in, each bank owns its own kernel and the
-; trampolines above are the only common ground.
+; Bank 1 frame loop — still the skeleton's placeholder frame in
+; Marcus blue. Unreachable from the v0.1 demo (fire is jump now,
+; not a bank toggle: decision #9 is still open), but it keeps the
+; plumbing proven and the 8192-byte layout honest.
 ; ---------------------------------------------------------------
 
 Bank1Loop:
@@ -275,7 +1239,7 @@ Bank1Loop:
         jmp ColdStart   ; runs this bank's stub copy -> bank 0
 .noReset:
 
-        lda INPT4       ; fire (edge-triggered) = switch banks
+        lda INPT4       ; fire (edge-triggered) = back to bank 0
         and #$80
         bne .release
         bit FirePrev
