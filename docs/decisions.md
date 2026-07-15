@@ -473,3 +473,33 @@ Game 1, the authentic and cheap route is a free console switch (e.g. the B/W–C
 the right difficulty switch), not a menu. Progression: **G1** console switches → **G2** a
 proper title screen, still mostly switch-driven → **G3** a real navigable on-screen menu →
 **G4** full settings. The menu grows up as the hardware does.
+
+## 23. The Eye Motif — Awareness Made Visible Across the Generations
+
+**Question:** The Game 2 characters gained eyes (two dark pixels — bits turned off in
+the sprite) that Game 1's solid blocks never had. Is this just presentation, or a
+thematic thread worth deliberately carrying — and how much do we spell it out?
+
+**Considerations:**
+- The series' founding thesis (creative-brief.md): "As the hardware capabilities expand,
+  so does the characters' awareness of their world." The eyes are that sentence, drawn.
+- The eyes were added intentionally (facing + blink, for personality); the *artful* move is
+  to let the fiction present them as an awakening rather than a feature — the same
+  limitation-wearing-the-mask-of-emergence move the series makes everywhere (Space
+  Invaders' lockstep march; Flicker's blink)
+- It dovetails with the already-planned Marcus wake-up opening, where his eyes *appearing*
+  is the moment he wakes
+
+**Status:** DECIDED (2026-07-16) — **Carry it, subtly.** The eye is the visible index of the
+series' awareness arc, and detail *grows* with the ROM (more bits = more awareness), never
+shrinks:
+- **G1 (4K):** solid blocks, no eyes — blind, unaware, pure existence ("she didn't know why").
+- **G2 (8K):** eyes open — they can *see each other*, which is *why* connection is this
+  game's theme. Sight = the dawn of awareness. Marcus's eyes appearing = waking.
+- **G3 (16K):** the eyes do more (track, react, emote); Flicker exists at the edge of
+  visibility, half-aware it is half-there.
+- **G4 (ARM):** the eyes look *out* at the player — meta-awareness of the medium itself.
+
+Document it only through the *manuals* — one quiet line each, so a reader of all four joins
+the dots without being lectured (Game 2's could be simply "They can see each other now").
+Never state the mechanism (that the eyes are unlit sprite bits); let it read as awakening.
