@@ -1647,6 +1647,9 @@ CheckGoal:
 ; bands of its plane (PortalPlaneTbl selects PF1Ram=0 or PF2Ram=12;
 ; the floor band, base+11, is left solid). One bit, but the mirrored
 ; playfield draws it as a column on each half of the screen.
+; A plain ~0.5 s blink — smaller than the shimmer it replaced, and a
+; quiet foreshadow of Flicker (game 3): the portal, too, is only ever
+; half-present.
 ; ---------------------------------------------------------------
 
 BlinkPortal:
@@ -1654,15 +1657,17 @@ BlinkPortal:
         lda FloorIdx
         beq .done
         ldy FloorIdx
+        lda FrameCtr
+        and #%00010000          ; ~0.5 s on, 0.5 s off at 60 Hz
+        beq .off
         lda PortalMaskTbl,y
-        sta Temp                ; the portal bit for this floor
+        jmp .have
+.off:
+        lda #0
+.have:
+        sta Temp                ; portal bit to OR in this frame
         lda PortalClrTbl,y
         sta CY                  ; the knock-out mask (scratch)
-        lda FrameCtr            ; shimmer phase: a dark notch that
-        lsr                     ; flows down the column so it always
-        lsr                     ; reads as an active portal, never a
-        lsr                     ; blinked-off gate (~8 frames/step)
-        sta NewX
         lda PortalPlaneTbl,y
         clc
         adc #10
@@ -1670,19 +1675,8 @@ BlinkPortal:
         ldy #11
 .loop:
         lda PFRam,x
-        and CY                  ; always clear the old portal bit
-        pha                     ; band cleared of portal, walls kept
-        tya                     ; this band + phase: 1 in 4 stays
-        clc                     ; dark, and the dark band flows
-        adc NewX
-        and #3
-        beq .dark               ; leave this band's portal bit off
-        pla
-        ora Temp                ; lit band: OR the portal bit back in
-        jmp .put
-.dark:
-        pla
-.put:
+        and CY                  ; clear the old portal bit, keep walls
+        ora Temp
         sta PFRam,x
         dex
         dey
