@@ -1922,6 +1922,74 @@ P1Boxes:
         .byte 160,160,  0,  0,  0,  0
 
 ; ---------------------------------------------------------------
+; WP1 "both at once" — wrap AND portal composed on ONE floor.
+;
+; This is the first taste of Game 2's layering (decisions.md #18):
+; wrap is the always-on baseline, the portal layers on top. WP1 fuses
+; W1's mechanism and P1's, unchanged, purely through the per-floor data
+; tables — WrapTbl[6]=1 (open, modular edges via ReadInput's .wrapEdge)
+; AND TeleportTbl[6]=1 (UP runs DoTeleport). Single world, bank 0 only,
+; mirrored playfield, Stella-only, pulsing red goal.
+;
+; The screen (all features mirror-clean — on the axis or full width, so
+; every reflection COMPLETES a feature instead of doubling it):
+;   - a FULL-HEIGHT central WALL on the mirror axis (PF2 bit7 -> px 76-79,
+;     reflected flush to px 80-83 = one 8px pillar). It reaches the ceiling
+;     (can't be jumped over) and splits BOTH the ground and the shelf into
+;     a left half and a right half. This is W1's wall, verbatim.
+;   - a FULL-WIDTH floating SHELF on band 4 (collision top 32) carrying the
+;     pulsing goal on its RIGHT half (x 112). It floats at ~22 du above the
+;     jump apex, so it is unreachable by walking or jumping — only a portal
+;     lift reaches it. This is P1's shelf, verbatim.
+;   - OPEN left/right edges (PF0 top bands clear, as W1) so x is modular:
+;     walk off one edge, arrive at the other — the ONLY way around the wall.
+;   - the ONE mirrored portal bit (PF1 bit3 -> px 32-35 and px 124-127) draws
+;     two shimmer columns, one each side of the wall. Each column is a
+;     vertical LIFT to its own side's shelf half: left col -> LEFT shelf,
+;     right col -> RIGHT shelf (the goal side).
+;
+; WHY IT NEEDS BOTH (the composition — proved by tools/check_levels.py):
+;   Stella starts on the left ground (x 16). The wall blocks the direct
+;   walk right; the shelf is too high to jump. The goal sits on the RIGHT
+;   shelf, past the wall.
+;     * The near (LEFT) column lifts her only to the LEFT shelf — walled
+;       off from the goal. A dead climb on its own.
+;     * The far (RIGHT) column lifts to the goal side, but it is past the
+;       wall: she must WRAP (off the left edge, arrive the right edge) to
+;       reach it, THEN teleport up. Wrap gets her around; the portal gets
+;       her up. Two composing routes, both needing BOTH verbs:
+;         GROUND route: wrap left->right on the ground, ride the right
+;                       column up to the goal shelf.
+;         SKY route:    ride the left column to the left shelf, then wrap
+;                       across the sky (the shelf is full width) to the goal.
+;   Neither verb alone finishes: with the edges walled (no wrap) she is
+;   trapped in the left half; with no portal she can never leave the ground.
+; ---------------------------------------------------------------
+
+; PF0 (frame+floor): OPEN edges (top bands clear -> wrap), the shelf band
+; 4 filled full ($F0), the floor band $F0.
+PF0ArtWP1:
+        .byte $00,$00,$00,$00,$F0,$00,$00,$00,$00,$00,$00,$F0
+
+; World-A PF1[12] then PF2[12]. PF1: shelf band 4 ($FF) + floor ($FF); the
+; portal bit blinks into bands 0-10 live via BlinkPortal, drawing the two
+; columns. PF2: the full-height central wall (bit7) through bands 0-10,
+; the shelf band ($FF) and floor ($FF).
+WAArtWP1:
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+        .byte $80,$80,$80,$80,$FF,$80,$80,$80,$80,$80,$80,$FF
+
+; WP1 collision boxes (SoA: 6 tops, 6 bottoms, 6 lefts, 6 rights):
+; full-width ground (top 88) + full-width floating shelf (top 32, bot 40)
+; + the full-height central wall (px 76-84, top 0 down to the floor 88).
+; Single world, so BoxB points here too.
+WP1Boxes:
+        .byte 88, 32,  0, $FF,$FF,$FF
+        .byte 96, 40, 88, $FF,$FF,$FF
+        .byte  0,  0, 76,   0,  0,  0
+        .byte 160,160,84,   0,  0,  0
+
+; ---------------------------------------------------------------
 ; Bank 0 hotspots + vectors
 ; ---------------------------------------------------------------
 
@@ -2091,8 +2159,8 @@ CopyBWorker:
         bpl .cw
         jmp GoBackBank0
 
-WBArtLoTbl: .byte 0, <WBArtT1, <WBArtT2, <WBArtT3, <WBArtWrap, <WBArtP1
-WBArtHiTbl: .byte 0, >WBArtT1, >WBArtT2, >WBArtT3, >WBArtWrap, >WBArtP1
+WBArtLoTbl: .byte 0, <WBArtT1, <WBArtT2, <WBArtT3, <WBArtWrap, <WBArtP1, <WBArtWP1
+WBArtHiTbl: .byte 0, >WBArtT1, >WBArtT2, >WBArtT3, >WBArtWrap, >WBArtP1, >WBArtWP1
 
 ; World B PF1[12] then PF2[12] per toggle floor. Floor band solid in
 ; both planes; the interior is what the switch reveals.
@@ -2121,6 +2189,11 @@ WBArtWrap:
 WBArtP1:
         .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
         .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+; WP1: never fetched (single world, bank 0, wrap+portal never switch a
+; world). A copy of its world-A art keeps the F8 table uniform.
+WBArtWP1:
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+        .byte $80,$80,$80,$80,$FF,$80,$80,$80,$80,$80,$80,$FF
 
 ; ---------------------------------------------------------------
 ; Bank 1 hotspots + vectors (identical to bank 0's: whichever

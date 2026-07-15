@@ -16,6 +16,12 @@ Both proofs must hold or the build fails: (a) guarantees the floor can
 be finished, (b) guarantees the toggle is the reason — that the floor
 is a genuine decision gate, not solvable by ordinary platforming.
 
+Later floors specialise this: W1 swaps the toggle for screen-wrap edges
+(modular x), P1 swaps it for an in-screen portal (teleport to the linked
+mouth), and WP1 runs BOTH wrap AND portal on one floor — proved to need
+each verb (solvable with both; unsolvable with either one removed), i.e.
+the two mechanics genuinely COMPOSE rather than merely coexist.
+
 Collision rules modelled exactly (as Game 1):
 - solid boxes (top < bottom): block sideways movement (ClampBoxes,
   boxes iterated 5..0 with the pushed x cascading, 8-bit wrap on the
@@ -315,8 +321,48 @@ def main():
     failed = False
     wrap_n = 0
     portal_n = 0
+    wp_n = 0
     for fl in floors:
         sim = Sim(fl, phys)
+        if fl["teleport"] and fl["wrap"]:
+            # WP1 "both at once": wrap AND portal on ONE floor. Prove the
+            # two verbs COMPOSE — that the floor is load-bearing on BOTH,
+            # not solvable by either alone. The wrap flag drives the
+            # engine's modular-x edges (clamp_x); the teleport flag drives
+            # the in-screen portal (UP -> the linked mouth). Three runs:
+            #   both  = wrap ON  + portal ON  -> must be SOLVABLE
+            #   wrap  = wrap OFF + portal ON  -> must be UNSOLVABLE (a
+            #           portal that only lifts you to a walled-off shelf
+            #           half; without wrap you cannot reach the goal side)
+            #   port  = wrap ON  + portal OFF -> must be UNSOLVABLE (you
+            #           can wrap all around the ground but never rise to
+            #           the floating goal shelf without the portal lift)
+            wp_n += 1
+            name = "WP%d" % wp_n
+            sim.wrap_active = True
+            both = sim.reachable(allow_switch=True)
+            no_portal = sim.reachable(allow_switch=False)
+            sim.wrap_active = False
+            no_wrap = sim.reachable(allow_switch=True)
+            ok = both and not no_wrap and not no_portal
+            print("FLOOR %s: wrap+portal -> %s ; portal only (no wrap) -> "
+                  "%s ; wrap only (no portal) -> %s : %s"
+                  % (name,
+                     "SOLVABLE" if both else "unsolvable",
+                     "SOLVABLE" if no_wrap else "unsolvable",
+                     "SOLVABLE" if no_portal else "unsolvable",
+                     "ok (wrap AND portal both required — they compose)"
+                     if ok else "FAIL"))
+            if not both:
+                print("  FAIL: %s not solvable even with both verbs" % name)
+            if no_wrap:
+                print("  FAIL: %s solvable with the portal ALONE — wrap "
+                      "is not load-bearing" % name)
+            if no_portal:
+                print("  FAIL: %s solvable with wrap ALONE — the portal "
+                      "is not load-bearing" % name)
+            failed = failed or not ok
+            continue
         if fl["teleport"]:
             # In-screen portal floor: prove the puzzle needs the portal.
             # With the portal ON the goal (on a floating high shelf) is
