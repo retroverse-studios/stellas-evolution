@@ -26,7 +26,7 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v1.0-rc1 — release candidate
+## Status: v1.0-rc2.1 — release candidate
 
 The ROM is frozen pending real-hardware validation. Final form: **Game 1
 (The Story)** — 10 levels, then the world turns upside down for 10 more,
