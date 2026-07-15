@@ -48,9 +48,13 @@
 ;               toggle floors (T1-T3); on the portal floors (P1, WP1)
 ;               instead TELEPORT to the linked column's mouth (same
 ;               world). WP1 also has W1's open, wrapping left/right edges
-;   Down+Fire   cycle Stella -> Alex -> Marcus (Meeting Place only;
-;               the toggle floors are Stella-only, so it is a no-op)
-;   SELECT      advance to the next floor (prototype UI)
+;   Down+Fire   cycle Stella -> Alex -> Marcus (the three-character
+;               floors: the Meeting Place and Act 1 Floor 1; the
+;               Stella-only toggle floors make it a no-op)
+;   SELECT      advance to the next floor (prototype UI). The active
+;               (player-controlled) character always draws on P0 (solid,
+;               never flickers); the two idle characters share P1.
+;   SELECT count from boot: 7 presses reaches Act 1 Floor 1
 ;   RESET       cold start
 ; ---------------------------------------------------------------
 
@@ -74,10 +78,17 @@ SKY_LINES   = 176       ; bank 1's placeholder kernel shape
 FLOOR_LINES = 16
 
 ; --- decision-gate (#9) toggle-floor constants -------------------
-NUM_FLOORS  = 7         ; 0 = Meeting Place; 1-3 = toggle floors T1-T3;
+NUM_FLOORS  = 8         ; 0 = Meeting Place; 1-3 = toggle floors T1-T3;
                         ; 4 = W1, the screen-wrap prototype floor;
                         ; 5 = P1, the in-screen portal (teleport) floor;
-                        ; 6 = WP1, wrap AND portal composed on one floor
+                        ; 6 = WP1, wrap AND portal composed on one floor;
+                        ; 7 = Act 1 Floor 1 "Together Again" (FLOOR1_IDX):
+                        ;     the first REAL floor — three characters,
+                        ;     three per-colour homes, one cooperative beat
+FLOOR1_IDX  = 7         ; Act 1 Floor 1 "Together Again": the first REAL
+                        ; floor — three characters, per-colour homes,
+                        ; appended after the six prototype floors.
+FLOOR1_SKY  = $62       ; Act 1 dusk violet (blue stays Marcus's alone)
 PORTAL_BIT  = $08       ; PF1 bit 3: the blinking portal column
 PORTAL_CLR  = $F7       ; ~PORTAL_BIT, to knock the portal bit out
 SKYA_BASE   = $34       ; world A warm sky base (brightens DOWNward,
@@ -198,13 +209,29 @@ Temp        ds 1
 ; differs between worlds) live here — 24 bytes, the header's plan.
 PFRam       ds 24       ; PF1Ram[12] then PF2Ram[12] (PF2Ram=PFRam+12)
 FloorIdx    ds 1        ; 0 = Meeting Place; >=1 = a toggle floor
-GoalHit     ds 1        ; unused pad / room for later floor state
 UpPrev      ds 1        ; edge latch for the UP switch verb
 SelectPrev  ds 1        ; edge latch for SELECT (advance floor)
 ActiveM1    ds 1        ; physics loop bound: 2 on floor 0, 0 elsewhere
 PFColor     ds 1        ; COLUPF for the current floor+world
 SrcPtr      ds 2        ; scratch pointer for the world-art copy
 WrapMode    ds 1        ; per-floor edge mode: 0 = clamp, 1 = screen-wrap
+; --- active->P0 slot: the kernel draws P0 from these, filled each
+; vblank from whichever character is ACTIVE. So the player-controlled
+; character is always the solid, never-flickering P0; the two inactive
+; characters time-share P1 (they flicker only when they overlap each
+; other). On the Stella-only prototype floors Active=0=Stella, so P0
+; stays Stella exactly as before.
+P0Top       ds 1
+P0Hgt       ds 1
+P0Eye       ds 1
+; --- per-band platform color (COLUPF). The kernel steps COLUPF per
+; band from a 12-byte ROM table via this pointer (parallel to how it
+; steps COLUBK from SkyGrad) — so a floor can tint individual bands.
+; Floor 1 points it at a table that paints each character's home ledge
+; its own colour (repointed each frame between a bright/dim pair to
+; make the homes pulse); every other floor points it at a uniform
+; 12x PFColor table, so nothing changes visually there.
+PFColPtr    ds 2
 
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
@@ -432,6 +459,10 @@ LoadLevel:
         sta ActiveM1
         lda LvlPFTbl            ; warm tan platforms, as v0.1
         sta PFColor
+        lda #<AllPFA            ; uniform per-band COLUPF (no marker tint)
+        sta PFColPtr
+        lda #>AllPFA
+        sta PFColPtr+1
         rts
 
 ; ---------------------------------------------------------------
@@ -526,8 +557,11 @@ ReadInput:
         sta SoundT
         jmp .pressed
 .switch:
-        lda FloorIdx            ; toggle floors are Stella-only:
-        bne .pressed            ; Down+Fire cycling is a no-op there
+        lda FloorIdx            ; cycling works on the three-character
+        beq .doCycle            ; floors (0 and Floor 1); the Stella-only
+        cmp #FLOOR1_IDX         ; toggle floors 1-6 make it a no-op
+        bne .pressed
+.doCycle:
         lda Active              ; the game 1 switch verb, extended:
         clc                     ; Stella -> Alex -> Marcus -> ...
         adc #1
@@ -926,6 +960,23 @@ UpdateSound:
 
 PrepSprites:
         SUBROUTINE
+        lda FloorIdx            ; Floor 1: pulse the home ledges by
+        cmp #FLOOR1_IDX         ; swapping the per-band COLUPF table
+        bne .noPulse            ; between a bright and a dim copy
+        lda FrameCtr
+        and #$10                ; ~0.5s on / 0.5s off
+        beq .pulseDim
+        lda #<Floor1PFBri
+        sta PFColPtr
+        lda #>Floor1PFBri
+        sta PFColPtr+1
+        jmp .noPulse
+.pulseDim:
+        lda #<Floor1PFDim
+        sta PFColPtr
+        lda #>Floor1PFDim
+        sta PFColPtr+1
+.noPulse:
         ldx #NUM_CHARS-1
 .each:
         lda HeightTbl,x
@@ -978,24 +1029,38 @@ PrepSprites:
         dex
         bpl .each
 
-        ldx #0                  ; Stella's color (P0)
-        jsr CharColor
+        ldx Active              ; P0 = the ACTIVE character: solid,
+        lda DrawY,x             ; never multiplexed, so it never
+        sta P0Top               ; flickers. The two INACTIVE characters
+        lda DrawH,x             ; time-share P1 below.
+        sta P0Hgt
+        lda EyeByte,x
+        sta P0Eye
+        lda NusizTbl,x
+        sta NUSIZ0              ; active may be Alex (double width)
+        jsr CharColor           ; active = bright luma
         sta COLUP0
 
-        lda FloorIdx            ; toggle floors: P1 is the goal
-        beq .mux                ; marker, not Alex/Marcus
+        lda FloorIdx            ; prototype floors 1-6: P1 is the single
+        beq .mux                ; goal marker, not the inactive pair.
+        cmp #FLOOR1_IDX         ; floor 0 and Floor 1 (idx 7) run all
+        beq .mux                ; three characters -> the P1 multiplexer.
         jsr PrepGoal
         jmp .position
 
-        ; ---- the P1 multiplexer: Alex (1) vs Marcus (2) --------
+        ; ---- the P1 multiplexer: the two INACTIVE characters ----
 .mux:
-        ldx #1
-        ldy #2
-        lda DrawY+1
-        cmp DrawY+2
-        bcc .order              ; Alex is the upper one
-        ldx #2
-        ldy #1
+        ldy Active
+        ldx OtherATbl,y         ; the two characters that are NOT active
+        lda OtherBTbl,y         ; (OtherA/B already list "the other two")
+        tay
+        lda DrawY,x             ; order them by drawn top:
+        cmp DrawY,y
+        bcc .order              ; X already the upper one
+        stx Temp                ; else swap X <-> Y
+        tya
+        tax
+        ldy Temp
 .order:                         ; X = upper, Y = lower
         lda DrawY,x
         clc
@@ -1006,16 +1071,14 @@ PrepSprites:
         cmp DrawY,y
         bcc .solid
         beq .solid
-        ; overlap: alternate tenants at 30Hz
+        ; overlap: alternate the two inactive tenants at 30Hz
         lda #$FF
         sta RepoDU
         lda FrameCtr
         and #1
-        beq .showAlex
-        ldx #2
-        bne .fill
-.showAlex:
-        ldx #1
+        beq .fill               ; even frame: show X (the upper one)
+        tya                     ; odd frame: show Y (the lower one)
+        tax
 .fill:
         jsr FillP1              ; P1 = tonight's tenant, whole frame
         jmp .position
@@ -1042,7 +1105,8 @@ PrepSprites:
         sta P1Nu2
 
 .position:
-        lda CharX               ; P0 = Stella
+        ldx Active              ; P0 = the active character
+        lda CharX,x
         ldx #0
         jsr SetHorizPos
         lda P1XA                ; P1 = its first tenant
@@ -1147,6 +1211,8 @@ GameKernel:
         sta BandLine
         lda SkyGrad
         sta COLUBK
+        lda (PFColPtr),y        ; band 0 platform colour
+        sta COLUPF
         lda (PF0Ptr),y
         sta PF0
         lda (PF1Ptr),y
@@ -1166,21 +1232,23 @@ GameKernel:
         sta PF1                 ; @32
         lda (PF2Ptr),y
         sta PF2                 ; @40
-        lda #8
+        lda (PFColPtr),y        ; @48 platform colour for this band —
+        sta COLUPF              ; Floor 1 tints its centred home ledges
+        lda #8                  ; (px 76-83, drawn @48+) their own colour
         sta BandLine
 .noBand:
         sta WSYNC               ; ---- line 2
-        txa                     ; Stella (P0)
+        txa                     ; active character (P0)
         sec
-        sbc DrawY
-        cmp DrawH
+        sbc P0Top
+        cmp P0Hgt
         bcs .p0off
         cmp #EYEROW
         beq .p0eye
         lda #$FF
         bne .p0set
 .p0eye:
-        lda EyeByte             ; never zero: blink = solid body
+        lda P0Eye               ; never zero: blink = solid body
         bne .p0set
 .p0off:
         lda #0
@@ -1231,17 +1299,17 @@ GameKernel:
                                 ; of this one scanline)
         dec BandLine            ; line 1's skipped bookkeeping;
                                 ; RepoDU is never a boundary du
-        txa                     ; Stella draws through the hop
+        txa                     ; P0 (active) draws through the hop
         sec
-        sbc DrawY
-        cmp DrawH
+        sbc P0Top
+        cmp P0Hgt
         bcs .r0off
         cmp #EYEROW
         beq .r0eye
         lda #$FF
         bne .r0set
 .r0eye:
-        lda EyeByte
+        lda P0Eye
         bne .r0set
 .r0off:
         lda #0
@@ -1339,8 +1407,14 @@ LoadFloor:
         lda WrapTbl,x           ; per-floor edge mode (0 clamp / 1 wrap)
         sta WrapMode
         lda FloorIdx
-        bne LoadToggleFloor
-        jmp LoadLevel           ; floor 0: the v0.1 sandbox, intact
+        beq .toLevel            ; floor 0: the v0.1 sandbox, intact
+        cmp #FLOOR1_IDX
+        bne .toToggle
+        jmp LoadFloor1          ; floor 7: Act 1 Floor 1 (three chars)
+.toToggle:
+        jmp LoadToggleFloor     ; floors 1-6: the Stella-only prototypes
+.toLevel:
+        jmp LoadLevel
 
 ; ---------------------------------------------------------------
 ; LoadToggleFloor: place Stella, point the kernel at PF0 art + the
@@ -1364,7 +1438,6 @@ LoadToggleFloor:
         sta CurBank             ; every floor opens in world A
         sta SoundId
         sta SoundT
-        sta GoalHit
         sta ActiveM1            ; Stella-only physics
         sta NUSIZ0
         sta VDELP0
@@ -1451,6 +1524,10 @@ SetPalette:
         bne .worldB
         lda #PFA_COLOR
         sta PFColor
+        lda #<AllPFA            ; uniform warm-tan per-band COLUPF
+        sta PFColPtr
+        lda #>AllPFA
+        sta PFColPtr+1
         ldx #11
 .aloop:
         lda GradOfs,x
@@ -1463,6 +1540,10 @@ SetPalette:
 .worldB:
         lda #PFB_COLOR
         sta PFColor
+        lda #<AllPFB            ; uniform cool blue-grey per-band COLUPF
+        sta PFColPtr
+        lda #>AllPFB
+        sta PFColPtr+1
         ldx #11
         ldy #0
 .bloop:
@@ -1485,6 +1566,8 @@ ReadSwitch:
         SUBROUTINE
         lda FloorIdx
         beq .done               ; floor 0 has no portals
+        cmp #FLOOR1_IDX
+        beq .done               ; Floor 1: no portals, no world-swap
         lda SWCHA
         and #%00010000          ; UP (active low)
         bne .release
@@ -1600,6 +1683,10 @@ CheckGoal:
         SUBROUTINE
         lda FloorIdx
         beq .done
+        cmp #FLOOR1_IDX
+        bne .notF1
+        jmp CheckGoal3          ; Floor 1: all three on their own homes
+.notF1:
         lda OnGround            ; the marker only counts when Stella is
         beq .done               ; STANDING on it — never mid-jump
         ldx FloorIdx
@@ -1656,6 +1743,8 @@ BlinkPortal:
         SUBROUTINE
         lda FloorIdx
         beq .done
+        cmp #FLOOR1_IDX
+        beq .done               ; Floor 1 has no portal column to pulse
         ldy FloorIdx
         lda FrameCtr
         and #%00010000          ; ~0.5 s on, 0.5 s off at 60 Hz
@@ -1734,7 +1823,7 @@ Portal2RTbl: .byte   255, 255,  115,  255,  255,  129,  129   ; = right column
 PortalPlaneTbl: .byte  0,   0,   12,    0,    0,    0,    0   ; PF1Ram=0
 PortalMaskTbl:  .byte  0, $08,  $01,  $02,  $00,  $08,  $08   ; PF1 bit3 pair
 PortalClrTbl:   .byte  0, $F7,  $FE,  $FD,  $FF,  $F7,  $F7   ; (~mask)
-WrapTbl:    .byte      0,   0,    0,    0,    1,    0,    1   ; WP1: wrap ON
+WrapTbl:    .byte      0,   0,    0,    0,    1,    0,    1,  1  ; F1: wrap ON
 
 ; --- portal-teleport data (floors 5 P1 and 6 WP1 are teleport floors) ----
 ; TeleportTbl picks the UP verb: 0 = world-swap (T*), 1 = in-screen
@@ -1982,6 +2071,174 @@ WP1Boxes:
         .byte 96, 40, 88, $FF,$FF,$FF
         .byte  0,  0, 76,   0,  0,  0
         .byte 160,160,84,   0,  0,  0
+
+; ===============================================================
+; ACT 1, FLOOR 1 — "Together Again" (FLOOR1_IDX = 7)
+;
+; The first REAL floor. All three characters, controllable (Down+Fire
+; cycles Stella -> Alex -> Marcus), on a clean mirrored screen with
+; wrap ON. Three per-colour HOMES form a central totem: three centred
+; 8px one-way ledges (px 76-83, drawn by PF2 bit7 mirrored) stacked at
+; three heights, each tinted its owner's colour by the kernel's per-band
+; COLUPF (red = Stella top ledge 76, blue = Marcus mid ledge 68, green =
+; Alex high ledge 60). The floor completes only when ALL THREE stand on
+; their own-colour ledge (CheckGoal3).
+;
+; The cooperative beat (gentle — one beat): Alex's weak jump (~10 du)
+; cannot reach the first ledge (top 76, a 12 du rise) from the ground,
+; while Marcus (~15) and Stella (~22) can. So a friend must stand on the
+; centre ground as a stepstool; Alex hops onto their head and up onto the
+; ledge, then climbs 76 -> 68 -> 60 to his green home. The booster then
+; climbs to its own home. tools/check_levels.py proves Alex needs the
+; boost (unsolvable solo, solvable with a helper) while Stella and Marcus
+; finish alone — a genuine, load-bearing "not alone" beat.
+; ===============================================================
+
+; LoadFloor1: place the three characters on the ground, point the kernel
+; at the Floor-1 record (PF art + one-way ledges + spawns), run all three
+; through physics, and build the Act 1 sky + the pulsing home palette.
+LoadFloor1:
+        SUBROUTINE
+        lda #<Floor1Rec
+        sta PF0Ptr
+        lda #>Floor1Rec
+        sta PF0Ptr+1
+        lda PF0Ptr              ; PF1 <- +12, PF2 <- +24, boxes <- +36
+        clc
+        adc #12
+        sta PF1Ptr
+        lda PF0Ptr+1
+        adc #0
+        sta PF1Ptr+1
+        lda PF0Ptr
+        clc
+        adc #24
+        sta PF2Ptr
+        lda PF0Ptr+1
+        adc #0
+        sta PF2Ptr+1
+        lda PF0Ptr
+        clc
+        adc #36
+        sta PlatPtr
+        lda PF0Ptr+1
+        adc #0
+        sta PlatPtr+1
+
+        ldy #60                 ; three spawn points (SX,SY,AX,AY,MX,MY)
+        ldx #0
+.spawn:
+        lda (PF0Ptr),y
+        sta CharX,x
+        iny
+        lda (PF0Ptr),y
+        sta CharY,x
+        iny
+        inx
+        cpx #NUM_CHARS
+        bne .spawn
+
+        ldx #NUM_CHARS-1
+.zero:
+        lda #0
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+        sta SquashT,x
+        lda #1
+        sta OnGround,x
+        sta CharFace,x          ; everyone wakes facing right
+        dex
+        bpl .zero
+        lda #0
+        sta Active
+        sta SoundId
+        sta SoundT
+        sta CurBank
+        sta NUSIZ0
+        sta VDELP0
+        sta VDELP1
+        lda #2                  ; all three characters have physics
+        sta ActiveM1
+
+        lda #FLOOR1_SKY         ; Act 1 dusk sky -> banded gradient
+        sta Temp
+        ldx #11
+.grad:
+        lda GradOfs,x
+        clc
+        adc Temp
+        sta SkyGrad,x
+        dex
+        bpl .grad
+        lda #PFA_COLOR
+        sta PFColor
+        lda #<Floor1PFDim       ; PrepSprites re-picks bright/dim per frame
+        sta PFColPtr
+        lda #>Floor1PFDim
+        sta PFColPtr+1
+        rts
+
+; CheckGoal3: Floor 1 completes only when EACH character is grounded on
+; ITS OWN colour ledge. A grounded character's CharY is exactly its
+; ledge-top minus its height, and each ledge sits at a unique height, so
+; matching CharY to the per-character home value uniquely identifies "on
+; its own ledge" (standing on the ground or on a friend's ledge/head all
+; give a different CharY). All three match -> advance to the next floor.
+CheckGoal3:
+        SUBROUTINE
+        ldx #NUM_CHARS-1
+.loop:
+        lda OnGround,x
+        beq .done               ; someone airborne: not yet
+        lda CharY,x
+        cmp Floor1HomeCharY,x
+        bne .done               ; someone not on its own home ledge
+        dex
+        bpl .loop
+        inc FloorIdx            ; all three home: next floor (wraps)
+        lda FloorIdx
+        cmp #NUM_FLOORS
+        bcc .adv
+        lda #0
+        sta FloorIdx
+.adv:
+        jsr LoadFloor
+.done:
+        rts
+
+; Per-character CharY when standing on its own home ledge (ledge top
+; minus character height): Stella 76-9, Alex 60-3, Marcus 68-6.
+Floor1HomeCharY:  .byte 67, 57, 62
+
+; Uniform per-band COLUPF tables (no marker tint) for every other floor:
+; world A warm tan, world B cool blue-grey. The kernel steps COLUPF from
+; one of these so those floors look exactly as before.
+AllPFA:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C
+AllPFB:  .byte $A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8,$A8
+
+; Floor 1 per-band COLUPF: platform tan everywhere except the three home
+; bands — band 7 = Alex green, band 8 = Marcus blue, band 9 = Stella red.
+; PrepSprites swaps between these two copies ~2x/second so the homes pulse.
+Floor1PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$CC,$8A,$4A,$2C,$2C
+Floor1PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$C8,$86,$46,$2C,$2C
+
+; The Floor-1 level record (same 66-byte layout as Level1). Open frame
+; (wrap), a full-width floor, and three centred one-way home ledges.
+;   PF0: open edges (top bands clear so x wraps); floor band = $F0
+;   PF1: floor band only ($FF); the outer floor half
+;   PF2: home-ledge bit7 on bands 7/8/9 (px 76-83 via the mirror); floor $FF
+Floor1Rec:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$80,$80,$80,$00,$FF
+        .byte  88, 76, 68, 60, $FF,$FF    ; box tops  (ledges one-way:
+        .byte  96, 76, 68, 60, $FF,$FF    ; box bottoms   top == bottom)
+        .byte   0, 76, 76, 76,   0,   0   ; box lefts
+        .byte 160, 84, 84, 84,   0,   0   ; box rights (excl)
+        .byte 20, 79                      ; Stella: ground, left
+        .byte 40, 85                      ; Alex: ground, mid-left
+        .byte 60, 82                      ; Marcus: ground, centre-left
 
 ; ---------------------------------------------------------------
 ; Bank 0 hotspots + vectors
