@@ -7,13 +7,32 @@ physics to prove each character can reach its goal — including via a
 boost from the other character's head, and including exit-order
 constraints (the booster must be able to finish after the boosted).
 
-Conservative approximations (may reject a humanly-solvable level, but
-never approves an unsolvable one, with one caveat*):
-- air control is a constant direction per jump/fall (L/R/none)
-- boosts assume the partner can stand anywhere in the contiguous span
-  of their reachable footing on each surface (*caveat: if a partner's
-  footing on one surface has gaps, a boost from inside a gap would be
-  wrongly allowed — our levels have no such gaps)
+Engine collision rules modelled exactly (v1.0-rc2):
+- solid boxes (top < bottom): block sideways movement (ClampBoxes,
+  boxes iterated 5..0 with the pushed x cascading into earlier boxes,
+  8-bit wrap on the left-edge push, then the unsigned MIN_X / MaxX
+  clamp), head-bonk while rising (first hit in 5..0 order wins), and
+  land-on-top while falling
+- one-way shelves (top == bottom) and $FF pads: land-on-top only —
+  never block sideways, never bonk
+- the partner's head is a one-way landing surface checked only after
+  every box has missed, exactly like .landLoop's fall-through
+
+Deliberate abstraction gaps (documented, not bugs):
+- air control is a constant direction per jump/fall (L/R/none); the
+  engine allows per-frame steering, so this is conservative
+- the helper is modelled as static head surfaces over each contiguous
+  run of its reachable footing (gap tolerance = its walk stride); the
+  helper's own movement/exit isn't co-simulated — exit-order logic
+  below covers who must still finish alone
+- helpers aren't stacked recursively (no boost-to-boost), which is
+  conservative
+- timers (timed mode / endless clock) are ignored: levels are a few
+  seconds across, never time-bound
+- quest 2 (upside-down second run) flips only the KERNEL VIEW
+  (Band0/BandStep, CharDrawY, FlipG); UpdatePhysics/ClampBoxes read
+  the same level record either way, so solvability is orientation-
+  invariant and one simulation proves both orientations
 
 Usage: python3 tools/check_levels.py build/stella-was-alone.bin build/main.sym src/main.asm
 """
@@ -95,29 +114,45 @@ class Sim:
         self.extra = []  # (top, left, right) one-way head surfaces
 
     def clamp_x(self, x, new_x, y, direction):
+        """Engine ClampBoxes + ReadInput's clamp, cycle-exact:
+        boxes are walked 5..0 with NewX cascading between them, the
+        left-edge push (LV - width) wraps 8-bit, and the final MIN_X /
+        MaxX comparison is unsigned (a wrapped push can land at MaxX,
+        never below MIN_X)."""
         lvl = self.lvl
         cyh = y + self.h
-        for i in lvl.boxes:
+        new_x &= 0xFF
+        for i in range(NUM_BOXES - 1, -1, -1):
             top, bot = lvl.tops[i], lvl.bots[i]
-            if bot == top:
+            if bot == top:          # one-way shelf or $FF pad
                 continue
             if bot <= y or top >= cyh:
                 continue
             l, r = lvl.lefts[i], lvl.rights[i]
             if new_x >= r or new_x + self.w <= l:
                 continue
-            new_x = l - self.w if direction > 0 else r
-        return max(self.p["min_x"], min(self.maxx, new_x))
+            new_x = ((l - self.w) & 0xFF) if direction > 0 else r
+        if new_x < self.p["min_x"]:
+            new_x = self.p["min_x"]
+        if new_x >= self.maxx:
+            new_x = self.maxx
+        return new_x
 
     def surfaces(self):
+        """Landing surfaces in engine .landLoop order: boxes 5..0
+        (first hit wins), then the partner's head — the engine only
+        reaches the head check after every box has missed."""
         lvl = self.lvl
-        for i in lvl.boxes:
-            yield (lvl.tops[i], lvl.lefts[i], lvl.rights[i])
+        for i in range(NUM_BOXES - 1, -1, -1):
+            if lvl.tops[i] != 0xFF:
+                yield (lvl.tops[i], lvl.lefts[i], lvl.rights[i])
         yield from self.extra
 
     def solids(self):
+        """Head-bonk candidates in engine .bonkLoop order (5..0,
+        first hit wins); top == bottom shelves and pads never bonk."""
         lvl = self.lvl
-        for i in lvl.boxes:
+        for i in range(NUM_BOXES - 1, -1, -1):
             if lvl.bots[i] != lvl.tops[i]:
                 yield (lvl.tops[i], lvl.bots[i], lvl.lefts[i], lvl.rights[i])
 
@@ -216,8 +251,21 @@ def char_can_finish(lvl, phys, ci, goal, helper):
         _, footing = hsim.reachable(lvl.starts[helper], (0, 200))
         for feet, xs in footing.items():
             head_top = feet - phys["h"][helper]
-            span_l, span_r = min(xs), max(xs) + phys["w"][helper]
-            sim.extra.append((head_top, span_l, span_r))
+            # one head surface per CONTIGUOUS run of reachable footing
+            # (gap tolerance = the helper's walk stride), so a solid
+            # tower splitting the ground doesn't fake support over the
+            # unreachable middle
+            stride = phys["s"][helper]
+            run = []
+            for x in sorted(xs):
+                if run and x - run[-1] > stride:
+                    sim.extra.append(
+                        (head_top, run[0], run[-1] + phys["w"][helper]))
+                    run = []
+                run.append(x)
+            if run:
+                sim.extra.append(
+                    (head_top, run[0], run[-1] + phys["w"][helper]))
     goal_states, _ = sim.reachable(lvl.starts[ci], goal)
     return len(goal_states) > 0, len(goal_states)
 

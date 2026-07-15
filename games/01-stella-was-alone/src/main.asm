@@ -2,6 +2,12 @@
 ; Stella Was Alone — game 1 of 4, Stella's Evolution
 ; Atari 2600, 4K ROM, no bankswitching
 ;
+; v1.0-rc2.1: honest walls, no clipping — every drawn slab is a
+; solid box spanning its full drawn band (sides block, undersides
+; bonk, no shelves, no body/slab overlap); mid ledges are crossed
+; over the top now, and perch goals sit flush so boost levels
+; can't be grabbed mid-air.
+;
 ; v0.4: ten solver-verified levels, in-game narration screens (the
 ; 4K script), character stacking, a rising level drone, timed mode
 ; on the left difficulty switch, alternate goal spots for variety,
@@ -64,6 +70,14 @@ COL_LOGO    = $36       ; title logo: Stella red
 ; both must pass tools/check_levels.py. A box with top==bottom is
 ; one-way (land on top, pass sideways and from below). top=$FF is
 ; an unused pad entry.
+;
+; RC2 visual honesty rule: every drawn slab is a SOLID box (sides
+; block, undersides bonk). Since v1.0-rc2 no level uses a one-way
+; shelf; since v1.0-rc2.1 every box spans its FULL drawn band, so
+; no body ever overlaps a slab: band-9 ledges (du 72-80) are true
+; walls to grounded Stella (head at 79) — she crosses them over
+; the top — while Alex (3 du) still clears them and the raised
+; pillars with visible daylight.
 
 ; ---------------------------------------------------------------
 ; RAM ($80-$FF). Character arrays: index 0 = Stella, 1 = Alex.
@@ -1919,7 +1933,7 @@ Level2:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$1F,$00,$FF
         .byte $00,$00,$18,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 72, 72, 56, 56, $FF
-        .byte 96, 72, 72, 56, 56, $FF
+        .byte 96, 80, 80, 64, 64, $FF     ; rc2.1: solid, full band
         .byte 0,  28, 112,0,  152,0
         .byte 160,48, 132,8,  160,0
         .byte 1
@@ -1956,7 +1970,7 @@ Level4:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
         .byte 88, 40, 72, 72, 56, 56
-        .byte 96, 80, 72, 72, 56, 56
+        .byte 96, 80, 80, 80, 64, 64      ; rc2.1: solid, full band
         .byte 0,  68, 32, 112,0,  152
         .byte 160,92, 48, 128,8,  160
         .byte 2
@@ -1974,7 +1988,7 @@ Level5:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
         .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 72, 72, $FF,$FF
+        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
         .byte 0,  60, 32, 112,0,  0
         .byte 160,100,48, 128,0,  0
         .byte 2
@@ -1992,7 +2006,7 @@ Level6:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 72, 72, $FF,$FF,$FF
-        .byte 96, 72, 72, $FF,$FF,$FF
+        .byte 96, 80, 80, $FF,$FF,$FF     ; rc2.1: solid, full band
         .byte 0,  112,40, 0,  0,  0
         .byte 160,120,48, 0,  0,  0
         .byte 2
@@ -2010,15 +2024,17 @@ Level7:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 64, 64, $FF,$FF,$FF
-        .byte 96, 64, 64, $FF,$FF,$FF
+        .byte 96, 72, 72, $FF,$FF,$FF     ; rc2: perches solid
         .byte 0,  112,40, 0,  0,  0
         .byte 160,120,48, 0,  0,  0
         .byte 2
         .byte 60, 88-STELLA_H
         .byte 80, 88-ALEX_H
-        .byte 110,61                      ; Stella: the high right perch
+        .byte 112,61                      ; Stella: the high right perch
+                                          ; (rc2: flush on the perch —
+                                          ; no more mid-air solo grab)
         .byte 20, 85                      ; Alex: ground, far left
-        .byte 42, 61, 140,85              ; alt: mirrored
+        .byte 40, 61, 140,85              ; alt: mirrored (flush too)
         .byte 2                           ; Alex must exit last
 
 ; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
@@ -2029,7 +2045,7 @@ Level8:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
         .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 72, 72, $FF,$FF
+        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
         .byte 0,  60, 32, 112,0,  0
         .byte 160,100,48, 128,0,  0
         .byte 2
@@ -2047,15 +2063,16 @@ Level9:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
         .byte 88, 40, 64, 64, $FF,$FF
-        .byte 96, 80, 64, 64, $FF,$FF
+        .byte 96, 80, 72, 72, $FF,$FF     ; rc2: perches solid
         .byte 0,  68, 40, 112,0,  0
         .byte 160,92, 48, 120,0,  0
         .byte 2
         .byte 30, 88-STELLA_H
         .byte 50, 88-ALEX_H
-        .byte 42, 61                      ; Stella: the left perch, lifted
+        .byte 40, 61                      ; Stella: the left perch, lifted
+                                          ; (rc2: flush on the perch)
         .byte 124,85                      ; Alex: beyond the pillar, after
-        .byte 42, 61, 144,85              ; alt: Alex further along
+        .byte 40, 61, 144,85              ; alt: Alex further along
         .byte 2                           ; Alex must exit last
 
 ; --- Level 10 "The Exit": over the tower and under it, and both
@@ -2065,15 +2082,16 @@ Level10:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
         .byte $00,$81,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
         .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 72, 72, $FF,$FF
+        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
         .byte 0,  60, 32, 112,0,  0
         .byte 160,100,48, 128,0,  0
         .byte 2
         .byte 10, 88-STELLA_H
         .byte 20, 88-ALEX_H
-        .byte 118,85                      ; side by side, at the exit
-        .byte 130,85
-        .byte 130,85, 118,85              ; alt: swapped
+        .byte 132,85                      ; side by side, at the exit
+        .byte 144,85                      ; (rc2.1: past the far ledge,
+                                          ; which is a real wall now)
+        .byte 144,85, 132,85              ; alt: swapped
         .byte 0                           ; no exit-order lock
 
 ; ---------------------------------------------------------------
