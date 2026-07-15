@@ -1,6 +1,6 @@
 ROM := build/stella-was-together.bin
 
-all: $(ROM)
+all: $(ROM) check
 
 $(ROM): src/main.asm src/vcs.h
 	@mkdir -p build
@@ -14,10 +14,16 @@ $(ROM): src/main.asm src/vcs.h
 	fi
 	@echo "ROM is exactly 8192 bytes — F8 layout intact"
 
+# Decision-gate proof: every toggle floor must be solvable WITH the
+# world-switch and unsolvable WITHOUT it. Build fails if either half
+# of any floor's proof fails.
+check: $(ROM)
+	python3 tools/check_levels.py $(ROM) build/main.sym src/main.asm
+
 run: $(ROM)
 	stella $(ROM)
 
 clean:
 	rm -rf build
 
-.PHONY: all run clean
+.PHONY: all check run clean

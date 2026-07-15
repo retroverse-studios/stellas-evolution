@@ -2,16 +2,32 @@
 ; Stella Was Together — game 2 of 4, Stella's Evolution
 ; Atari 2600, 8K ROM, F8 bankswitching (2 x 4K banks)
 ;
-; v0.1-visual: the three-sprite kernel spike, playable. One demo
-; level in bank 0 with Stella, Alex and the new arrival Marcus on
-; screen together: P0 is Stella's alone, P1 is time-shared between
-; the other two — repositioned mid-frame when they are vertically
-; separated (all three solid), alternated at 30Hz only when their
-; scanlines overlap. Plus the 8K visual budget's first installment:
-; a per-level palette, a banded sky gradient, eyes that face where
-; you last walked and blink, and squash & stretch on jump/landing.
-; Bank 1 still holds the skeleton's placeholder frame; decision #9
-; (bank-switching-as-puzzle) remains open — fire is JUMP here.
+; v0.2 "one level, two worlds": the decision-gate prototype for
+; docs/decisions.md #9. Every floor now has TWO geometries — world
+; A (warm, gradient brightening toward the horizon) and world B
+; (cool, gradient running the OPPOSITE way) — and pushing UP inside
+; a blinking portal column swaps the world while every character
+; position/velocity stays put in RAM: the entire pitch. Three
+; Stella-only toggle floors (T1 locked room, T2 wall-here/path-
+; there, T3 the mid-air switch) sit after the v0.1-visual Meeting
+; Place sandbox; SELECT advances floors, reaching your marker
+; advances automatically.
+;
+; Architecture (the measured choice — see DESIGN-KICKOFF.md): the
+; whole engine and the kernel live in bank 0. The kernel draws the
+; playfield through pointers, so a toggle floor points PF1/PF2 at a
+; 24-byte RAM copy (PFRam) while PF0 — the outer frame + floor, which
+; never differs between worlds — stays in ROM. On each switch PFRam
+; is refilled: world A's PF1/PF2 art is copied from bank 0, world B's
+; lives in bank 1 and is fetched by a jsr (GoCopyB) into CopyBWorker
+; there, returning through the byte-identical GoBackBank0 stub. Both
+; worlds' collision boxes stay in bank 0 beside the physics; PlatPtr
+; is repointed at the current world's set. Nothing else crosses banks
+; — bank 1 is data + the copy worker; its old frame loop is now dead
+; plumbing kept only to prove the F8 layout. (A per-world FLOOR would
+; need a third RAM plane; the 128-byte RAM, shared with the stack,
+; has no room, so T3 forces its mid-air switch with per-world
+; interior platforms over a shared floor instead — see the report.)
 ;
 ; F8 in one breath: the 6507 sees a 4K window at $1000-$1FFF
 ; (mirrored at $F000-$FFFF, which is how this file addresses it).
@@ -28,7 +44,13 @@
 ; Controls:
 ;   Left/Right  move active character
 ;   Fire        jump
-;   Down+Fire   cycle Stella -> Alex -> Marcus (brightest = active)
+;   Up          inside a shimmering portal column: swap worlds on the
+;               toggle floors (T1-T3); on the portal floors (P1, WP1)
+;               instead TELEPORT to the linked column's mouth (same
+;               world). WP1 also has W1's open, wrapping left/right edges
+;   Down+Fire   cycle Stella -> Alex -> Marcus (Meeting Place only;
+;               the toggle floors are Stella-only, so it is a no-op)
+;   SELECT      advance to the next floor (prototype UI)
 ;   RESET       cold start
 ; ---------------------------------------------------------------
 
@@ -51,6 +73,21 @@ COL_PF      = $0E       ; bank 1's placeholder platforms
 SKY_LINES   = 176       ; bank 1's placeholder kernel shape
 FLOOR_LINES = 16
 
+; --- decision-gate (#9) toggle-floor constants -------------------
+NUM_FLOORS  = 7         ; 0 = Meeting Place; 1-3 = toggle floors T1-T3;
+                        ; 4 = W1, the screen-wrap prototype floor;
+                        ; 5 = P1, the in-screen portal (teleport) floor;
+                        ; 6 = WP1, wrap AND portal composed on one floor
+PORTAL_BIT  = $08       ; PF1 bit 3: the blinking portal column
+PORTAL_CLR  = $F7       ; ~PORTAL_BIT, to knock the portal bit out
+SKYA_BASE   = $34       ; world A warm sky base (brightens DOWNward,
+                        ; toward the horizon)
+SKYB_BASE   = $94       ; world B cool sky base (brightens UPward —
+                        ; the opposite-gradient which-world tell)
+PFA_COLOR   = $2C       ; world A warm tan platforms
+PFB_COLOR   = $A8       ; world B cool blue-grey platforms
+GOAL_COL    = $46       ; Stella's red: her own-color goal marker
+
 SCREEN_DU   = 96
 NUM_CHARS   = 3         ; index 0 = Stella, 1 = Alex, 2 = Marcus
 STELLA_H    = 9         ; tall red rectangle: 8px wide, 18 scanlines
@@ -70,6 +107,15 @@ MAXFALL     = 3         ; terminal fall speed, du/frame
 
 MIN_X       = 4         ; outer walls are 4px, handled by clamping
 NUM_PLATS   = 6         ; collision boxes per level (pad with $FF)
+
+; --- wrap-floor (W1) constants ----------------------------------
+; On the wrap floor x is taken modulo the 160px screen instead of
+; being clamped. Steps are 1px, so NewX only ever lands just past an
+; edge: NewX >= WRAP_HI is a byte-underflow off the LEFT edge (-k, as
+; 256-k) -> add 160 to get 160-k; WRAP_W..WRAP_HI-1 overflowed off the
+; RIGHT edge -> subtract 160; below WRAP_W is in-range and untouched.
+WRAP_W      = 160
+WRAP_HI     = 200
 
 ; Level record layout (66 bytes each):
 ;   +0  12 bytes PF0 per band     +36  6 bytes box top (du)
@@ -144,6 +190,22 @@ NewX        ds 1
 MoveDir     ds 1
 Temp        ds 1
 
+; --- decision-gate toggle-floor state ---------------------------
+; PFRam is the whole trick: the kernel draws the two mutable
+; playfield planes from RAM. PF0 (outer frame + floor) is world-
+; invariant and stays in ROM; only PF1 (which carries the blinking
+; portal column) and PF2 (which carries the interior geometry that
+; differs between worlds) live here — 24 bytes, the header's plan.
+PFRam       ds 24       ; PF1Ram[12] then PF2Ram[12] (PF2Ram=PFRam+12)
+FloorIdx    ds 1        ; 0 = Meeting Place; >=1 = a toggle floor
+GoalHit     ds 1        ; unused pad / room for later floor state
+UpPrev      ds 1        ; edge latch for the UP switch verb
+SelectPrev  ds 1        ; edge latch for SELECT (advance floor)
+ActiveM1    ds 1        ; physics loop bound: 2 on floor 0, 0 elsewhere
+PFColor     ds 1        ; COLUPF for the current floor+world
+SrcPtr      ds 2        ; scratch pointer for the world-art copy
+WrapMode    ds 1        ; per-floor edge mode: 0 = clamp, 1 = screen-wrap
+
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
 ; ===============================================================
@@ -167,6 +229,12 @@ GoBank1:                ; jmp here from bank 0 code -> Bank1Entry
 GoBank0:                ; jmp here from bank 1 code -> Bank0Entry
         lda BANK0HOT
         jmp Bank0Entry
+GoCopyB:                ; jsr here from bank 0 to pull world B art:
+        lda BANK1HOT    ; map bank 1, then the identical stub's jmp
+        jmp CopyBWorker ; lands in bank 1's copy worker
+GoBackBank0:            ; jmp here from bank 1 to return to the caller
+        lda BANK0HOT    ; map bank 0; the rts is fetched from bank 0's
+        rts             ; identical stub and pops GoCopyB's return
 ColdStart:              ; RESET vector target in both banks
         sei
         cld
@@ -191,8 +259,11 @@ Bank0Init:
 
         lda #$80
         sta FirePrev
-        jsr LoadLevel   ; straight into the demo level — no title
-                        ; screen in v0.1-visual
+        sta UpPrev
+        sta SelectPrev
+        lda #0
+        sta FloorIdx    ; boot into floor 0 (the Meeting Place demo)
+        jsr LoadFloor   ; straight into the demo — no title screen
 
 ; ---------------------------------------------------------------
 ; Bank 0 frame loop. Same skeleton as game 1: 3 lines VSYNC,
@@ -219,10 +290,33 @@ Bank0Loop:
         bcs .noReset
         jmp ColdStart
 .noReset:
+        lda SWCHB       ; SELECT advances floors (prototype UI)
+        and #%00000010
+        bne .selRel
+        bit SelectPrev
+        bpl .selDone
+        inc FloorIdx
+        lda FloorIdx
+        cmp #NUM_FLOORS
+        bcc .selLoad
+        lda #0
+        sta FloorIdx
+.selLoad:
+        lda #0
+        sta SelectPrev
+        jsr LoadFloor
+        jmp .selDone
+.selRel:
+        lda #$80
+        sta SelectPrev
+.selDone:
 
         jsr ReadInput
+        jsr ReadSwitch  ; UP inside a portal zone swaps worlds
         jsr UpdatePhysics
+        jsr CheckGoal   ; reaching the marker advances the floor
         jsr UpdateSound
+        jsr BlinkPortal ; pulse the portal column in PF1Ram
         jsr PrepSprites ; draw params + P1 multiplexer + positioning
 
 Bank0Entry:             ; bank 1 arrives here (via GoBank0)
@@ -230,7 +324,7 @@ Bank0Entry:             ; bank 1 arrives here (via GoBank0)
         sta CurBank
         lda #1
         sta CTRLPF      ; mirrored playfield
-        lda LvlPFTbl    ; per-level platform color (demo = level 0)
+        lda PFColor     ; per-floor+world platform color
         sta COLUPF
 
 .waitVB:
@@ -334,6 +428,10 @@ LoadLevel:
         sta SkyGrad,x
         dex
         bpl .grad
+        lda #2                  ; floor 0 runs all three characters
+        sta ActiveM1
+        lda LvlPFTbl            ; warm tan platforms, as v0.1
+        sta PFColor
         rts
 
 ; ---------------------------------------------------------------
@@ -378,6 +476,8 @@ ReadInput:
         cmp #$FF
         beq .noMove
         jsr ClampBoxes          ; solid walls block sideways motion
+        lda WrapMode            ; wrap floor: edges are seamless, not
+        bne .wrapEdge           ; walls — take x modulo the screen
         lda NewX
         cmp #MIN_X
         bcs .okMin
@@ -387,6 +487,20 @@ ReadInput:
         bcc .okMax
         lda MaxXTbl,x
 .okMax:
+        sta CharX,x
+        jmp .noMove
+.wrapEdge:
+        lda NewX
+        cmp #WRAP_HI            ; >= WRAP_HI: underflowed off the left
+        bcs .wrapAdd
+        cmp #WRAP_W             ; WRAP_W..: overflowed off the right
+        bcc .wrapPut
+        sbc #WRAP_W             ; (carry set here) x -= 160
+        jmp .wrapPut
+.wrapAdd:
+        clc
+        adc #WRAP_W             ; x += 160 (mod 256): -k -> 160-k
+.wrapPut:
         sta CharX,x
 .noMove:
 
@@ -412,6 +526,8 @@ ReadInput:
         sta SoundT
         jmp .pressed
 .switch:
+        lda FloorIdx            ; toggle floors are Stella-only:
+        bne .pressed            ; Down+Fire cycling is a no-op there
         lda Active              ; the game 1 switch verb, extended:
         clc                     ; Stella -> Alex -> Marcus -> ...
         adc #1
@@ -531,7 +647,7 @@ FetchLR:
 
 UpdatePhysics:
         SUBROUTINE
-        ldx #NUM_CHARS-1
+        ldx ActiveM1            ; 2 = all three (floor 0); 0 = Stella
 .charLoop:
         lda CharY,x             ; where the feet started
         clc
@@ -750,6 +866,8 @@ UpdateSound:
         lda SoundId
         cmp #2
         beq .land
+        cmp #3
+        bcs .switch             ; 3 = chime into A, 4 = chime into B
         lda #4                  ; jump: rising pure tone
         sta AUDC0
         lda #8
@@ -757,6 +875,25 @@ UpdateSound:
         adc SoundT
         sta AUDF0
         lda #6
+        sta AUDV0
+        rts
+.switch:
+        lda #4                  ; pure tone, a short pitch sweep
+        sta AUDC0
+        lda SoundId
+        cmp #4
+        beq .toB
+        lda #4                  ; into A: pitch rises (AUDF falls) as it
+        clc                     ; resolves — 12 down to 4
+        adc SoundT
+        jmp .swv
+.toB:
+        lda #10                 ; into B: pitch falls (AUDF rises) — 2 up
+        sec                     ; to 10
+        sbc SoundT
+.swv:
+        sta AUDF0
+        lda #7
         sta AUDV0
         rts
 .land:
@@ -845,7 +982,13 @@ PrepSprites:
         jsr CharColor
         sta COLUP0
 
+        lda FloorIdx            ; toggle floors: P1 is the goal
+        beq .mux                ; marker, not Alex/Marcus
+        jsr PrepGoal
+        jmp .position
+
         ; ---- the P1 multiplexer: Alex (1) vs Marcus (2) --------
+.mux:
         ldx #1
         ldy #2
         lda DrawY+1
@@ -1170,6 +1313,614 @@ Level1:
         .byte 40, 88-ALEX_H               ; Alex: ground, mid-left
         .byte 76, 72-MARCUS_H             ; Marcus: on the pedestal
 
+; ===============================================================
+; DECISION-GATE (#9) TOGGLE FLOORS — engine + data (bank 0)
+;
+; A toggle floor is one room with two geometries. PF0 (outer frame
+; + floor) is world-invariant and drawn straight from ROM. The two
+; mutable planes — PF1 (portal column) and PF2 (interior walls) —
+; are drawn from the 24-byte PFRam, refilled on every world switch:
+; world A's art is copied here from bank 0, world B's is fetched by
+; a jsr into bank 1 (CopyBWorker) through the byte-identical stubs.
+; Both worlds' collision boxes live in bank 0 beside the physics;
+; PlatPtr is repointed at the current world's set on each switch.
+; Character X/Y/velocity never move in RAM across a switch — that
+; persistence is the whole mechanic.
+; ===============================================================
+
+; ---------------------------------------------------------------
+; LoadFloor: dispatch on FloorIdx. 0 = the Meeting Place demo
+; (unchanged v0.1 path); >=1 = a Stella-only toggle floor.
+; ---------------------------------------------------------------
+
+LoadFloor:
+        SUBROUTINE
+        ldx FloorIdx
+        lda WrapTbl,x           ; per-floor edge mode (0 clamp / 1 wrap)
+        sta WrapMode
+        lda FloorIdx
+        bne LoadToggleFloor
+        jmp LoadLevel           ; floor 0: the v0.1 sandbox, intact
+
+; ---------------------------------------------------------------
+; LoadToggleFloor: place Stella, point the kernel at PF0 art + the
+; PFRam planes, park the unused friends off-screen, then LoadWorld
+; fills PFRam / boxes / palette for world A.
+; ---------------------------------------------------------------
+
+LoadToggleFloor:
+        SUBROUTINE
+        ldx FloorIdx
+        lda StartXTbl,x
+        sta CharX               ; Stella = index 0
+        lda StartYTbl,x
+        sta CharY
+        lda #0
+        sta CharYLo
+        sta CharVYHi
+        sta CharVYLo
+        sta SquashT
+        sta Active
+        sta CurBank             ; every floor opens in world A
+        sta SoundId
+        sta SoundT
+        sta GoalHit
+        sta ActiveM1            ; Stella-only physics
+        sta NUSIZ0
+        sta VDELP0
+        sta VDELP1
+        lda #1
+        sta OnGround
+        sta CharFace            ; wake facing right
+
+        lda #200                ; park Alex & Marcus below the world
+        sta CharY+1             ; so no head-perch and never drawn
+        sta CharY+2
+        lda #0
+        sta CharX+1
+        sta CharX+2
+        sta CharVYHi+1
+        sta CharVYHi+2
+        sta CharVYLo+1
+        sta CharVYLo+2
+        sta OnGround+1
+        sta OnGround+2
+
+        lda PF0ArtLoTbl,x       ; PF0 (frame+floor) from ROM
+        sta PF0Ptr
+        lda PF0ArtHiTbl,x
+        sta PF0Ptr+1
+        lda #<PFRam             ; PF1 <- PF1Ram, PF2 <- PF2Ram
+        sta PF1Ptr
+        lda #>PFRam
+        sta PF1Ptr+1
+        lda #<(PFRam+12)
+        sta PF2Ptr
+        lda #>(PFRam+12)
+        sta PF2Ptr+1
+        ; fall through to LoadWorld for world A
+
+; ---------------------------------------------------------------
+; LoadWorld: for the current FloorIdx + CurBank, repoint PlatPtr at
+; that world's collision boxes, refill PFRam from that world's art
+; (bank 0 for A, bank 1 for B), and rebuild the palette + gradient.
+; ---------------------------------------------------------------
+
+LoadWorld:
+        SUBROUTINE
+        ldx FloorIdx
+        lda CurBank
+        bne .boxB
+        lda BoxALoTbl,x
+        sta PlatPtr
+        lda BoxAHiTbl,x
+        sta PlatPtr+1
+        jsr CopyWorldA
+        jmp .pal
+.boxB:
+        lda BoxBLoTbl,x
+        sta PlatPtr
+        lda BoxBHiTbl,x
+        sta PlatPtr+1
+        jsr GoCopyB             ; cross to bank 1, copy, come back
+.pal:
+        jmp SetPalette
+
+; CopyWorldA: 24 bytes of world A art (PF1[12] then PF2[12]) from
+; bank 0 ROM into PFRam.
+CopyWorldA:
+        SUBROUTINE
+        ldx FloorIdx
+        lda WAArtLoTbl,x
+        sta SrcPtr
+        lda WAArtHiTbl,x
+        sta SrcPtr+1
+        ldy #23
+.cw:
+        lda (SrcPtr),y
+        sta PFRam,y
+        dey
+        bpl .cw
+        rts
+
+; SetPalette: world A warm sky brightening toward the horizon;
+; world B cool sky brightening the OTHER way (the which-world tell).
+SetPalette:
+        SUBROUTINE
+        lda CurBank
+        bne .worldB
+        lda #PFA_COLOR
+        sta PFColor
+        ldx #11
+.aloop:
+        lda GradOfs,x
+        clc
+        adc #SKYA_BASE
+        sta SkyGrad,x
+        dex
+        bpl .aloop
+        rts
+.worldB:
+        lda #PFB_COLOR
+        sta PFColor
+        ldx #11
+        ldy #0
+.bloop:
+        lda GradOfs,y           ; reversed index: bright end up top
+        clc
+        adc #SKYB_BASE
+        sta SkyGrad,x
+        iny
+        dex
+        bpl .bloop
+        rts
+
+; ---------------------------------------------------------------
+; ReadSwitch: UP (edge) while Stella stands in a portal x-range
+; swaps worlds. No ground requirement, so the same verb serves the
+; mid-air switch on later floors.
+; ---------------------------------------------------------------
+
+ReadSwitch:
+        SUBROUTINE
+        lda FloorIdx
+        beq .done               ; floor 0 has no portals
+        lda SWCHA
+        and #%00010000          ; UP (active low)
+        bne .release
+        bit UpPrev
+        bpl .done               ; already handled while held
+        jsr InPortal
+        bcc .clear
+        ldx FloorIdx            ; P1 (portal floor) TELEPORTS in-screen
+        lda TeleportTbl,x       ; instead of swapping worlds
+        beq .swap
+        jsr DoTeleport
+        jmp .clear
+.swap:
+        jsr DoSwitch
+.clear:
+        lda #0
+        sta UpPrev
+        rts
+.release:
+        lda #$80
+        sta UpPrev
+.done:
+        rts
+
+; InPortal: carry set if Stella's left edge is inside EITHER of this
+; floor's two portal x-ranges (a floor with one portal parks the
+; second range at 255..255, which no position can enter).
+InPortal:
+        SUBROUTINE
+        ldx FloorIdx
+        lda CharX
+        cmp PortalLTbl,x
+        bcc .try2
+        cmp PortalRTbl,x
+        bcc .yes
+.try2:
+        lda CharX
+        cmp Portal2LTbl,x
+        bcc .out
+        cmp Portal2RTbl,x
+        bcs .out
+.yes:
+        sec
+        rts
+.out:
+        clc
+        rts
+
+; DoSwitch: flip the world flag, sound the switch chime (rising into
+; world A, falling into world B), then LoadWorld does the rest.
+DoSwitch:
+        SUBROUTINE
+        lda CurBank
+        eor #1
+        sta CurBank
+        clc
+        adc #3                  ; CurBank 0 -> SoundId 3 (A), 1 -> 4 (B)
+        sta SoundId
+        lda #8
+        sta SoundT
+        jmp LoadWorld
+
+; ---------------------------------------------------------------
+; DoTeleport: the in-screen PORTAL verb (floor P1). Stella is inside
+; one of this floor's two linked portal columns; UP teleports her x,y
+; to the OTHER portal's mouth. Unlike DoSwitch this is a pure position
+; move: SAME world, SAME palette, SAME collision set, NO F8 bank
+; switch (a portal needs only one bank — it never touches BANK1HOT).
+; She arrives standing, velocity zeroed, with a short settle-squash and
+; the switch chime, so the landing reads as a deliberate grounding.
+; ---------------------------------------------------------------
+
+DoTeleport:
+        SUBROUTINE
+        ldx FloorIdx
+        lda CharX               ; which mouth is she standing in?
+        cmp PortalLTbl,x        ; portal A range = [PortalL, PortalR)
+        bcc .useB               ; below A -> she must be in portal B
+        cmp PortalRTbl,x
+        bcs .useB               ; at/above A's right edge -> portal B
+        lda MouthBXTbl,x        ; in A: come out at B's mouth
+        sta CharX
+        lda MouthBYTbl,x
+        sta CharY
+        jmp .settle
+.useB:
+        lda MouthAXTbl,x        ; in B: come out at A's mouth
+        sta CharX
+        lda MouthAYTbl,x
+        sta CharY
+.settle:
+        lda #0                  ; land clean at the destination mouth
+        sta CharYLo
+        sta CharVYHi
+        sta CharVYLo
+        lda #1
+        sta OnGround            ; grounded on arrival (physics re-seats
+                                ; her on the mouth's platform this frame)
+        lda #3
+        sta SquashT             ; a few frames of settle-squash
+        lda #3                  ; reuse the switch chime as a portal blip
+        sta SoundId
+        lda #8
+        sta SoundT
+        rts
+
+; ---------------------------------------------------------------
+; CheckGoal: has Stella overlapped this floor's marker? If so,
+; advance to the next floor (wraps at NUM_FLOORS).
+; ---------------------------------------------------------------
+
+CheckGoal:
+        SUBROUTINE
+        lda FloorIdx
+        beq .done
+        lda OnGround            ; the marker only counts when Stella is
+        beq .done               ; STANDING on it — never mid-jump
+        ldx FloorIdx
+        lda GoalXTbl,x          ; x overlap: CharX < GoalX+8 ...
+        clc
+        adc #8
+        sta Temp
+        lda CharX
+        cmp Temp
+        bcs .done
+        lda CharX               ; ... and CharX+8 > GoalX
+        clc
+        adc #8
+        sta Temp
+        lda GoalXTbl,x
+        cmp Temp
+        bcs .done
+        lda GoalYTbl,x          ; y overlap: CharY < GoalY+GoalH ...
+        clc
+        adc GoalHTbl,x
+        sta Temp
+        lda CharY
+        cmp Temp
+        bcs .done
+        lda CharY               ; ... and CharY+STELLA_H > GoalY
+        clc
+        adc #STELLA_H
+        sta Temp
+        lda GoalYTbl,x
+        cmp Temp
+        bcs .done
+        inc FloorIdx            ; reached: next floor
+        lda FloorIdx
+        cmp #NUM_FLOORS
+        bcc .adv
+        lda #0
+        sta FloorIdx
+.adv:
+        jsr LoadFloor
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; BlinkPortal: pulse this floor's portal bit through the top 11
+; bands of its plane (PortalPlaneTbl selects PF1Ram=0 or PF2Ram=12;
+; the floor band, base+11, is left solid). One bit, but the mirrored
+; playfield draws it as a column on each half of the screen.
+; ---------------------------------------------------------------
+
+BlinkPortal:
+        SUBROUTINE
+        lda FloorIdx
+        beq .done
+        ldy FloorIdx
+        lda PortalMaskTbl,y
+        sta Temp                ; the portal bit for this floor
+        lda PortalClrTbl,y
+        sta CY                  ; the knock-out mask (scratch)
+        lda FrameCtr            ; shimmer phase: a dark notch that
+        lsr                     ; flows down the column so it always
+        lsr                     ; reads as an active portal, never a
+        lsr                     ; blinked-off gate (~8 frames/step)
+        sta NewX
+        lda PortalPlaneTbl,y
+        clc
+        adc #10
+        tax                     ; X = PFRam index of the top band
+        ldy #11
+.loop:
+        lda PFRam,x
+        and CY                  ; always clear the old portal bit
+        pha                     ; band cleared of portal, walls kept
+        tya                     ; this band + phase: 1 in 4 stays
+        clc                     ; dark, and the dark band flows
+        adc NewX
+        and #3
+        beq .dark               ; leave this band's portal bit off
+        pla
+        ora Temp                ; lit band: OR the portal bit back in
+        jmp .put
+.dark:
+        pla
+.put:
+        sta PFRam,x
+        dex
+        dey
+        bne .loop
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; PrepGoal: fill the P1 slot with this floor's static red marker
+; (no mid-frame hop; the kernel draws it like any P1 tenant).
+; ---------------------------------------------------------------
+
+PrepGoal:
+        SUBROUTINE
+        lda #$FF
+        sta RepoDU              ; no P1 reposition hop this frame
+        ldx FloorIdx
+        lda GoalYTbl,x
+        sta P1Top
+        lda GoalHTbl,x
+        sta P1Hgt
+        lda #$FF
+        sta P1Eye               ; solid block: reads as a marker
+        lda GoalXTbl,x
+        sta P1XA
+        lda #0
+        sta NUSIZ1              ; one 8px copy — matches the 8px goal
+                                ; collision box exactly (no visual lie)
+        lda FrameCtr            ; the marker breathes red so it reads
+        and #$10                ; as a target, not a static second
+        beq .gdim               ; Stella; ~0.5s cycle, never fully off
+        lda #$4E                ; bright red at the peak
+        bne .gset
+.gdim:
+        lda #$44                ; deep red at the trough
+.gset:
+        sta COLUP1
+        rts
+
+; ---------------------------------------------------------------
+; Toggle-floor data tables (index 0 = the Meeting Place, a dummy
+; row; index 1 = T1). Extend per floor for T2/T3.
+; ---------------------------------------------------------------
+
+;              floor:  0   T1    T2    T3    W1    P1   WP1
+StartXTbl:  .byte      0,  16,   16,   16,   16,   16,   16
+StartYTbl:  .byte      0,  79,   79,   79,   79,   79,   79   ; 88 - STELLA_H
+GoalXTbl:   .byte      0, 136,  136,   76,  112,   64,  112   ; WP1: on the
+GoalYTbl:   .byte      0,  82,   82,   49,   82,   26,   26   ; RIGHT shelf,
+GoalHTbl:   .byte      0,   6,    6,    9,    6,    6,    6   ; past the wall
+PortalLTbl: .byte      0,  24,   44,   40,  255,   28,   28   ; WP1 portal A
+PortalRTbl: .byte      0,  45,   54,   56,  255,   37,   37   ; = left column
+Portal2LTbl: .byte   255, 255,  105,  255,  255,  120,  120   ; WP1 portal B
+Portal2RTbl: .byte   255, 255,  115,  255,  255,  129,  129   ; = right column
+PortalPlaneTbl: .byte  0,   0,   12,    0,    0,    0,    0   ; PF1Ram=0
+PortalMaskTbl:  .byte  0, $08,  $01,  $02,  $00,  $08,  $08   ; PF1 bit3 pair
+PortalClrTbl:   .byte  0, $F7,  $FE,  $FD,  $FF,  $F7,  $F7   ; (~mask)
+WrapTbl:    .byte      0,   0,    0,    0,    1,    0,    1   ; WP1: wrap ON
+
+; --- portal-teleport data (floors 5 P1 and 6 WP1 are teleport floors) ----
+; TeleportTbl picks the UP verb: 0 = world-swap (T*), 1 = in-screen
+; teleport (P1, WP1). MouthA/B are the two linked portal mouths: UP inside
+; portal A drops Stella at B's mouth and vice versa. On WP1 each column is
+; a vertical lift to its OWN side's shelf half — left col -> left shelf,
+; right col -> right shelf — and the central wall splits the shelf, so the
+; near (left) lift strands you on the wrong side of the goal.
+TeleportTbl: .byte     0,   0,    0,    0,    0,    1,    1
+MouthAXTbl:  .byte     0,   0,    0,    0,    0,   32,  124   ; WP1 A: RIGHT
+MouthAYTbl:  .byte     0,   0,    0,    0,    0,   79,   23   ; shelf (from B)
+MouthBXTbl:  .byte     0,   0,    0,    0,    0,  124,   32   ; WP1 B: LEFT
+MouthBYTbl:  .byte     0,   0,    0,    0,    0,   23,   23   ; shelf (from A)
+
+PF0ArtLoTbl: .byte 0, <PF0ArtT1, <PF0ArtT1, <PF0ArtT1, <PF0ArtWrap, <PF0ArtP1, <PF0ArtWP1
+PF0ArtHiTbl: .byte 0, >PF0ArtT1, >PF0ArtT1, >PF0ArtT1, >PF0ArtWrap, >PF0ArtP1, >PF0ArtWP1
+WAArtLoTbl:  .byte 0, <WAArtT1, <WAArtT2, <WAArtT3, <WAArtWrap, <WAArtP1, <WAArtWP1
+WAArtHiTbl:  .byte 0, >WAArtT1, >WAArtT2, >WAArtT3, >WAArtWrap, >WAArtP1, >WAArtWP1
+BoxALoTbl:   .byte 0, <T1ABoxes, <T2ABoxes, <T3ABoxes, <WrapBoxes, <P1Boxes, <WP1Boxes
+BoxAHiTbl:   .byte 0, >T1ABoxes, >T2ABoxes, >T3ABoxes, >WrapBoxes, >P1Boxes, >WP1Boxes
+BoxBLoTbl:   .byte 0, <T1BBoxes, <T2BBoxes, <T3BBoxes, <WrapBoxes, <P1Boxes, <WP1Boxes
+BoxBHiTbl:   .byte 0, >T1BBoxes, >T2BBoxes, >T3BBoxes, >WrapBoxes, >P1Boxes, >WP1Boxes
+
+; T1 "the locked room": outer frame (PF0 bit4) + solid floor.
+PF0ArtT1:
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+
+; World A PF1[12] then PF2[12]: PF1 clear (portal blinks in live),
+; PF2 bit7 is the central divider that walls the goal off; the
+; floor band is solid in both planes.
+WAArtT1:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$FF
+
+; T1 collision boxes (SoA: 6 tops, 6 bottoms, 6 lefts, 6 rights).
+; World A: ground box + the full-height central divider (px 76-84).
+T1ABoxes:
+        .byte 88,  0, $FF,$FF,$FF,$FF
+        .byte 96, 88, $FF,$FF,$FF,$FF
+        .byte  0, 76,   0,  0,  0,  0
+        .byte 160,84,   0,  0,  0,  0
+; World B: ground box only — the divider is gone, the path opens.
+T1BBoxes:
+        .byte 88, $FF,$FF,$FF,$FF,$FF
+        .byte 96, $FF,$FF,$FF,$FF,$FF
+        .byte  0,   0,  0,  0,  0,  0
+        .byte 160,  0,  0,  0,  0,  0
+
+; T2 "wall here, path there": a corridor crossed only by alternating
+; worlds at two portals. World A walls (PF2 bit2 -> px 56-59 and its
+; mirror px 100-103) and world B walls (PF1 bit2 -> px 36-39 & mirror
+; px 120-123) interleave, so no single world crosses. The blink lives
+; in PF2 bit0 (px 48-51 / 108-111), one column per portal.
+WAArtT2:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$FF
+T2ABoxes:
+        .byte  88,  0,  0, $FF,$FF,$FF
+        .byte  96, 88, 88, $FF,$FF,$FF
+        .byte   0, 56,100,   0,  0,  0
+        .byte 160, 60,104,   0,  0,  0
+T2BBoxes:
+        .byte  88,  0,  0, $FF,$FF,$FF
+        .byte  96, 88, 88, $FF,$FF,$FF
+        .byte   0, 36,120,   0,  0,  0
+        .byte 160, 40,124,   0,  0,  0
+
+; T3 "the twist": the forced mid-air switch. World A gives Stella a
+; left step (PF1 bits2-7 -> px 16-39, bands 8-10) to launch from; only
+; world B holds the tall central pillar (PF2 bits2-7 -> px 56-79 &
+; mirror, top ~du58) that reaches the goal. The pillar top is too high
+; to gain from the floor, so she must jump off the step and flip worlds
+; in mid-air over the gap. Blink: PF1 bit1 (px 40-43 / 116-119).
+WAArtT3:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$FC,$FC,$FC,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+T3ABoxes:
+        .byte  88, 68, 68, $FF,$FF,$FF
+        .byte  96, 88, 88, $FF,$FF,$FF
+        .byte   0, 16,119,   0,  0,  0
+        .byte 160, 40,144,   0,  0,  0
+T3BBoxes:
+        .byte  88, 58, $FF,$FF,$FF,$FF
+        .byte  96, 88, $FF,$FF,$FF,$FF
+        .byte   0, 56,   0,  0,  0,  0
+        .byte 160,104,   0,  0,  0,  0
+
+; ---------------------------------------------------------------
+; W1 "the long way around" — the screen-wrap prototype floor.
+;
+; One full-height wall stands dead centre. It is PF2 bit7 (px 76-79);
+; because the playfield is drawn MIRRORED (CTRLPF reflect), its
+; reflection lands flush at px 80-83, so the wall reads as ONE 8px
+; pillar straddling the mirror axis — no phantom double, no confusing
+; symmetry. Stella starts left of it (x=16); her pulsing red marker
+; (reused PrepGoal) sits right of it (x=112). The direct rightward
+; path is walled and the wall reaches the ceiling, so it can't be
+; jumped; the outer frame is OPEN on this floor (PF0 top bands clear,
+; not $10 as the other floors), so she can walk OFF the left edge,
+; WRAP to the right edge, and reach the marker from its right — the
+; long way around. WrapMode (from WrapTbl) makes the edges modular
+; instead of clamped; there is no portal and no world swap (one
+; geometry). The solver proves the wrap is genuinely required.
+;
+; ASYMMETRIC-PF NOTE: a non-mirrored playfield (the wall drawn once,
+; not reflection-doubled) would need a per-scanline mid-line rewrite
+; of PF0/PF1/PF2 for the right half, at precise beam cycles. The
+; shared GameKernel's draw line already runs ~64 of 76 cycles on the
+; sprite/eye logic (see the kernel's cycle notes) and updates PF only
+; per 8-du band, not per line — asymmetric PF would demand a rewrite
+; EVERY scanline interleaved with those draws, which does not fit the
+; tuned kernel cleanly. So this floor uses the documented FALLBACK:
+; a wall centred ON the mirror axis, which the existing mirrored
+; kernel already renders as a single clean pillar. Zero kernel cost.
+; ---------------------------------------------------------------
+
+; PF0 (frame+floor): OPEN edges — top 11 bands clear so Stella can
+; exit left AND right; floor band $F0 (with PF1/PF2 $FF -> full floor).
+PF0ArtWrap:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+
+; World A PF1[12] then PF2[12]: PF1 clear; PF2 bit7 is the central
+; wall through the top 11 bands; floor band solid in both planes.
+WAArtWrap:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$FF
+
+; W1 collision boxes: full-width ground box + the full-height central
+; wall (px 76-84, top 0 down to the floor at 88).
+WrapBoxes:
+        .byte 88,  0, $FF,$FF,$FF,$FF
+        .byte 96, 88, $FF,$FF,$FF,$FF
+        .byte  0, 76,   0,  0,  0,  0
+        .byte 160,84,   0,  0,  0,  0
+
+; ---------------------------------------------------------------
+; P1 "the shortcut" — the in-screen PORTAL (teleport) floor.
+;
+; ONE world, bank 0 only: a portal is a linked PAIR of columns on the
+; SAME screen, so no second geometry and no F8 switch are needed (this
+; floor never touches BANK1HOT). The two columns are the ONE mirrored
+; portal bit (PF1 bit3 = px 32-35 and its reflection px 124-127), drawn
+; by the shared BlinkPortal shimmer so the pair reads as visually
+; identical and linked. UP inside either column runs DoTeleport, which
+; sets Stella's x,y to the OTHER column's mouth — same colors, same
+; world, the legible opposite of the world-swap's full-screen change.
+;
+; Load-bearing layout (mirror-clean, no phantoms — the shelf is drawn
+; FULL WIDTH, so its reflection completes it instead of doubling it):
+;   - a full-width high SHELF on band 4 (collision top 32) holds the
+;     pulsing red goal (reused PrepGoal marker). It floats: no stairs,
+;     and at ~22 du Stella's jump apex (head to y~57) never reaches the
+;     shelf underside (y 40), so it is UNreachable by walking or jumping
+;   - portal A sits on the GROUND under the left column; portal B is up
+;     inside the right column, its mouth ON the shelf. The ONLY route to
+;     the goal is: stand in A, press UP, arrive at B up top, walk to the
+;     marker. The solver proves goal-unreachable with the portal off.
+; ---------------------------------------------------------------
+
+; PF0 (frame+floor): outer walls (bit4) on the open bands, the shelf
+; band 4 filled full ($F0), floor band $F0.
+PF0ArtP1:
+        .byte $10,$10,$10,$10,$F0,$10,$10,$10,$10,$10,$10,$F0
+
+; World-A PF1[12] then PF2[12]: both clear except band 4 (the shelf,
+; full width) and band 11 (the floor). The portal bit blinks into PF1
+; live via BlinkPortal across bands 0-10, drawing the two columns.
+WAArtP1:
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+
+; P1 collision boxes: full-width ground (top 88) + the floating full-
+; width shelf (top 32, bottom 40). No world-B variant — single world,
+; so BoxB points here too.
+P1Boxes:
+        .byte 88, 32, $FF,$FF,$FF,$FF
+        .byte 96, 40, $FF,$FF,$FF,$FF
+        .byte  0,  0,   0,  0,  0,  0
+        .byte 160,160,  0,  0,  0,  0
+
 ; ---------------------------------------------------------------
 ; Bank 0 hotspots + vectors
 ; ---------------------------------------------------------------
@@ -1202,6 +1953,10 @@ Bank1Top:
         jmp Bank1Entry
         lda BANK0HOT            ; GoBank0
         jmp Bank0Entry
+        lda BANK1HOT            ; GoCopyB
+        jmp CopyBWorker
+        lda BANK0HOT            ; GoBackBank0
+        rts
         sei                     ; ColdStart
         cld
         lda BANK0HOT
@@ -1312,6 +2067,60 @@ Kernel1:
         sta PF1
         sta PF2
         rts
+
+; ---------------------------------------------------------------
+; CopyBWorker: bank 1's half of the world-B fetch. Entered only via
+; GoCopyB (bank already switched to 1); copies this floor's 24-byte
+; world B art into the shared PFRam, then returns to bank 0 through
+; the identical GoBackBank0 stub. FloorIdx, SrcPtr and PFRam are all
+; RAM, shared across the switch — bank 1 owns only the art here.
+; ---------------------------------------------------------------
+
+CopyBWorker:
+        SUBROUTINE
+        ldx FloorIdx
+        lda WBArtLoTbl,x
+        sta SrcPtr
+        lda WBArtHiTbl,x
+        sta SrcPtr+1
+        ldy #23
+.cw:
+        lda (SrcPtr),y
+        sta PFRam,y
+        dey
+        bpl .cw
+        jmp GoBackBank0
+
+WBArtLoTbl: .byte 0, <WBArtT1, <WBArtT2, <WBArtT3, <WBArtWrap, <WBArtP1
+WBArtHiTbl: .byte 0, >WBArtT1, >WBArtT2, >WBArtT3, >WBArtWrap, >WBArtP1
+
+; World B PF1[12] then PF2[12] per toggle floor. Floor band solid in
+; both planes; the interior is what the switch reveals.
+; T1: interior clear (the divider is gone — the path opens).
+WBArtT1:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+; T2: the world B walls — PF1 bit2 (px 36-39 and its mirror 120-123).
+WBArtT2:
+        .byte $04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$04,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+; T3: the tall central pillar — PF2 bits2-7 (px 56-79 & mirror), the
+; only footing that reaches the goal.
+WBArtT3:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$FC,$FC,$FC,$FC,$FF
+; W1: never fetched (the wrap floor never leaves world A / CurBank 0);
+; a copy of its world A so the F8 table stays uniform and any stray
+; switch would be harmless.
+WBArtWrap:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$80,$FF
+; P1: never fetched either (the portal floor is single-world, bank 0
+; only, and never switches). A copy of its world-A art keeps the F8
+; table uniform and any stray switch harmless.
+WBArtP1:
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
 
 ; ---------------------------------------------------------------
 ; Bank 1 hotspots + vectors (identical to bank 0's: whichever

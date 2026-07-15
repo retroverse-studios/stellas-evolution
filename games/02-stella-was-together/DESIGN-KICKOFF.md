@@ -85,18 +85,113 @@ seductive but should be decided *after* the prototype: it may overload one
 button and confuse the player. Prototype world-switch and character-switch
 as separate verbs first.
 
+## Candidate mechanic: dual gravity (added 2026-07-15)
+
+One shared screen, one character whose gravity points up: they walk the
+ceilings and undersides of the SAME platforms everyone else stands on
+(every floor is somebody's ceiling — no new level data). Estimated cost
+~150-300 bytes: a per-character gravity sign, mirrored landing/bonk
+logic, ceiling goal spots, eyes drawn on the character's bottom edge.
+Rejected for Game 1 (~80 bytes free, arc already complete); it is
+Game 2's insurance policy — **if #9 dies on paper, dual gravity is the
+signature mechanic instead**, and both "worlds" being visible at once
+is arguably friendlier than a remembered hidden state.
+
+## Proposed act structure (2026-07-15, pending the #9 paper gate)
+
+The whole game is one tower; each level a floor; nobody climbs alone.
+
+1. **Act 1 — together (2-3 floors):** three characters, normal world.
+   Marcus's wake-up opening; the low-ceiling floor that teaches his gift.
+2. **Act 2 — the other side of the sky (2-3 floors):** dual gravity.
+   One friend on the ceiling; cooperation across the divide.
+3. **Act 3 — the world has two answers (2-3 floors):** #9's toggle.
+   First A-normal/B-normal; then A-normal/B-INVERTED — the toggle also
+   flips who hangs from the sky, fusing acts 2 and 3. Early floors gate
+   the switch to **portal zones** (a blinking column; a cheap x-range
+   check) as the teaching constraint; later floors grant free switching
+   as the mastery reward.
+4. **Act 4 — meet in the middle (1-2 floors):** parallel + dual at the
+   tower top. Two climb the floor, one descends the ceiling; the game
+   ends where they meet. The final portal is the landmark.
+
+Scope honesty: that is 8-10 floors total, 2-3 per act — Thomas Was
+Alone pacing, no filler. Solver must grow a (x, y, world, gravity)
+state space; if it explodes, Act 4 simplifies before Act 3 does.
+
+## UX frame (decided 2026-07-15)
+
+- **Naming ladder:** the series is a *cycle* (four movements); each game
+  a *movement*; movements contain *acts*; Game 2's levels are *floors*
+  of the tower. Movement two, act three, floor eight.
+- **Act shape: 3 / 3 / 3 / 1.** Teaching acts get three beats —
+  introduce (safe), develop (combine), twist (subvert). The finale act
+  is one spectacular floor: short climaxes read as confidence.
+- **Altitude is the progress bar.** The per-act sky palette shifts as
+  the tower is climbed (dusk violet → deep night → the toggle acts'
+  strange hues → dawn at the summit). No HUD; the sky tells you where
+  you are.
+- **Six discoverability rules for the #9 toggle:**
+  1. Act 3 opens with a locked-room floor: exit visibly walled, one
+     blinking portal column, nothing else to try. The only move teaches
+     the mechanic.
+  2. World A warm, world B cool — switching is a full-screen color
+     event. The sky gradients run in OPPOSITE directions per world, a
+     constant tell for which truth you stand in.
+  3. The switch has a sound signature: the two-voice chord resolves
+     differently per world.
+  4. Portal-gated switching first; free switching later, as graduation.
+  5. Narration primes the act ("The tower had two truths, and only
+     ever told one.")
+  6. The mid-air switch is the act's twist floor, never its opening.
+
+## Spatial mechanics — the direction that emerged from playtesting (2026-07-15)
+
+Playtesting the world-swap prototype surfaced a better spine for Game 2.
+The full-screen world-swap reads as "teleport to a different place," not
+"same place rearranged" — cognitively heavy for 8K. Out of that came a
+clearer plan:
+
+- **Series axis — perceived spatial scale grows with the ROM:**
+  Game 1 (4K) = bounded, one static screen ("four kilobytes of
+  existence"); Game 2 (8K) = confined screen whose *space connects*
+  (topology, not size); Game 3 (16K) = the world *extends* (scrolling,
+  a journey — "Stella's Journey"); Game 4 (ARM) = transcendent, the
+  screen a window onto something larger. Game 1 stays sealed — no
+  backport; its confinement is the point, and the absence of wrap is
+  what gives Game 2's wrap meaning.
+- **Game 2's spatial ladder: wrap → portals → world-swap.** Increasing
+  in difficulty *and* conceptual weight: move through space → shortcut
+  through space → change space itself. World-swap (the #9 mechanic) is
+  the hardest final rung, not the spine — which resolves #9 toward a few
+  showcase floors (Option B), not a signature-throughout mechanic.
+- **Mirrored playfield is KEPT.** Asymmetry comes from *actor placement*
+  (characters, per-color goal markers, portals sit where you put them —
+  the playfield mirror doesn't constrain them). True asymmetric PF was
+  measured as not fitting the cycle-tuned kernel; unnecessary anyway.
+- **Portal shimmer, not blink.** The portal column flows (a dark notch
+  travels down it) so it never fully disappears — a blink read as an
+  open/closed *timing gate*, which it is not.
+- **Prototype status:** W1 wrap floor built + solver-proved load-bearing
+  (walk off one edge, arrive the other; "the long way around"). Portal
+  floor in progress. Wrap confirmed to feel good in play.
+- **Puzzle idea banked:** a half-height barrier with decoy "climbable"
+  platforms — the obvious route is a bluff; wrap is the real answer.
+
 ## First milestone — "one level, two worlds" (v0.1)
 
-- [ ] Paper: 3 dual-state puzzles designed and hand-solved (kills or
-      confirms #9 — do this first)
-- [ ] Port Game 1 physics + one character (Stella) into bank 0
-- [ ] Same level in both banks with divergent geometry; fire switches
-      worlds, position persists
-- [ ] Playfield collision works against *the current bank's* geometry
+- [x] Paper: 3 dual-state puzzles designed and hand-solved — done as
+      three built + solver-proven floors (T1/T2/T3, see v0.2 below)
+- [x] Port Game 1 physics + one character (Stella) into bank 0
+- [x] Same level in both worlds with divergent geometry; UP (in a
+      portal) switches worlds, position/velocity persist in RAM
+- [x] Playfield collision works against *the current world's* geometry
+      (PlatPtr repointed on every switch)
 - [ ] Record #9 as DECIDED in `docs/decisions.md` with the prototype verdict
 - [x] Kernel spike: 3 multiplexed sprites (Stella + Alex + Marcus) on one
       screen, flicker only when scanlines overlap — **done in v0.1-visual**
-- [ ] `make` runs the solver on Game 2 levels (even if only trivially)
+- [x] `make` runs the solver on Game 2 levels — proves each toggle floor
+      solvable WITH the switch and unsolvable WITHOUT it
 
 ### v0.1-visual (shipped in bank 0, 2026-07)
 
@@ -137,3 +232,93 @@ Alex slides in under her, and the first level begins.
 Cost estimate: ~200-300 bytes (a color-ramp table + a state that reuses
 the existing gradient builder and eye code). The morph doubles as the
 series' visual thesis: each game, the world gains fidelity.
+
+## v0.2 "one level, two worlds" — the #9 decision-gate prototype (built)
+
+Three Stella-only toggle floors now sit after the Meeting Place sandbox
+(floor 0). SELECT cycles floors 0 → T1 → T2 → T3 → 0; reaching a floor's
+red marker (while grounded) advances automatically.
+
+**The mechanic.** Each toggle floor is one room with two geometries.
+Push **UP inside a blinking portal column** to swap worlds. World A is
+warm with the sky brightening toward the horizon; world B is cool with
+the gradient running the opposite way — a constant which-world tell,
+plus a full-screen palette flip and a short pitch-swept chime (up into
+A, down into B) on every switch. Every character X/Y/velocity stays in
+RAM across the swap; only the geometry and palette change. That RAM
+persistence is the whole pitch.
+
+**Bank / kernel architecture (measured).** The engine and the single
+kernel live in bank 0; the kernel draws the playfield through pointers.
+
+- **PF0** (the outer frame + the floor) never differs between worlds, so
+  it stays in bank-0 ROM (one shared table for all toggle floors).
+- **PF1 + PF2** carry the portal column and the interior geometry that
+  the switch changes, so a toggle floor points them at a **24-byte RAM
+  copy, `PFRam`**. On each switch `PFRam` is refilled: world A's 24 bytes
+  are copied from bank 0; world B's live in bank 1 and are fetched by
+  `jsr GoCopyB` → `CopyBWorker` (bank 1) → `jmp GoBackBank0`, all through
+  byte-identical trampoline stubs (a build-time `STUB_SIZE` assert
+  guards the two banks against drift).
+- **Both worlds' collision boxes** stay in bank 0 beside the physics;
+  `PlatPtr` is repointed at the current world's set on each switch.
+- Bank 1 is now data + the copy worker; its old placeholder frame loop
+  is dead plumbing, kept only to keep the F8 layout honest.
+- The blinking portal is one playfield bit toggled in `PFRam`'s top 11
+  bands each frame; the goal marker reuses the idle **P1** sprite (P0 is
+  Stella) tinted her red — no new kernel code.
+
+**Measured costs.** RAM: +32 bytes (24 `PFRam` + 8 of floor/world/edge
+state), reaching $F3 — the 6502 stack (down to ~$F9 in the deepest
+frame) still clears it. ROM: unchanged at exactly **8192 bytes**; bank 0
+has ~1.75 KB free, bank 1 ~3.8 KB. The kernel and its cycle-tight timing
+are **untouched** — reading `PFRam` from zero-page RAM costs the same as
+reading ROM.
+
+**The RAM wall (a real #9 finding).** A floor whose *floor itself*
+differs between worlds would need a third per-world plane (PF0) in RAM —
+36 bytes of `PFRam` — which collides with the stack. So a *forced*
+mid-air switch can't come from a disappearing floor. T3 instead forces
+it with per-world *interior* platforms over a shared floor: a launch
+step exists only in world A, the goal's tall pillar only in world B, and
+the pillar sits too high to gain from the floor — so the switch must
+happen in mid-air off the step. This fits the 24-byte budget.
+
+**The floors.**
+
+- **T1 — the locked room.** A full-height central divider (world A)
+  walls Stella off from her marker; one portal. Switching to world B
+  removes the divider and opens the path.
+- **T2 — wall here, path there.** Two portals. World-A walls and
+  world-B walls interleave down a corridor, so no single world crosses;
+  the solution alternates A → B → A at the two portals.
+- **T3 — the twist (mid-air switch).** Forced as above: launch off the
+  world-A step, flip to world B in mid-air over the gap, land on the
+  world-B pillar. Standing-only switching is provably insufficient.
+
+**Solver.** `tools/check_levels.py` reimplements Stella's exact
+fixed-point physics (ported from Game 1) over an `(x, feet, world)`
+state space with portal-gated switching, including momentum-preserving
+mid-air switches, and a *grounded* goal rule (arcing through a marker's
+airspace in a world where nothing supports it is not a win — this is
+what forces T3 to be solved mid-air). For each floor it proves two
+things and `make` fails if either breaks: **solvable WITH switching**
+(the floor can be finished) and **UNSOLVABLE WITHOUT it** (the toggle is
+genuinely the reason — not ordinary platforming). All three pass.
+
+Solver tractability: the `(x, feet, world)` space stayed small and the
+BFS is instant, which is evidence the mechanic is tractable at the tool
+level — a point in favour of Option A (signature mechanic) over a
+handful of showcase levels. See the report for the honest verdict.
+
+**Scoped / deferred (honesty ledger).**
+
+- Toggle floors are Stella-only (documented); Alex/Marcus are parked
+  off-screen and their physics is skipped there.
+- Visual vs. collision: the mirrored playfield means every wall is drawn
+  as a symmetric pair, and platform tops land on ~8-du band boundaries,
+  so a step/pillar top can sit a few du off its collision top. The
+  *collision* (what the solver proves) is exact; the art approximates.
+- Per-act sky palettes, narration, the "waking Marcus" opening, and
+  two-voice harmony are still future work; only the switch chime exists.
+- `docs/decisions.md` #9 is deliberately left for the user to record.

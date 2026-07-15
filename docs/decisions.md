@@ -187,7 +187,16 @@
 
 **Recommendation:** Design 3 bank-switching puzzles on paper (per the addendum's next steps) before committing. Decide after the 4K game ships.
 
-**Status:** OPEN — decision needed before "Stella Was Together" (8K) design work begins
+**Status:** DECIDED (2026-07-15) — **Option B (showcase levels), not the spine.** The
+paper puzzles were built and solver-proven in ROM (floors T1/T2/T3 of the Game 2
+prototype: locked-room, wall-here/path-there, forced mid-air switch — each proven
+unsolvable without the toggle). The mechanic *works* and is tractable. But playtesting
+showed the full-screen world-swap reads as "teleport to a different place," not "same
+place rearranged" — cognitively heavy for 8K. It becomes the hardest *final* rung of
+Game 2's spatial ladder (see #18), not the mechanic throughout. Its "two truths of one
+place" idea may migrate to Game 4's meta-awareness theme. The lighter spatial verbs that
+carry Game 2 — screen wrap and in-screen portals — need no bank switching at all, so 8K's
+spare banks free up for characters, levels, and animation.
 
 ---
 
@@ -308,3 +317,159 @@
 **Recommendation:** Implement the addendum's drone: low hum that rises in pitch each level — "the world waking up." Defer anything melodic to the 8K game.
 
 **Status:** OPEN
+
+## 17. Collision Model — Boxes Span Exactly What They Draw (4K, RC2/RC2.1)
+
+**Question:** RC1 let Stella slide *through* the sides of platforms that were drawn as solid blocks — the collision boxes only blocked landings from above, not sideways movement. Fix it, leave it (lore: "the programmers got better across the series"), or make honest collision a Game 2 feature?
+
+**Options:**
+- A) **Leave RC1 as-is** — Stella's slide-through is a quirk; save the fix for Game 2
+- B) **Fix in Game 1 now** — every drawn-solid platform truly blocks
+- C) **Keep some one-way shelves** as a deliberate, thin-drawn mechanic
+
+**Considerations:**
+- Nothing has shipped publicly as final (decision #4 holds the boxed set); RC is a freeze label, not a release
+- The manual's signature promise is "every level is mathematically verified to be completable" — thin if the solver doesn't model side-blocking
+- Stella sliding under a barrier was silently *borrowing Alex's whole identity* ("he could slip beneath barriers that stopped her cold") — the bug erased his uniqueness
+- The audit found all 18 "shelves" were drawn as full slabs; there were no genuine thin shelves to preserve
+
+**Status:** DECIDED (2026-07-15) — **Option B, in two passes.** RC2: all 18 shelves made
+truly solid; the solver taught side-blocking, one-way semantics, and boost runs, and it
+caught a real solo-cheat on levels 7/9 (goal markers were tappable mid-jump). RC2.1: the
+one carried-over exception (the "bottom-79 rule," which shaved a ledge's underside by 1 du
+so Stella could still squeeze under) was removed after playtest — it read as clipping.
+Now **every collision box spans exactly its drawn extent, in both orientations**; the
+global scan finds zero body/slab overlaps. Levels 6 and 10 were minimally redesigned
+where an under-ledge route was lost. RC2.1 is the public beta. One-way shelves remain an
+*unspent* idea for Game 2. See `games/01-stella-was-alone/RC2-NOTES.md`.
+
+---
+
+## 18. Series Spatial-Scale Progression, and Game 2's Spatial Ladder
+
+**Question:** Beyond hardware tier and character count, is there a third axis the series can grow along — and what is Game 2's core spatial mechanic?
+
+**Considerations:**
+- The series' founding image is Stella's world *expanding as the ROM expands* ("four kilobytes of existence… there had to be more")
+- Game 2's world-swap (see #9) proved UX-heavy; playtesting pointed toward lighter, more legible spatial verbs
+- Each game should introduce its spatial idea *fresh* — the value of a mechanic depends on its absence in the prior game
+
+**Status:** DECIDED (2026-07-15) — a third progression axis: **perceived spatial scale grows
+with the ROM.**
+- **Game 1 (4K):** bounded, one static screen; the world can *flip* (upright → inverted,
+  the Quest-2 second half) but never grows. Confinement is the point — it stays sealed, no
+  backport of later spatial tricks.
+- **Game 2 (8K):** still one screen, but its *space connects* — topology, not size. Its
+  own internal ladder, in rising difficulty and conceptual weight:
+  **wrap → portals → world-swap** (move through space → shortcut through space → change
+  space itself). Wrap and portals are single-world and need no bank switch; world-swap
+  (#9) is the hard final rung. **Wrap is the always-on baseline (decided 2026-07-15):**
+  the screen edges connect on *every* floor — the world is a cylinder — and portals and
+  world-swap layer on top of that ever-present wrap. Verbs accrete; they are not swapped
+  in and out. (The prototype's isolated wrap/portal/world-swap floors were for testing
+  each verb cleanly; the shipped game turns wrap on everywhere.) A hard boundary, where a
+  puzzle needs one, is a wall placed just inside the edge — the world still wraps, that
+  spot is blocked.
+- **Game 3 (16K):** the world *extends* — scrolling, connected rooms, a journey ("Stella's
+  Journey"). This is where breadth, not just depth, arrives.
+- **Game 4 (ARM):** transcendent — the screen becomes a window onto something larger.
+
+All three prototype verbs are built and solver-proven load-bearing (wrap floor W1, portal
+floor P1, world-swap floors T1–T3). See `games/02-stella-was-together/DESIGN-KICKOFF.md`.
+
+---
+
+## 19. Three-Character Sprite Multiplexing (8K Kernel)
+
+**Question:** The 2600 has two player sprites; Game 2 has three characters (Stella, Alex,
+Marcus). How are three drawn on two sprites?
+
+**Options:**
+- A) **Full sort/multiplex** every character across both sprites each frame
+- B) **P0 dedicated, P1 time-shared** — one character owns P0; the other two share P1
+- C) **Flicker all three** at 30 Hz always
+
+**Considerations:**
+- A stable 262-line NTSC frame matters more than cleverness; the kernel is cycle-tight
+- The gameplay-mechanics addendum embraces flicker-as-multiplexing rather than hiding it — level design rewards vertical separation
+- Flicker foreshadows Game 3's Flicker character (the artifact made canonical)
+
+**Status:** DECIDED (2026-07-15) — **Option B.** Stella owns P0; Alex and Marcus time-share
+P1. When their scanlines don't overlap, the kernel repositions P1 mid-frame (an inline
+RESP1/HMOVE hop) and all three draw solid at 60 Hz; when they overlap, P1 alternates them
+at 30 Hz — flicker *only* where physically justified. Single failure mode (no room to hop)
+degrades gracefully into the embraced flicker.
+
+---
+
+## 20. Mirrored Playfield Kept; Asymmetry From Actors
+
+**Question:** The mirrored playfield reflects the left half onto the right, which doubles
+walls and portals and confused early Game 2 playtests. Switch to a true asymmetric
+playfield?
+
+**Considerations:**
+- True asymmetric PF needs per-scanline register rewrites at exact beam cycles; measured as
+  not fitting the cycle-tuned kernel that Game 1 and the Game 2 multiplex depend on
+- Sprites and markers are positioned *freely* — they are not mirrored
+- Asymmetry the player reads (characters, per-color goal markers, portals at different
+  heights/sides) comes from *where things are placed*, not from the background
+
+**Status:** DECIDED (2026-07-15) — **Keep the mirrored playfield.** Get asymmetry from actor
+and marker placement, and lay out walls/portals so the reflection *completes* a feature
+rather than doubling it (a full-width shelf, or a wall on the mirror axis, reads as one
+clean object). Zero extra kernel cost. Revisit only if a specific puzzle genuinely needs a
+lopsided *wall* and the kernel has gained room.
+
+---
+
+## 21. Marcus's Identity and Discoverable Feature
+
+**Question:** Marcus (blue square, Game 2's new character) must be mechanically distinct
+from Stella (tall, high jump) and Alex (flat, fast, fits under overhangs). What is his
+unique feature, and how does the player discover it without being told?
+
+**Considerations:**
+- The design document assigns him "balanced… perfect size for medium gaps"
+- "Balanced" is not, by itself, a *feature* a player can feel
+- Stella's tall body needs headroom to jump; under a low ceiling she bonks and effectively
+  cannot jump at all
+- Game 1's teaching style is failure-driven and wordless
+
+**Status:** DECIDED (2026-07-15) — Marcus's feature is **fitting where the others cannot**:
+a true visual square (12 scanlines — a TIA pixel is wider than a scanline), a walk speed
+between Alex's and Stella's, and — the key — a medium jump that works under a *low ceiling*
+where Stella's big arc bonks and Alex's fizzles short. Discovered by a level with a medium
+gap under a low ceiling: try Stella (bonks), try Alex (falls short), try Marcus (fits
+exactly). One failure each, insight owned forever. He is Game 1's silent blue epilogue
+figure, now awake (see the wake-up opening in DESIGN-KICKOFF.md).
+
+---
+
+## 22. Presentation / UI Sophistication Grows Per Generation
+
+**Question:** When does the series introduce a proper title screen and an on-screen options
+menu (sound on/off, mode select, etc.)? Could Game 1 have a simple menu (Play / Sound /
+Red Sky) in its ~80 spare bytes?
+
+**Options:**
+- A) **On-screen menu from Game 1** — a minimal Title/Play/Sound/Mode menu
+- B) **Console-switch options only in Game 1**, on-screen menus arrive in later games
+- C) **No options anywhere** — pure switch-driven throughout
+
+**Considerations:**
+- Authentic 4K-era games did *not* have on-screen option menus; options were the console
+  hardware switches (SELECT cycles the game variation; the difficulty switches toggle modes)
+- Game 1 already does this correctly and period-accurately: SELECT chooses story vs. endless
+  (rainbow vs. ember sky), the left difficulty switch adds the level timer, RESET restarts
+- ~80 free bytes is very tight for menu state + cursor + input + extra text strings
+- On-screen menus historically arrived with larger cartridges — so menu sophistication is a
+  natural fourth thing that can grow with the ROM, alongside scale, characters, and audio
+
+**Status:** DECIDED (2026-07-15) — **Option B; UI sophistication is a per-generation axis.**
+Game 1 stays switch-driven (authentic, already implemented, and an on-screen menu would
+break the 4K aesthetic the series prides itself on). If a *sound on/off* toggle is wanted in
+Game 1, the authentic and cheap route is a free console switch (e.g. the B/W–Color switch or
+the right difficulty switch), not a menu. Progression: **G1** console switches → **G2** a
+proper title screen, still mostly switch-driven → **G3** a real navigable on-screen menu →
+**G4** full settings. The menu grows up as the hardware does.
