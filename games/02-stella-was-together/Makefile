@@ -2,7 +2,7 @@ ROM := build/stella-was-together.bin
 
 all: $(ROM) check
 
-$(ROM): src/main.asm src/vcs.h
+$(ROM): src/main.asm src/vcs.h src/text.inc
 	@mkdir -p build
 	cd src && dasm main.asm -f3 -v0 -o../$(ROM) -l../build/main.lst -s../build/main.sym
 	@ls -l $(ROM)
@@ -17,6 +17,9 @@ $(ROM): src/main.asm src/vcs.h
 # Decision-gate proof: every toggle floor must be solvable WITH the
 # world-switch and unsolvable WITHOUT it. Build fails if either half
 # of any floor's proof fails.
+src/text.inc: tools/gentext.py
+	python3 tools/gentext.py src/text.inc
+
 check: $(ROM)
 	python3 tools/check_levels.py $(ROM) build/main.sym src/main.asm
 

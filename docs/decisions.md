@@ -503,3 +503,29 @@ shrinks:
 Document it only through the *manuals* — one quiet line each, so a reader of all four joins
 the dots without being lectured (Game 2's could be simply "They can see each other now").
 Never state the mechanism (that the eyes are unlit sprite bits); let it read as awakening.
+
+## 24. World-Swap Verbs Removed From the Real-Game Skeleton (Re-attach in Act 3)
+
+**Question:** When the Game 2 workbench was cut down to the real-game skeleton
+(title + in-order floor flow + between-floor narration, prototype floors removed),
+should the world-swap / portal *verbs* (`DoSwitch`/`DoTeleport` and their data)
+stay in the code as dead routines, or be removed with the prototype floors?
+
+**Considerations:**
+- 128 bytes of RAM total. The narration text kernel needs its RAM state; world-swap
+  needs a 24-byte `PFRam` playfield buffer. Both resident at once did not fit.
+- A clean skeleton should not carry dead routines pointed at deleted data.
+- World-swap is Act 3's mechanic — not needed until then.
+- The *capability* does not depend on those specific routines surviving: the F8
+  two-bank architecture (byte-identical trampoline stubs + a bank-1 entry/worker)
+  is intact, the kernel already draws the playfield from pointers, and the full
+  world-swap implementation is preserved in the `game2-workbench` tag.
+
+**Status:** DECIDED (2026-07-16) — **Remove the verbs with the prototype floors;
+re-attach world-swap in Act 3.** The skeleton keeps the F8 layout honest (8192
+bytes, stubs + bank-1 targets) so Act 3 fills in bank 1 and reconnects the verbs to
+the floor framework. **The RAM tension is straightforward to resolve, not a blocker:**
+narration (STATE_STORY) and world-swap gameplay (STATE_PLAY) never run in the same
+frame, so their RAM can *overlay* the same bytes (a per-state union, a standard 2600
+technique) rather than coexist. Not a loss — a deferral with a known fix. See the
+`game2-workbench` tag and `games/02-stella-was-together/README.md` for the version map.
