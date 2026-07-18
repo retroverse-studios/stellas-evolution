@@ -54,11 +54,15 @@ FONT = {
 #   0: title logo                     — "STELLA WAS TOGETHER"
 #   1: after Act 1 Floor 1            — theme: connection & difference,
 #      "not every challenge could be overcome alone" (creative-brief.md)
+#   2: after Act 1 Floor 2 "The Low Door" — Marcus's gift (decision #21)
+#   3: after Act 1 Floor 3 "The Wall"     — the wrap twist closes Act 1
 # Adding a floor adds one narration screen here and one FloorStoryTbl
 # entry in src/main.asm.
 SCREENS = [
     ["  STELLA", "   WAS", " TOGETHER"],                    # 0: title
     ["NOT EVERY", " CLIMB IS", "MADE ALONE"],               # 1: after F1
+    [" THE DOOR", " KNEW WHO", "IT WAS FOR"],               # 2: after F2
+    ["THEY WENT", "THE OTHER", "WAY AROUND"],               # 3: after F3
 ]
 
 

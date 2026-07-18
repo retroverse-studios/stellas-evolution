@@ -14,12 +14,13 @@ $(ROM): src/main.asm src/vcs.h src/text.inc
 	fi
 	@echo "ROM is exactly 8192 bytes — F8 layout intact"
 
-# Decision-gate proof: every toggle floor must be solvable WITH the
-# world-switch and unsolvable WITHOUT it. Build fails if either half
-# of any floor's proof fails.
 src/text.inc: tools/gentext.py
 	python3 tools/gentext.py src/text.inc
 
+# Floor proofs: every real floor must be solvable (helpers allowed),
+# free of Y-only false completions, and its TEACHING load-bearing --
+# Floor 1's coop boost, Floor 2's Marcus-only door, Floor 3's
+# unsolvable-without-wrap twist. Build fails if any proof breaks.
 check: $(ROM)
 	python3 tools/check_levels.py $(ROM) build/main.sym src/main.asm
 

@@ -18,16 +18,31 @@
 ;   * a rainbow TITLE screen ("STELLA WAS TOGETHER") on this game's
 ;     dusk-violet banded gradient sky — no menu, fire starts (decision
 ;     #22: Game 2 stays switch-driven);
+;   * the WAKING-MARCUS opening (DESIGN-KICKOFF): a recreation of
+;     Game 1's epilogue — black screen, the small blue square — that
+;     the world assembles itself around: the sky gradient builds band
+;     by band, Marcus's eyes appear (the moment he wakes), Stella
+;     drops in, Alex slides in, and Floor 1 begins. Fire skips it;
 ;   * floors that play IN ORDER (not SELECT-cycled), walked from a
 ;     clean FLOOR TABLE (record + narration id + act);
 ;   * a between-floor NARRATION text screen (Game 1's text kernel +
 ;     tools/gentext.py pipeline, ported);
-;   * boot flow: title -> Act 1 Floor 1 "Together Again" -> narration
-;     -> (only one real floor so far) back to the title.
+;   * ALL OF ACT 1 (three floors, decision #18's 3/3/3/1 shape):
+;       Floor 1 "Together Again"  — coop: the head-boost carries over
+;       Floor 2 "The Low Door"    — Marcus's gift (decision #21): a
+;         tunnel under a slab only he can enter — Stella is 1 du too
+;         tall for the slot, Alex's jump is 6 du too weak for the sill
+;       Floor 3 "The Wall"        — the wrap twist: a wall to the sky
+;         splits the world, Alex wakes alone on the far side, and the
+;         only way to him is off the edge of the screen — the banked
+;         "decoy platforms, wrap is the answer" puzzle
+;   * boot flow: title -> wake-up -> floors 1-2-3 (each followed by
+;     its narration) -> back to the title.
 ;
-; Adding Floor 2, 3... is: one row in each Floor* table + one Floor?Rec
-; record + one Floor?HomeCharY table + one narration string in
-; tools/gentext.py's SCREENS. Act order (docs/decisions.md #18):
+; Adding Floor 4+ is: one row in each Floor* table + one Floor?Rec
+; record + one Floor?HomeCharY + one Floor?PFBri/Dim pair + one
+; narration string in tools/gentext.py's SCREENS + one FLOOR_DEFS row
+; in tools/check_levels.py. Act order (docs/decisions.md #18):
 ;   Act 1 = wrap (the always-on baseline), Act 2 = portal, Act 3 =
 ;   world-swap, Act 4 = finale. Wrap is on for every floor.
 ;
@@ -44,7 +59,8 @@
 ;
 ; Controls (Game 1 conventions, decision #22):
 ;   Left/Right  move the active character
-;   Fire        title: start ; narration: continue ; in play: jump
+;   Fire        title: start ; opening: skip ; narration: continue ;
+;               in play: jump
 ;   Down+Fire   cycle Stella -> Alex -> Marcus
 ;   SELECT      reserved for future variation (no-op)
 ;   RESET       return to the title
@@ -66,9 +82,15 @@ BANK1HOT    = $FFF9     ; reading either one swaps the 4K window
 STATE_TITLE = 0         ; rainbow logo, fire to start
 STATE_PLAY  = 1         ; a floor is being played
 STATE_STORY = 2         ; a between-floor narration screen
+STATE_WAKE  = 3         ; the waking-Marcus opening (game kernel)
 
 ; --- floor sequencing ------------------------------------------
-NUM_FLOORS  = 1         ; real floors built so far (Act 1 Floor 1)
+NUM_FLOORS  = 3         ; Act 1 complete: Together Again / The Low
+                        ; Door / The Wall
+
+; --- wake-up opening timing (frames) ---------------------------
+WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
+WAKE_EYES   = 70        ; phase 2: eyes open before Stella arrives
 
 FLOOR1_SKY  = $62       ; Act 1 dusk violet (blue stays Marcus's alone)
 TITLE_SKY   = $62       ; the title shares Act 1's dusk-violet sky
@@ -195,6 +217,11 @@ TextEnd     ds 1        ; index of the blank byte in each plane
 TextTop     ds 1        ; first du of the text block
 TPtr        ds 12       ; six playfield plane pointers
 
+; --- wake-up opening -------------------------------------------
+WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
+                        ; drops / 4 Alex slides in
+WakeT       ds 1        ; frame counter within the phase
+
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
 ; ===============================================================
@@ -285,7 +312,12 @@ MainLoop:
         beq .doPlay
         cmp #STATE_STORY
         beq .doStory
+        cmp #STATE_WAKE
+        beq .doWake
         jsr TitleLogic
+        jmp .logicDone
+.doWake:
+        jsr WakeLogic
         jmp .logicDone
 .doStory:
         jsr StoryLogic
@@ -301,6 +333,8 @@ MainLoop:
         lda State
         cmp #STATE_PLAY
         beq .kPlay
+        cmp #STATE_WAKE
+        beq .kPlay              ; the opening runs on the game kernel
         cmp #STATE_STORY
         beq .kStory
         ; ---- title kernel ----
@@ -386,15 +420,187 @@ TitleLogic:
         bpl .done
         lda #0
         sta FirePrev
-        sta FloorSeq            ; start at the first floor
-        jsr LoadFloor
-        lda #STATE_PLAY
-        sta State
+        sta FloorSeq            ; start at the first floor...
+        jsr WakeInit            ; ...via the waking-Marcus opening
         rts
 .release:
         lda #$80
         sta FirePrev
 .done:
+        rts
+
+; ---------------------------------------------------------------
+; The waking-Marcus opening (DESIGN-KICKOFF, promoted 2026-07-15).
+; A recreation of Game 1's epilogue that the world assembles itself
+; around. Runs on the game kernel with Floor 1 loaded, so the morph
+; IS the first floor coming into being — the series' visual thesis
+; (each game, the world gains fidelity) in one shot.
+;   Phase 0  black screen, Marcus alone, eyeless, asleep-dim
+;   Phase 1  the sky gradient assembles band by band, horizon first;
+;            when it stands, the platforms appear
+;   Phase 2  Marcus's eyes appear and he brightens — he is awake
+;   Phase 3  Stella drops in from the sky above her spawn (physics
+;            does the work; her landing thump is real)
+;   Phase 4  Alex slides in from the left edge to his spawn
+; Fire skips. The finish re-runs LoadFloor, which re-arms the floor
+; cleanly — every character is already standing on its spawn.
+; ---------------------------------------------------------------
+
+WakeInit:
+        SUBROUTINE
+        jsr LoadFloor           ; Floor 1 data (FloorSeq = 0)
+        lda #2
+        sta Active              ; Marcus is the sleeper: P0, solid
+        ldx #11
+        lda #0
+.dark:
+        sta SkyGrad,x           ; the sky starts black...
+        dex
+        bpl .dark
+        sta PFColor             ; ...and so do the platforms
+        sta WakePhase
+        sta WakeT
+        lda #<BlackPF
+        sta PFColPtr
+        lda #>BlackPF
+        sta PFColPtr+1
+        lda #200                ; park Stella and Alex below the
+        sta CharY               ; visible screen (kernel draws
+        sta CharY+1             ; nothing at y=200; no physics runs
+        lda #STATE_WAKE         ; for them until phase 3)
+        sta State
+        rts
+
+WakeLogic:
+        SUBROUTINE
+        lda INPT4               ; a fresh fire press skips the opening
+        and #$80
+        bne .arm
+        bit FirePrev
+        bpl .run                ; still held from the title: ignore
+        lda #0
+        sta FirePrev
+        jmp .finish
+.arm:
+        lda #$80
+        sta FirePrev
+.run:
+        lda WakePhase
+        cmp #3
+        bcs .physics
+        cmp #1
+        beq .p1
+        cmp #2
+        beq .p2
+        ; --- phase 0: hold the black -------------------------------
+        inc WakeT
+        lda WakeT
+        cmp #WAKE_BLACK
+        bcc .p0d
+        lda #1
+        sta WakePhase
+        lda #0
+        sta WakeT
+.p0d:
+        jmp .draw
+.p1:
+        ; --- phase 1: the sky assembles, horizon (band 11) first ---
+        lda WakeT
+        and #7
+        bne .p1t                ; one new band every 8 frames
+        lda WakeT
+        lsr
+        lsr
+        lsr
+        sta Temp                ; n = 0..11
+        lda #11
+        sec
+        sbc Temp
+        tax                     ; band 11 - n
+        lda GradOfs,x
+        clc
+        adc #FLOOR1_SKY
+        sta SkyGrad,x
+.p1t:
+        inc WakeT
+        lda WakeT
+        cmp #96                 ; 12 bands x 8 frames
+        bcc .draw
+        lda #2
+        sta WakePhase
+        lda #0
+        sta WakeT
+        lda #PFA_COLOR          ; the sky stands: platforms appear
+        sta PFColor
+        lda #<Floor1PFDim
+        sta PFColPtr
+        lda #>Floor1PFDim
+        sta PFColPtr+1
+        bne .draw
+.p2:
+        ; --- phase 2: eyes open (the forcing below stops) ----------
+        inc WakeT
+        lda WakeT
+        cmp #WAKE_EYES
+        bcc .draw
+        lda #3
+        sta WakePhase
+        lda #0
+        sta WakeT
+        sta CharY               ; Stella appears at the top of the
+        sta CharYLo             ; sky above her spawn x and falls
+        sta CharVYHi
+        sta CharVYLo
+        sta OnGround
+        beq .draw
+.physics:
+        jsr UpdatePhysics
+        lda WakePhase
+        cmp #4
+        beq .p4
+        ; --- phase 3: Stella falls; keep Alex parked ---------------
+        lda #200
+        sta CharY+1
+        lda #0
+        sta CharVYHi+1
+        sta CharVYLo+1
+        lda OnGround
+        beq .draw
+        lda #4                  ; she landed (real thump): Alex's turn
+        sta WakePhase
+        lda #85                 ; ground level (feet on the floor)
+        sta CharY+1
+        lda #0
+        sta CharX+1             ; from the left edge...
+        sta CharVYHi+1
+        sta CharVYLo+1
+        lda #1
+        sta OnGround+1
+        sta CharFace+1
+        bne .draw
+.p4:
+        ; --- phase 4: Alex slides in to his spawn ------------------
+        lda CharX+1
+        clc
+        adc #2
+        sta CharX+1
+        cmp #32
+        bcc .draw
+.finish:
+        jsr LoadFloor           ; clean re-arm; positions = spawns
+        lda #STATE_PLAY
+        sta State
+        rts
+.draw:
+        jsr PrepSprites
+        lda WakePhase
+        cmp #2
+        bcs .awake
+        lda #$FF                ; before the wake: no eyes...
+        sta P0Eye
+        lda ColDimTbl+2         ; ...and asleep-dim blue
+        sta COLUP0
+.awake:
         rts
 
 ; ---------------------------------------------------------------
@@ -559,9 +765,10 @@ LoadFloor:
         bpl .grad
         lda #PFA_COLOR
         sta PFColor
-        lda #<Floor1PFDim       ; PrepSprites re-picks bright/dim per frame
-        sta PFColPtr
-        lda #>Floor1PFDim
+        ldx FloorSeq            ; per-floor home-ledge colour bands
+        lda FloorPFDimLo,x      ; (PrepSprites re-picks bright/dim
+        sta PFColPtr            ; every frame)
+        lda FloorPFDimHi,x
         sta PFColPtr+1
         rts
 
@@ -1068,18 +1275,22 @@ UpdateSound:
 
 PrepSprites:
         SUBROUTINE
+        lda State               ; the wake-up opening drives PFColPtr
+        cmp #STATE_WAKE         ; itself (black -> reveal)
+        beq .noPulse
+        ldx FloorSeq
         lda FrameCtr            ; pulse the home ledges: bright/dim
         and #$10                ; ~0.5s on / 0.5s off
         beq .pulseDim
-        lda #<Floor1PFBri
+        lda FloorPFBriLo,x
         sta PFColPtr
-        lda #>Floor1PFBri
+        lda FloorPFBriHi,x
         sta PFColPtr+1
         jmp .noPulse
 .pulseDim:
-        lda #<Floor1PFDim
+        lda FloorPFDimLo,x
         sta PFColPtr
-        lda #>Floor1PFDim
+        lda FloorPFDimHi,x
         sta PFColPtr+1
 .noPulse:
         ldx #NUM_CHARS-1
@@ -1573,10 +1784,16 @@ WidthTbl:   .byte 8, 16, 8
 SpeedTbl:   .byte 1, 2, 1           ; Stella slow, Alex fast...
 SpeedHalfTbl: .byte 0, 0, 1         ; ...Marcus 1.5 (the balance)
 MaxXTbl:    .byte 156-8, 156-16, 156-8
-JumpHiTbl:  .byte $FD, $FE, $FD     ; Stella -2.875 (apex ~22 du),
-JumpLoTbl:  .byte $20, $10, $A0     ; Alex -1.9375 (~10),
-                                    ; Marcus -2.375 (~15): highest,
-                                    ; lowest, and in between
+JumpHiTbl:  .byte $FD, $FE, $FD     ; Stella -2.875 (rise 21 du),
+JumpLoTbl:  .byte $20, $10, $80     ; Alex -1.9375 (10),
+                                    ; Marcus -2.5 (16): highest,
+                                    ; lowest, and in between.
+                                    ; (Marcus +0.125 vs the workbench
+                                    ; so he can mount Floor 2's 16-du
+                                    ; sill — decision #21's "medium
+                                    ; jump" made load-bearing; the
+                                    ; solver re-proves every floor
+                                    ; against these exact tables)
 ColBriTbl:  .byte $46, $C8, $86     ; active = brighter luma, but
 ColDimTbl:  .byte $42, $C4, $82     ; kept mid-range: high TIA luma
                                     ; whitens a hue, it does not
@@ -1602,14 +1819,21 @@ RainbowRow: .byte $46,$46,$36,$36,$26,$26,$C6,$C6,$A6,$A6,$86,$86
 ; + a narration string in tools/gentext.py.
 ; ===============================================================
 
-FloorRecLo:   .byte <Floor1Rec
-FloorRecHi:   .byte >Floor1Rec
-FloorHomeLo:  .byte <Floor1HomeCharY
-FloorHomeHi:  .byte >Floor1HomeCharY
-FloorWrapTbl: .byte 1                 ; Act 1: wrap is the baseline
-FloorSkyTbl:  .byte FLOOR1_SKY
-FloorStoryTbl: .byte 1                ; narration screen 1 follows Floor 1
-FloorActTbl:  .byte 1                 ; Act 1 (framework metadata)
+FloorRecLo:   .byte <Floor1Rec, <Floor2Rec, <Floor3Rec
+FloorRecHi:   .byte >Floor1Rec, >Floor2Rec, >Floor3Rec
+FloorHomeLo:  .byte <Floor1HomeCharY, <Floor2HomeCharY, <Floor3HomeCharY
+FloorHomeHi:  .byte >Floor1HomeCharY, >Floor2HomeCharY, >Floor3HomeCharY
+FloorWrapTbl: .byte 1, 1, 1           ; Act 1: wrap is the baseline
+FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+FloorStoryTbl: .byte 1, 2, 3          ; narration after each floor
+FloorActTbl:  .byte 1, 1, 1           ; Act 1 (framework metadata)
+FloorPFBriLo: .byte <Floor1PFBri, <Floor2PFBri, <Floor3PFBri
+FloorPFBriHi: .byte >Floor1PFBri, >Floor2PFBri, >Floor3PFBri
+FloorPFDimLo: .byte <Floor1PFDim, <Floor2PFDim, <Floor3PFDim
+FloorPFDimHi: .byte >Floor1PFDim, >Floor2PFDim, >Floor3PFDim
+
+; 12 black bands for the wake-up opening's unlit playfield
+BlackPF:      .byte 0,0,0,0,0,0,0,0,0,0,0,0
 
 ; ===============================================================
 ; ACT 1, FLOOR 1 — "Together Again"
@@ -1619,28 +1843,35 @@ FloorActTbl:  .byte 1                 ; Act 1 (framework metadata)
 ; wrap ON. Three per-colour HOMES form a central totem: three centred
 ; 8px one-way ledges (px 76-83, drawn by PF2 bit7 mirrored) stacked at
 ; three heights, each tinted its owner's colour by the kernel's
-; per-band COLUPF (red = Stella top ledge 76, blue = Marcus mid ledge
-; 68, green = Alex high ledge 60). Completes only when ALL THREE stand
-; on their own-colour ledge.
+; per-band COLUPF (red = Stella low ledge 76, green = Alex mid ledge
+; 68, blue = Marcus top ledge 58 — the new arrival crowns the totem).
+; Completes only when ALL THREE stand on their own-colour ledge.
 ;
 ; The cooperative beat (one gentle beat): Alex's weak jump (~10 du)
 ; cannot reach the first ledge (top 76, a 12 du rise) from the ground,
-; while Marcus (~15) and Stella (~22) can. So a friend stands on the
+; while Marcus (16) and Stella (21) can. So a friend stands on the
 ; centre ground as a stepstool; Alex hops onto their head and onto the
-; ledge, then climbs 76 -> 68 -> 60 to his green home. tools/
-; check_levels.py proves Alex needs the boost while Stella and Marcus
-; finish alone — a genuine, load-bearing "not alone" beat.
+; ledge, then hops 76 -> 68 to his green home; Marcus climbs on to
+; 58. tools/check_levels.py proves Alex needs the boost while Stella
+; and Marcus finish alone — a genuine, load-bearing "not alone" beat.
 ; ===============================================================
 
 ; Per-character CharY when standing on its own home ledge (ledge top
-; minus character height): Stella 76-9, Alex 60-3, Marcus 68-6.
-Floor1HomeCharY:  .byte 67, 57, 62
+; minus character height): Stella 76-9, Alex 68-3, Marcus 58-6.
+; (Reworked from 76/68/60 with green/blue swapped when Marcus's jump
+; grew to 16 du: his overshoot from the 76 ledge landed exactly on
+; the old 60 ledge and his own 68 became unreachable — caught by the
+; solver. Now the NEW ARRIVAL crowns the totem: Marcus's blue home
+; is the top, two 76->68->58 hops of 8 and 10 du; Alex's green home
+; is the middle. Head-chain heights audited: no stack of friends
+; puts anyone's feet at a foreign home height off the column.)
+Floor1HomeCharY:  .byte 67, 65, 52
 
 ; Floor 1 per-band COLUPF: platform tan everywhere except the three
 ; home bands — band 7 = Alex green, band 8 = Marcus blue, band 9 =
 ; Stella red. PrepSprites swaps these ~2x/second so the homes pulse.
-Floor1PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$CC,$8A,$4A,$2C,$2C
-Floor1PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$C8,$86,$46,$2C,$2C
+Floor1PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$8A,$CC,$4A,$2C,$2C
+Floor1PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$86,$C8,$46,$2C,$2C
 
 ; The Floor-1 level record (66-byte layout). Open frame (wrap), a
 ; full-width floor, and three centred one-way home ledges.
@@ -1651,13 +1882,101 @@ Floor1Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$80,$80,$80,$00,$FF
-        .byte  88, 76, 68, 60, $FF,$FF    ; box tops  (ledges one-way:
-        .byte  96, 76, 68, 60, $FF,$FF    ; box bottoms   top == bottom)
+        .byte  88, 76, 68, 58, $FF,$FF    ; box tops  (ledges one-way:
+        .byte  96, 76, 68, 58, $FF,$FF    ; box bottoms   top == bottom)
         .byte   0, 76, 76, 76,   0,   0   ; box lefts
         .byte 160, 84, 84, 84,   0,   0   ; box rights (excl)
         .byte 20, 79                      ; Stella: ground, left
         .byte 40, 85                      ; Alex: ground, mid-left
         .byte 60, 82                      ; Marcus: ground, centre-left
+
+; ===============================================================
+; ACT 1, FLOOR 2 — "The Low Door"
+;
+; Marcus's discoverable gift (decision #21). A wide raised SILL
+; (top 72, x 48-112) carries a roof SLAB (56-64, x 64-96); between
+; slab bottom and sill top runs an 8-du TUNNEL. Inside, floating 2 du
+; over the sill, sits Marcus's blue HEART perch (one-way, top 70,
+; x 76-84) — his home.
+;
+;   Stella (9 tall, rise 21): mounts the sill's exposed WINGS
+;     (48-64 / 96-112) but is 1 du too tall for the tunnel slot —
+;     she stands at the threshold, blocked. Her home: she alone can
+;     jump the 16-du rise from wing to SLAB TOP. She cannot fit
+;     through the door, but only she stands on top of it.
+;   Alex (rise 10): the 16-du sill defeats his jump — a friend's
+;     head (the Floor 1 lesson) lifts him to his green wing home.
+;   Marcus (6 tall, rise 16): mounts the wing exactly, squeezes the
+;     tunnel exactly, bonks the slab and drops neatly onto his
+;     heart. One failure each for the others; his insight forever.
+;
+; The solver proves: everyone homes; Marcus homes ALONE; Stella can
+; NEVER reach his heart; Alex genuinely needs the boost.
+; Honesty ledger: the heart's one-way top (70) sits low in its drawn
+; band (64-71), Game 1 RC2's documented few-du art allowance.
+; ===============================================================
+
+; home CharY: Stella slab 56-9, Alex wing 72-3, Marcus heart 70-6
+Floor2HomeCharY:  .byte 47, 69, 64
+
+; band 7 = slab (Stella red), band 8 = heart (Marcus blue),
+; bands 9-10 = sill (Alex green), rest platform tan
+Floor2PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$4A,$8A,$CC,$CC,$2C
+Floor2PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$46,$86,$C8,$C8,$2C
+
+Floor2Rec:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$F0,$80,$FF,$FF,$FF
+        .byte  88, 72, 56, 70,$FF,$FF     ; tops: ground,sill,slab,heart
+        .byte  96, 88, 64, 70,$FF,$FF     ; bottoms (heart is one-way)
+        .byte   0, 48, 64, 76,  0,  0     ; lefts
+        .byte 160,112, 96, 84,  0,  0     ; rights (excl)
+        .byte 16, 79                      ; Stella: ground, far left
+        .byte 32, 85                      ; Alex: ground, left
+        .byte 136, 82                     ; Marcus: ground, right —
+                                          ; the tower sorted them
+
+; ===============================================================
+; ACT 1, FLOOR 3 — "The Wall"
+;
+; The wrap twist — the banked "decoy platforms, wrap is the answer"
+; puzzle. A wall on the mirror axis (decision #20: reads as one
+; clean object) runs from the sky to the ground (top 8: even a
+; three-friend tower stack tops out at feet 18 — proven, so there is
+; NO way over). Three buttress stairs hug it (b1 80 / b2 64 / b3 48,
+; each mountable from beside, never beneath), climbing 8-16-16: a
+; staircase that promises the top and lies. The stairs are the
+; homes, painted on the wall as colour courses: blue 80 (Marcus),
+; green 64 (Alex), red 48 (Stella).
+;
+; Alex wakes ALONE on the far side. His green course needs a 16-du
+; rise his jump cannot make, and every friend is behind the wall.
+; The answer is the floor's name in negative: the world is a
+; cylinder — walk AWAY from the wall, off the edge of the screen,
+; and arrive beside him. The solver proves the floor UNSOLVABLE
+; with wrap off: the twist is load-bearing, not decoration.
+; ===============================================================
+
+; home CharY: Stella b3 48-9, Alex b2 64-3, Marcus b1 80-6
+Floor3HomeCharY:  .byte 39, 61, 74
+
+; colour courses: band 6 = b3 red, band 8 = b2 green, band 10 = b1
+; blue (the wall wears each height's colour where a stair meets it)
+Floor3PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$4A,$2C,$CC,$2C,$8A,$2C
+Floor3PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$46,$2C,$C8,$2C,$86,$2C
+
+Floor3Rec:
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $00,$C0,$C0,$C0,$C0,$C0,$E0,$C0,$F0,$C0,$FC,$FF
+        .byte  88,  8, 80, 64, 48,$FF     ; tops: ground,wall,b1,b2,b3
+        .byte  96, 88, 88, 70, 54,$FF     ; bottoms
+        .byte   0, 72, 56, 64, 68,  0     ; lefts
+        .byte 160, 88,104, 96, 92,  0     ; rights (excl)
+        .byte 12, 79                      ; Stella: ground, far left
+        .byte 140, 85                     ; Alex: ALONE past the wall
+        .byte 28, 82                      ; Marcus: ground, left
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py):

@@ -529,3 +529,38 @@ narration (STATE_STORY) and world-swap gameplay (STATE_PLAY) never run in the sa
 frame, so their RAM can *overlay* the same bytes (a per-state union, a standard 2600
 technique) rather than coexist. Not a loss — a deferral with a known fix. See the
 `game2-workbench` tag and `games/02-stella-was-together/README.md` for the version map.
+
+## 25. Dual Gravity — a Level Variation, Not an Act; and Act Sizes
+
+**Question:** DESIGN-KICKOFF floated dual gravity (a character walking the
+ceilings) first as a candidate Act 2 mechanic, then as "#9's insurance policy."
+Decision #18's spatial ladder (wrap → portal → world-swap) left it without a rung,
+and it silently vanished from the plan. What is its actual fate? And with ~5KB of
+the 8K still free after Act 1, is the 2-3-floors-per-act shape a ceiling?
+
+**Considerations:**
+- Not a new *mechanic* so much as a new *arrangement*: Game 1's Quest 2 already
+  inverted the whole view; per-character or per-region gravity is that idea made
+  local — e.g. a screen split into regions, one side normal, the other
+  anti-gravity, so a character on the far side walks the ceiling of the SAME
+  platforms everyone else stands on. Every floor is somebody's ceiling; no new
+  level data.
+- Estimated cost (from the original pitch): ~150-300 bytes — a per-character
+  gravity sign, mirrored landing/bonk logic, ceiling home spots, eyes drawn on
+  the character's lower edge. The solver must learn a gravity sign per character.
+- It composes with the decided ladder rather than competing with it: a portal
+  that flips gravity, or a world-swap where world B is world A upside-down
+  ("A-normal / B-INVERTED"), were both already sketched in the kickoff.
+- Acts: the 3/3/3/1 shape (intro/develop/twist per teaching act) is a floor
+  *minimum*, not a budget. Bank 0 has ~0.9KB free with Act 1 complete; bank 1
+  has ~4KB reserved for Act 3's world data with room to spare. A floor costs
+  ~100-160 bytes (record + homes + colour bands + narration).
+
+**Status:** DECIDED (2026-07-18) — **Kept, as a level variation inside the acts,
+not an act of its own.** Acts 2 and 3 may use anti-gravity *regions or characters*
+as floor-level variety (the way Game 1 used inversion for Quest 2), subject to the
+usual gate: prototype one floor, teach it wordlessly, and the solver must prove it
+load-bearing before more floors adopt it. The wrap → portal → world-swap ladder
+(#18) is unchanged. Act floor counts may grow beyond 3 where the ROM allows —
+pacing (Thomas Was Alone brevity, no filler) is the constraint, not the byte
+budget.

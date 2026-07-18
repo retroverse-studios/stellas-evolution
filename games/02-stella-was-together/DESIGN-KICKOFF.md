@@ -2,6 +2,24 @@
 
 **Game 2 of 4 · 8K ROM · F8 bankswitching · kickoff 2026-07-12**
 
+> **How to read this document (added 2026-07-18).** This is the kickoff
+> *record*: it accumulated proposals in the order they were made, and
+> several were later superseded by decided outcomes. It is kept intact as
+> the project's design history — but do not build from it directly. The
+> current truth lives in:
+>
+> - **Act structure & spatial ladder:** `docs/decisions.md` **#18** —
+>   wrap (always-on) → portals → world-swap, acts 1-4. The earlier act
+>   structure below with a dual-gravity Act 2 is superseded.
+> - **Dual gravity:** decision **#25** — kept as a *level variation*
+>   (anti-gravity regions/characters inside later acts), not an act of
+>   its own. The "insurance policy" framing below is superseded.
+> - **Bank-switching as a mechanic (#9):** DECIDED, Option B — see
+>   `docs/decisions.md` #9. The "open decision" section below is history.
+> - **World-swap verbs removed from the skeleton:** decision **#24**
+>   (re-attach in Act 3; full implementation in the `game2-workbench` tag).
+> - **What is actually built right now:** `README.md` (the status file).
+
 The F8 skeleton in `src/main.asm` builds to exactly 8192 bytes and proves the
 plumbing: two 4K banks, identical trampoline stubs at $F000, and the fire
 button hopping between a Stella-red world (bank 0) and a Marcus-blue world
@@ -48,7 +66,7 @@ is the seed. Port, don't rewrite:
 New engine work unique to Game 2: a third multiplexed sprite (the biggest
 kernel risk — prototype early), two-voice audio, and everything below.
 
-## The open decision: #9, bank-switching-as-puzzle
+## The open decision: #9, bank-switching-as-puzzle *(DECIDED 2026-07-15 — Option B; see decisions.md #9)*
 
 `docs/decisions.md` #9 is still OPEN and gates all level design: do the two
 ROM banks hold **two parallel world states** — same level, different walls —
@@ -85,7 +103,13 @@ seductive but should be decided *after* the prototype: it may overload one
 button and confuse the player. Prototype world-switch and character-switch
 as separate verbs first.
 
-## Candidate mechanic: dual gravity (added 2026-07-15)
+## Candidate mechanic: dual gravity (added 2026-07-15 · SUPERSEDED by decision #25)
+
+> **2026-07-18:** #9 did not die and dual gravity is not Game 2's spine —
+> but it was not dropped either. Decision #25 keeps it as a **level
+> variation**: anti-gravity regions or characters inside later-act floors
+> (echoing Game 1's Quest-2 inversion), composed with portals/world-swap
+> rather than replacing them. The paragraph below is the original pitch.
 
 One shared screen, one character whose gravity points up: they walk the
 ceilings and undersides of the SAME platforms everyone else stands on
@@ -97,7 +121,13 @@ Game 2's insurance policy — **if #9 dies on paper, dual gravity is the
 signature mechanic instead**, and both "worlds" being visible at once
 is arguably friendlier than a remembered hidden state.
 
-## Proposed act structure (2026-07-15, pending the #9 paper gate)
+## Proposed act structure (2026-07-15 · SUPERSEDED by decision #18)
+
+> **2026-07-18:** the decided act ladder is **Act 1 wrap → Act 2 portal →
+> Act 3 world-swap → Act 4 finale** (decision #18); the dual-gravity Act 2
+> below did not survive as an act (see #25 for where dual gravity went).
+> The 3/3/3/1 act shape, altitude-as-progress-bar, and the discoverability
+> rules DID carry forward. Kept as written for the record.
 
 The whole game is one tower; each level a floor; nobody climbs alone.
 
@@ -187,7 +217,8 @@ clearer plan:
       portal) switches worlds, position/velocity persist in RAM
 - [x] Playfield collision works against *the current world's* geometry
       (PlatPtr repointed on every switch)
-- [ ] Record #9 as DECIDED in `docs/decisions.md` with the prototype verdict
+- [x] Record #9 as DECIDED in `docs/decisions.md` with the prototype verdict
+      — done 2026-07-15 (Option B: showcase levels, the ladder's final rung)
 - [x] Kernel spike: 3 multiplexed sprites (Stella + Alex + Marcus) on one
       screen, flicker only when scanlines overlap — **done in v0.1-visual**
 - [x] `make` runs the solver on Game 2 levels — proves each toggle floor
@@ -220,7 +251,13 @@ The kernel spike grew into a playable one-level demo that also banks the
 - Not yet: goals/levels beyond the demo screen, narration, two-voice
   audio, the solver, any bank-1 gameplay.
 
-## The opening: waking Marcus (promoted from stretch, 2026-07-15)
+## The opening: waking Marcus (promoted from stretch, 2026-07-15 · BUILT 2026-07-18)
+
+> **2026-07-18:** implemented in `src/main.asm` as `STATE_WAKE`, close to
+> the sketch below: black screen → the gradient assembles band by band,
+> horizon first → Marcus's eyes appear and he brightens → Stella drops in
+> (a real physics fall, real landing thump) → Alex slides in → Floor 1
+> begins. Fire skips it. Measured cost ≈ 250 bytes + 2 bytes of RAM.
 
 Game 2 opens on a recreation of Game 1's epilogue: black screen, the small
 blue square, silent. Then the world *evolves in* — the banded sky gradient

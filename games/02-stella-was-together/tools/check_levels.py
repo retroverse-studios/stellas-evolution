@@ -1,25 +1,46 @@
 #!/usr/bin/env python3
-"""Build-time solvability check for Stella Was Together's real floors.
+"""Build-time solvability proofs for Stella Was Together's real floors.
 
 The workbench's prototype toggle/wrap/portal floors (T1-T3, W1, P1, WP1)
 were removed from the shipped game — their proofs live in the
 `game2-workbench` git tag. This solver proves the REAL floors the game
-plays in order. So far that is Act 1 Floor 1 "Together Again".
+plays in order: Act 1's three floors.
 
-Floor 1 is a single-world, three-character floor with wrap edges. Its
-proof (check_floor1) re-implements each character's exact fixed-point
-physics (ported byte-for-byte from Game 1's proven check_levels.py) and,
-using a friend's reachable footing as a stepstool (add_helpers), proves:
+Each floor re-implements every character's exact fixed-point physics
+(ported byte-for-byte from Game 1's proven check_levels.py; all physics
+constants and tables are read from the assembled ROM, so the ROM is the
+source of truth). Friends' reachable heads are added as stepstool
+surfaces (add_helpers). Every floor proves:
 
-  (a) every character can stand on its own home ledge (solvable), and
-  (b) the cooperation is GENUINELY required — at least one character
-      cannot reach its home alone — so the "not alone" beat is real, not
-      decorative, and (c) a working exit order exists (>= 2 characters
-      can finish alone, so a booster is always available to help).
+  (a) all three characters can stand on their own home
+      (solvable, helpers allowed), and
+  (b) homeY-uniqueness: because the game's CheckGoal compares CharY
+      ONLY (not x), no reachable standing spot outside the home box may
+      produce the home CharY — a false completion — for any character.
 
-`make` fails if any of these breaks. Adding a floor adds its record +
-home table to src/main.asm and, for a three-character floor, is proved
-here automatically once its FloorRec/FloorHomeCharY are wired in.
+Plus a per-floor mode proof that the floor's TEACHING is load-bearing:
+
+  coop (Floor 1) — at least one character cannot finish alone, and at
+      least two can (so a booster is always available).
+  fit (Floor 2)  — Marcus reaches his home ALONE (his gift), Stella can
+      NEVER reach Marcus's home even with help (the low door is a real
+      filter), and the coop/order rules above still hold for the rest.
+  wrap (Floor 3) — solvable with the always-on wrap; with wrap forced
+      OFF at least one character's home becomes unreachable even with
+      help (the wrap genuinely is the answer, not a flourish).
+
+`make` fails if any proof breaks. Adding a floor = its record + home
+table in src/main.asm plus one FLOOR_DEFS row here (mode + home boxes).
+
+Known model limits (same family as Game 1's solver): helper heads are
+static surfaces over each helper's reachable footing — proved over
+every SUBSET of helpers, since an all-friends surface can shadow a
+ledge sitting 1 du beneath a head and wrongly block it (a real friend
+in the way simply moves). No interleaved movement or 2-high stacks are
+modelled, and a stander's own head overlap is not re-checked on head
+landings — matching the engine's HeadTest. Negative proofs that depend
+on geometry (the Floor 3 wall reaches du 8; the best 3-friend stack
+tops out at feet 18) hold regardless.
 
 Usage: python3 tools/check_levels.py build/stella-was-together.bin \
                 build/main.sym src/main.asm
@@ -29,6 +50,19 @@ import sys
 
 NUM_BOXES = 6
 ROM_BASE = 0xF000
+NAMES = ["Stella", "Alex", "Marcus"]
+
+# Per-floor proof metadata. home_box = per-character (left, right) of
+# the true home surface; the solver proves no OTHER reachable footing
+# yields the home CharY (the ROM's CheckGoal is Y-only).
+FLOOR_DEFS = [
+    {"rec": "Floor1Rec", "home": "Floor1HomeCharY", "mode": "coop",
+     "home_box": [(76, 84), (76, 84), (76, 84)]},
+    {"rec": "Floor2Rec", "home": "Floor2HomeCharY", "mode": "fit",
+     "home_box": [(64, 96), (48, 112), (76, 84)]},
+    {"rec": "Floor3Rec", "home": "Floor3HomeCharY", "mode": "wrap",
+     "home_box": [(68, 92), (64, 96), (56, 104)]},
+]
 
 
 def load(bin_path, sym_path, asm_path):
@@ -61,35 +95,24 @@ def load(bin_path, sym_path, asm_path):
         "jhi3": u8n("JumpHiTbl", num_chars), "jlo3": u8n("JumpLoTbl", num_chars),
     }
 
-    def floor_wrap(f):
-        base = syms["FloorWrapTbl"] - ROM_BASE
-        return rom[base + f]
+    if num_floors != len(FLOOR_DEFS):
+        print("check-levels: NUM_FLOORS=%d but %d FLOOR_DEFS — add the "
+              "new floor's proof metadata here" % (num_floors, len(FLOOR_DEFS)))
+        sys.exit(1)
 
-    def load_three_char_floor(f, rec_name, home_name):
-        """A single-world, three-character floor: boxes at record+36,
-        spawns at record+60, per-character home CharY in home_name, all
-        three homes on the centred 8px column (px 76-83)."""
-        rec = syms[rec_name] - ROM_BASE
-        boxes = list(rom[rec + 36:rec + 60])      # 6 tops,bots,lefts,rights
-        sp = list(rom[rec + 60:rec + 66])         # SX,SY,AX,AY,MX,MY
-        return {
-            "idx": f,
-            "boxes": boxes,
-            "wrap": floor_wrap(f),
-            "spawns": [(sp[0], sp[1]), (sp[2], sp[3]), (sp[4], sp[5])],
-            "homeY": u8n(home_name, num_chars),
-            "home_l": 76, "home_r": 84,
-        }
-
-    # The shipped floor table, in play order. Extend this list as floors
-    # are added (record label + home-table label).
-    floor_defs = [
-        ("Floor1Rec", "Floor1HomeCharY"),
-    ]
     floors = []
     for f in range(num_floors):
-        rec_name, home_name = floor_defs[f]
-        floors.append(load_three_char_floor(f, rec_name, home_name))
+        d = FLOOR_DEFS[f]
+        rec = syms[d["rec"]] - ROM_BASE
+        floors.append({
+            "idx": f, "mode": d["mode"], "home_box": d["home_box"],
+            "boxes": list(rom[rec + 36:rec + 60]),
+            "wrap": rom[syms["FloorWrapTbl"] - ROM_BASE + f],
+            "spawns": [(rom[rec + 60], rom[rec + 61]),
+                       (rom[rec + 62], rom[rec + 63]),
+                       (rom[rec + 64], rom[rec + 65])],
+            "homeY": u8n(d["home"], num_chars),
+        })
     return floors, phys, num_chars
 
 
@@ -242,53 +265,103 @@ def add_helpers(sim, helpers):
                 sim.extra.append((head_top, run[0], run[-1] + hsim.w))
 
 
-def check_floor(rec, phys, num_chars, name):
-    """Prove a three-character floor: every character can stand on its
-    own home ledge (with friends available as stepstools), the floor
-    genuinely NEEDS the cooperative boost (at least one character is
-    unsolvable alone), and a working order exists (>=2 finish alone)."""
-    boxes = rec["boxes"]
-    wrap = rec["wrap"]
-    spawns = rec["spawns"]
-    home_l, home_r = rec["home_l"], rec["home_r"]
-    names = ["Stella", "Alex", "Marcus"]
-    solo, helped = {}, {}
-    for ci in range(num_chars):
-        home_feet = rec["homeY"][ci] + phys["h3"][ci]
-        solo[ci] = Char1(boxes, phys, ci, wrap).can_home(
-            spawns[ci], home_feet, home_l, home_r)
-        sim = Char1(boxes, phys, ci, wrap)
-        helpers = [(Char1(boxes, phys, hj, wrap), spawns[hj])
-                   for hj in range(num_chars) if hj != ci]
-        add_helpers(sim, helpers)
-        helped[ci] = sim.can_home(spawns[ci], home_feet, home_l, home_r)
+def helper_subsets(ci):
+    """The player chooses who stands where: prove with each subset of
+    the other two as stepstools (a friend who is IN THE WAY simply
+    moves — a static all-helpers surface can shadow a ledge sitting
+    just beneath a head and wrongly block it)."""
+    j, k = [c for c in range(3) if c != ci]
+    return [(j,), (k,), (j, k)]
 
-    reach = {ci: solo[ci] or helped[ci] for ci in range(num_chars)}
-    all_home = all(reach.values())
-    coop_required = not all(solo.values())
-    boosters = sum(1 for ci in range(num_chars) if solo[ci])
-    order_ok = boosters >= 2      # >=2 finish alone -> a booster can help
-    ok = all_home and coop_required and order_ok
-    detail = " ; ".join(
-        "%s(home=%s,alone=%s)" % (names[ci], reach[ci], solo[ci])
-        for ci in range(num_chars))
-    print("FLOOR %s: all three reach their homes -> %s ; cooperation "
-          "genuinely required -> %s : %s"
-          % (name,
-             "YES" if all_home else "NO",
-             "YES" if coop_required else "NO",
-             "ok (three homes, load-bearing coop beat)" if ok else "FAIL"))
+
+def reach(fl, phys, ci, wrap, helpers, target=None):
+    """(can_home, footing) for character ci using the given helper
+    subset. target overrides the char's own home (for gate proofs)."""
+    hy, (hl, hr) = fl["homeY"][ci], fl["home_box"][ci]
+    if target is not None:
+        hy, (hl, hr) = fl["homeY"][target], fl["home_box"][target]
+        hf = hy + phys["h3"][target]
+    else:
+        hf = hy + phys["h3"][ci]
+    sim = Char1(fl["boxes"], phys, ci, wrap)
+    add_helpers(sim, [(Char1(fl["boxes"], phys, hj, wrap),
+                       fl["spawns"][hj]) for hj in helpers])
+    return sim.can_home(fl["spawns"][ci], hf, hl, hr), \
+        sim.footing(fl["spawns"][ci])
+
+
+def survey(fl, phys, wrap):
+    """Per character: (solo, helped-any-subset, union footing)."""
+    out = []
+    for ci in range(3):
+        solo, foot = reach(fl, phys, ci, wrap, ())
+        helped = solo
+        union = dict((f, set(xs)) for f, xs in foot.items())
+        for sub in helper_subsets(ci):
+            ok, foot = reach(fl, phys, ci, wrap, sub)
+            helped = helped or ok
+            for f, xs in foot.items():
+                union.setdefault(f, set()).update(xs)
+        out.append((solo, helped, union))
+    return out
+
+
+def check_floor(fl, phys, name):
+    fails = []
+    res = survey(fl, phys, fl["wrap"])
+    solo = [r[0] for r in res]
+    homed = [r[0] or r[1] for r in res]
+
+    # (a) everyone home
+    for ci in range(3):
+        if not homed[ci]:
+            fails.append("%s cannot reach home even with stepstools"
+                         % NAMES[ci])
+
+    # (b) homeY-uniqueness (the ROM's CheckGoal is Y-only)
+    for ci in range(3):
+        hf = fl["homeY"][ci] + phys["h3"][ci]
+        hl, hr = fl["home_box"][ci]
+        w = phys["w3"][ci]
+        bad = [(x, f) for f, xs in res[ci][2].items() if f == hf
+               for x in xs if not (x < hr and x + w > hl)]
+        if bad:
+            fails.append("%s can false-complete at homeY off the home box: %s"
+                         % (NAMES[ci], sorted(bad)[:4]))
+
+    mode = fl["mode"]
+    coop = not all(solo)
+    boosters = sum(solo)
+    if mode in ("coop", "fit", "wrap"):
+        if not coop:
+            fails.append("no cooperative beat: everyone finishes alone")
+        if boosters < 2:
+            fails.append("fewer than 2 solo finishers — no booster order")
+    if mode == "fit":
+        if not solo[2]:
+            fails.append("Marcus cannot reach his home ALONE — his gift "
+                         "must not need help")
+        # the low door is a real filter: Stella can never reach his
+        # home, whichever friends she uses as stepstools
+        for sub in [()] + helper_subsets(0):
+            if reach(fl, phys, 0, fl["wrap"], sub, target=2)[0]:
+                fails.append("Stella can reach Marcus's home (helpers "
+                             "%s) — the door doesn't filter her" % (sub,))
+                break
+    if mode == "wrap":
+        res_no = survey(fl, phys, wrap=0)
+        if all(r[0] or r[1] for r in res_no):
+            fails.append("floor solvable with wrap OFF — the wrap twist "
+                         "is decorative")
+
+    detail = " ; ".join("%s(home=%s,alone=%s)" % (NAMES[ci], homed[ci], solo[ci])
+                        for ci in range(3))
+    verdict = "ok (%s proof)" % mode if not fails else "FAIL"
+    print("FLOOR %s [%s]: %s" % (name, mode, verdict))
     print("  detail: " + detail)
-    if not all_home:
-        print("  FAIL: %s not solvable even with friends as stepstools"
-              % name)
-    if not coop_required:
-        print("  FAIL: %s solvable with everyone alone — no cooperative "
-              "beat" % name)
-    if all_home and coop_required and not order_ok:
-        print("  FAIL: %s has no booster that can finish alone — order "
-              "impossible" % name)
-    return ok
+    for f in fails:
+        print("  FAIL: " + f)
+    return not fails
 
 
 def main():
@@ -296,8 +369,8 @@ def main():
     floors, phys, num_chars = load(bin_path, sym_path, asm_path)
     failed = False
     for i, fl in enumerate(floors):
-        name = "F%d" % (i + 1)
-        failed = failed or not check_floor(fl, phys, num_chars, name)
+        if not check_floor(fl, phys, "F%d" % (i + 1)):
+            failed = True
     if failed:
         print("check-levels: FAILED")
         sys.exit(1)
