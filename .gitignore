@@ -11,3 +11,6 @@ build/
 # Release ROMs are distributed, not build outputs
 !downloads/*.bin
 ._*
+
+# Python tool caches
+__pycache__/

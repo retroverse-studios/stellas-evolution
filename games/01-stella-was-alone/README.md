@@ -26,17 +26,29 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
-## Status: v1.0-rc2.1 — release candidate
+## Status: v1.0-rc3-dev — place and hold (supersedes rc2.1)
 
-The ROM is frozen pending real-hardware validation. Final form: **Game 1
-(The Story)** — 10 levels, then the world turns upside down for 10 more,
-ending at the ? screen with your total time; **Game 2 (Endless)** — SELECT
-at the title, random rooms in random orientations, the clock tightening
-every level (45s − 2/level, floor 12s), rooms survived as your score.
+The series' unified goal mechanic, backported from Game 2 (decision #26):
+nobody exits at their marker any more — a level completes when everyone
+present **stands on their own goal at the same time**, so any order can be
+re-solved with all the pieces still in play. The exit-order locks and the
+denial buzz are gone; order emerges (the booster finishes last). With it
+came the colour-accessibility layer (decision #27): goal markers are now
+**home lamps** — steady when held, blinking when vacant, blinking *fast*
+for the shape you control — and Alex is always a step brighter than
+Stella so the pair reads under red/green colour vision.
 
-- ROM: exactly 4096 bytes, 80 free; sha256 begins `9775c21c3ff6c901`
-- Manual draft: [MANUAL.md](MANUAL.md)
-- Remaining before v1.0: flash-cart hardware validation only
+Final form: **Game 1 (The Story)** — 10 levels, then the world turns
+upside down for 10 more, ending at the ? screen with your total time;
+**Game 2 (Endless)** — SELECT at the title, random rooms in random
+orientations, the clock tightening every level (45s − 2/level, floor
+12s), rooms survived as your score.
+
+- ROM: exactly 4096 bytes; all 10 levels + goal variants re-proven under
+  place-and-hold by `tools/check_levels.py`
+- Manual draft: [MANUAL.md](MANUAL.md) (YOUR GOAL section updated)
+- Remaining before v1.0: playtest the rc3 goal feel, then flash-cart
+  hardware validation (owed again after rc3)
 
 ## Earlier: v0.6 — content complete: Quest 2, run clock
 

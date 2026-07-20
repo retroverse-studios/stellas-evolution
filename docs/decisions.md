@@ -564,3 +564,58 @@ load-bearing before more floors adopt it. The wrap → portal → world-swap lad
 (#18) is unchanged. Act floor counts may grow beyond 3 where the ROM allows —
 pacing (Thomas Was Alone brevity, no filler) is the constraint, not the byte
 budget.
+
+## 26. One Goal Mechanic for the Series: Place and Hold
+
+**Question:** Game 1 shipped touch-and-exit goals (a character reaching its marker
+vanishes with it; exit-order locks force boost sequencing), while Game 2's totem
+floors emerged as place-and-hold (the floor completes when every character stands
+on its own home at once; nobody leaves play). Which is the series' goal mechanic?
+
+**Considerations:**
+- Place-and-hold keeps every piece on the board: if the order was wrong, the
+  player just re-solves — no lock, no denial buzz, no dead character to mourn
+  mid-level. Puzzle order *emerges* (the booster naturally finishes last because
+  the boosted friend is standing on the result).
+- It is the thematically correct ending image for this series: every level ends
+  with the characters together on screen, not with them winking out one by one.
+- It composes with the home-lamp feedback (#27): steady lamp = held, blinking =
+  still to do.
+- Backporting to Game 1 simplifies its engine: the exit-order machinery, the
+  can't-switch-to-exited gate and the denial buzz all delete; `GoalDone` becomes
+  a per-frame "standing on it now" flag. Record byte +73 (the old lock) is legacy.
+- All ten Game 1 levels plus both goal variants re-prove under the new rule
+  (solver: a reachable STANDING state on one's own goal, at least one character
+  solo). Level semantics survive; the boost levels read better, not worse.
+
+**Status:** DECIDED (2026-07-20) — **Place and hold, series-wide.** Game 2 already
+plays this way; Game 1 backported (v1.0-rc3-dev, supersedes rc2.1 — hardware
+validation is owed again). The manual's YOUR GOAL section rewritten to match.
+
+## 27. Colour Accessibility: Luma Order, Home Lamps, Shape Echo
+
+**Question:** The characters and their colour-matched homes were distinguished by
+hue alone (Stella red, Alex green, Marcus blue) at near-equal brightness — the
+worst case for red/green colour vision, which the project's own author has. What
+is the series' colour-accessibility standard?
+
+**Considerations:**
+- The TIA colour byte is hue high-nibble + luma low-nibble: brightness is a free
+  redundant channel that survives every kind of colour vision.
+- Temporal coding (blinking) and shape coding are fully colour-independent.
+- Game 1's locked-goal blink already established "blinking marker = not ready";
+  the lamps generalize that language instead of inventing a new one.
+
+**Status:** DECIDED (2026-07-20) — three layers, applied to both shipped games:
+- **Luma order:** in any state, Alex is the brightest character on screen, Stella
+  mid, Marcus darkest (gaps ≥ 4 luma within a state; active = +4 over idle).
+  Game 2 tables $4A/$CE/$86 bright, $46/$CA/$82 dim; Game 1's Alex raised to
+  $CA/$CE.
+- **Home lamps:** a vacant home blinks (slow), the CONTROLLED character's vacant
+  home blinks FAST, a held home shows steady. Blink = to-do list; fast = "this
+  one is yours"; steady = done. Game 2 builds a per-band COLUPF table in RAM each
+  frame (overlaying the text kernel's TPtr, a #24-style per-state union); Game 1
+  drives its goal missiles' visibility the same way.
+- **Shape echo:** where home markers are geometry, their width matches their
+  owner's body — Game 2 Floor 1's middle (Alex) ledge is double-wide. Game 1's
+  missiles are capped at 8px by hardware; luma + lamps carry it there.

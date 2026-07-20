@@ -2,6 +2,19 @@
 ; Stella Was Alone — game 1 of 4, Stella's Evolution
 ; Atari 2600, 4K ROM, no bankswitching
 ;
+; v1.0-rc3-dev: PLACE AND HOLD (decision #26) — the series' unified
+; goal mechanic, backported from Game 2. Characters no longer exit
+; when they touch their goal; a level completes when everyone
+; present STANDS on their own goal at the same time. All the pieces
+; stay in play, so any order can be re-solved; the old exit-order
+; locks are gone (the booster naturally finishes last, because the
+; boosted one is standing on the result). Goal markers are HOME
+; LAMPS (decision #27): steady while held, blinking while vacant —
+; fast for the character you control, slow for the other — so the
+; blinking is the to-do list and no colour vision is needed.
+; Character luma is ordered (Alex always brighter than Stella, in
+; both active and idle states) for the same reason.
+;
 ; v1.0-rc2.1: honest walls, no clipping — every drawn slab is a
 ; solid box spanning its full drawn band (sides block, undersides
 ; bonk, no shelves, no body/slab overlap); mid ledges are crossed
@@ -95,7 +108,8 @@ OnGround    ds 2
 GoalX       ds 2        ; goal boxes (8px wide, GOAL_H du tall)
 GoalY       ds 2
 GoalDY      ds 2        ; y used by the kernel; $FF hides a marker
-GoalDone    ds 2
+GoalDone    ds 2        ; rc3: recomputed every frame — 1 while the
+                        ; character is STANDING on its goal (held)
 Active      ds 1
 FirePrev    ds 1
 State       ds 1
@@ -129,7 +143,6 @@ TextTop     ds 1        ; first du of the text block
 StoryAfter  ds 1        ; 0 = play Level next, 1 = the win screen
 TimerSec    ds 1        ; timed mode
 TimerFrm    ds 1
-ExitOrder   ds 1        ; 0 any; 1 Stella exits last; 2 Alex last
 TimedFlag   ds 1        ; SELECT: 0 = story game, 1 = endless game
 SelPrev     ds 1
 Rand        ds 1        ; endless mode's level shuffler
@@ -730,9 +743,8 @@ LoadLevel:
         lda #60
 .setTime:
         sta TimerSec
-        ldy #73
-        lda (PF0Ptr),y          ; exit-order lock for boost levels
-        sta ExitOrder
+        ; (record byte +73, the old exit-order lock, is legacy data:
+        ; place-and-hold needs no order — decision #26)
 
         lda #0
         sta CharYLo
@@ -910,12 +922,9 @@ ReadInput:
         lda CharCount
         cmp #2
         bne .pressed            ; no one to switch to yet
-        lda Active
-        eor #1
-        tay
-        lda GoalDone,y          ; can't control someone who exited
-        bne .pressed
-        sty Active
+        lda Active              ; rc3: always switchable — nobody
+        eor #1                  ; exits under place-and-hold
+        sta Active
 .pressed:
         lda #0
         sta FirePrev
@@ -998,10 +1007,6 @@ UpdatePhysics:
         ldx CharCount
         dex
 .charLoop:
-        lda GoalDone,x          ; exited characters are gone
-        beq .alive
-        jmp .nextChar
-.alive:
         lda CharY,x             ; where the feet started
         clc
         adc HeightTbl,x
@@ -1113,8 +1118,6 @@ UpdatePhysics:
         txa
         eor #1
         tay                     ; Y = the other character
-        lda GoalDone,y
-        bne .airborne           ; already exited
         lda CharY,y             ; their head as a one-way surface
         sta TopV
         cmp PrevFeet
@@ -1197,8 +1200,11 @@ UpdatePhysics:
         rts
 
 ; ---------------------------------------------------------------
-; CheckGoals: each present character against its own goal box.
-; When everyone present has reached theirs, the level is complete.
+; CheckGoals: PLACE AND HOLD (decision #26). GoalDone,x is simply
+; "is this character STANDING on its own goal right now" — it is
+; recomputed from scratch every frame, so stepping off un-does it
+; and any order can be re-solved. The level completes the frame
+; everyone present holds their goal at once. Nobody exits.
 ; ---------------------------------------------------------------
 
 CheckGoals:
@@ -1206,8 +1212,10 @@ CheckGoals:
         ldx CharCount
         dex
 .gloop:
-        lda GoalDone,x
-        bne .gnext
+        lda #0
+        sta GoalDone,x
+        lda OnGround,x          ; held means STOOD on, not flown
+        beq .gnext              ; through (the grounded rule)
         lda GoalX,x
         clc
         adc #8
@@ -1234,43 +1242,8 @@ CheckGoals:
         cmp GoalY,x
         bcc .gnext
         beq .gnext
-        ; exit-order lock: the needed helper can't leave first
-        lda ExitOrder
-        beq .free
-        sec
-        sbc #1
-        sta Temp
-        cpx Temp
-        bne .free               ; not the locked character
-        txa
-        eor #1
-        tay
-        lda GoalDone,y
-        bne .free               ; partner is home: unlocked now
-        lda SoundT              ; denied: buzz, stay in the level
-        bne .gnext
-        lda #4
-        sta SoundId
-        lda #6
-        sta SoundT
-        jmp .gnext
-.free:
-        lda #1                  ; reached!
+        lda #1                  ; holding it
         sta GoalDone,x
-        lda #HIDE_Y
-        sta GoalDY,x
-        sta CharY,x             ; the character exits with it
-        lda CharCount
-        cmp #2
-        bne .snd
-        txa                     ; hand control to whoever is left
-        eor #1
-        sta Active
-.snd:
-        lda #3
-        sta SoundId
-        lda #16
-        sta SoundT
 .gnext:
         dex
         bpl .gloop
@@ -1283,6 +1256,10 @@ CheckGoals:
         lda GoalDone+1
         beq .out
 .complete:
+        lda #3                  ; together: one fanfare for the floor
+        sta SoundId
+        lda #16
+        sta SoundT
         lda #STATE_DONE
         sta State
         lda #90
@@ -1309,8 +1286,6 @@ UpdateSound:
         beq .jump
         cmp #2
         beq .land
-        cmp #4
-        beq .denied
         ; goal fanfare: low note then high note
         lda #12
         sta AUDC0
@@ -1342,14 +1317,6 @@ UpdateSound:
         lda #25
         sta AUDF0
         lda #8
-        sta AUDV0
-        rts
-.denied:
-        lda #2                  ; flat "not yet" buzz
-        sta AUDC0
-        lda #28
-        sta AUDF0
-        lda #5
         sta AUDV0
         rts
 
@@ -1457,29 +1424,36 @@ PlayExtras:
         sta COLUBK              ; red creeps in as time runs out
 .noTimer:
 
-        ; a locked goal blinks until the partner is home
-        ldx ExitOrder
-        beq .noLock
-        dex                     ; X = the character who exits last
-        lda GoalDone,x
-        bne .noLock             ; already gone: leave it hidden
-        txa
-        eor #1
-        tay
-        lda GoalDone,y
-        bne .steady             ; partner home: unlocked, steady
+        ; HOME LAMPS (decision #27, colour-blind-safe goal feedback):
+        ; a held goal shows steady; a vacant one blinks — FAST if it
+        ; belongs to the character you're controlling, slow otherwise.
+        ; The blinking is the to-do list; the fast blink answers
+        ; "which one is mine?" with no colour needed.
+        ldx CharCount
+        dex
+.lamp:
+        lda GoalDone,x          ; held: steady
+        bne .steady
+        cpx Active              ; vacant: blink
+        beq .fast
         lda FrameCtr
-        and #2
-        bne .blinkOff
+        and #$20                ; slow: still to do
+        jmp .test
+.fast:
+        lda FrameCtr
+        and #$08                ; fast: this one is yours
+.test:
+        bne .steady
+        lda #HIDE_Y             ; off-phase
+        sta GoalDY,x
+        jmp .lnext
 .steady:
         lda GoalY,x
         jsr FlipG
         sta GoalDY,x
-        rts
-.blinkOff:
-        lda #HIDE_Y
-        sta GoalDY,x
-.noLock:
+.lnext:
+        dex
+        bpl .lamp
         rts
 
 ; ---------------------------------------------------------------
@@ -1853,8 +1827,14 @@ JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
                                     ; back); Alex clears 10 — enough to
                                     ; board Stella's head (9) but nowhere
                                     ; near the 16 du ledges
-ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active
-ColP1Tbl:   .byte $C2, $C8          ; Alex green: bright when active
+ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active.
+ColP1Tbl:   .byte $CA, $CE          ; Alex green — LUMA-ORDERED
+                                    ; (decision #27): Alex is always
+                                    ; at least 4 luma brighter than
+                                    ; Stella in the same state, so
+                                    ; brightness alone tells the two
+                                    ; apart under red/green colour
+                                    ; vision; his lamp inherits it
 
 ; 8x7 digit glyphs for the epilogue clock, rows stored BOTTOM-UP
 ; (the win kernel walks its row counter 6 -> 0). Glyph 10 = blank.

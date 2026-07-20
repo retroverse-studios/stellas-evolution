@@ -217,6 +217,13 @@ TextEnd     ds 1        ; index of the blank byte in each plane
 TextTop     ds 1        ; first du of the text block
 TPtr        ds 12       ; six playfield plane pointers
 
+; During PLAY the text pointers are dead, so the per-band COLUPF
+; table (the "home lamps") overlays them — the decision #24 per-state
+; union. PrepSprites rebuilds it every play frame; the fill is gated
+; on STATE_PLAY so a floor-completion frame (whose CheckGoal has
+; already pointed TPtr at the narration) is never clobbered.
+PFColRam    = TPtr      ; 12 bytes, one COLUPF per band
+
 ; --- wake-up opening -------------------------------------------
 WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
                         ; drops / 4 Alex slides in
@@ -531,10 +538,10 @@ WakeLogic:
         lda #0
         sta WakeT
         lda #PFA_COLOR          ; the sky stands: platforms appear
-        sta PFColor
-        lda #<Floor1PFDim
+        sta PFColor             ; (plain tan — the home lamps only
+        lda #<TanPF             ; begin once the player has control)
         sta PFColPtr
-        lda #>Floor1PFDim
+        lda #>TanPF
         sta PFColPtr+1
         bne .draw
 .p2:
@@ -590,7 +597,8 @@ WakeLogic:
         jsr LoadFloor           ; clean re-arm; positions = spawns
         lda #STATE_PLAY
         sta State
-        rts
+        jsr PrepSprites         ; lamps + sprite slots valid THIS
+        rts                     ; frame (PFColRam was still text)
 .draw:
         jsr PrepSprites
         lda WakePhase
@@ -622,7 +630,8 @@ StoryLogic:
         jsr LoadFloor           ; FloorSeq already advanced by CheckGoal
         lda #STATE_PLAY
         sta State
-        rts
+        jsr PrepSprites         ; rebuild the lamps NOW — PFColRam
+        rts                     ; still holds the narration pointers
 .toTitle:
         lda #STATE_TITLE
         sta State
@@ -765,10 +774,9 @@ LoadFloor:
         bpl .grad
         lda #PFA_COLOR
         sta PFColor
-        ldx FloorSeq            ; per-floor home-ledge colour bands
-        lda FloorPFDimLo,x      ; (PrepSprites re-picks bright/dim
-        sta PFColPtr            ; every frame)
-        lda FloorPFDimHi,x
+        lda #<PFColRam          ; the kernel's per-band COLUPF table
+        sta PFColPtr            ; lives in RAM (the home lamps),
+        lda #>PFColRam          ; rebuilt by PrepSprites every frame
         sta PFColPtr+1
         rts
 
@@ -1275,24 +1283,62 @@ UpdateSound:
 
 PrepSprites:
         SUBROUTINE
-        lda State               ; the wake-up opening drives PFColPtr
-        cmp #STATE_WAKE         ; itself (black -> reveal)
-        beq .noPulse
-        ldx FloorSeq
-        lda FrameCtr            ; pulse the home ledges: bright/dim
-        and #$10                ; ~0.5s on / 0.5s off
-        beq .pulseDim
-        lda FloorPFBriLo,x
-        sta PFColPtr
-        lda FloorPFBriHi,x
-        sta PFColPtr+1
-        jmp .noPulse
-.pulseDim:
-        lda FloorPFDimLo,x
-        sta PFColPtr
-        lda FloorPFDimHi,x
-        sta PFColPtr+1
-.noPulse:
+; ---- the HOME LAMPS: build this frame's 12-band COLUPF table ----
+; Colour-blind-safe goal feedback (decision #26): each home band is a
+; lamp in its owner's own (luma-coded) colour. Vacant, it BLINKS
+; against near-black — fast if its owner is the character you are
+; controlling, slow otherwise — so the blinking is the to-do list
+; and the fast blink answers "which home is mine?" without colour.
+; Once its owner stands home it holds steady. Gated on STATE_PLAY:
+; the wake opening drives PFColPtr at ROM tables itself, and on a
+; completion frame TPtr already belongs to the narration.
+        lda State
+        cmp #STATE_PLAY
+        bne .noLamps
+        ldy #11                 ; base coat: platform tan
+        lda #PFA_COLOR
+.tan:
+        sta PFColRam,y
+        dey
+        bpl .tan
+        ldx #NUM_CHARS-1
+.lamp:
+        lda MulThree,x          ; this character's lamp band here
+        clc
+        adc FloorSeq
+        tay
+        lda FloorBandByChar,y
+        sta Temp
+        txa                     ; home? (CheckGoal's own test:
+        tay                     ; grounded at the home CharY)
+        lda OnGround,x
+        beq .vac
+        lda CharY,x
+        cmp (HomePtr),y
+        bne .vac
+        lda ColBriTbl,x         ; home: the lamp holds steady
+        bne .put
+.vac:
+        cpx Active              ; vacant: blink — fast for YOUR home
+        beq .fast
+        lda FrameCtr
+        and #$20                ; slow: the to-do list
+        jmp .test
+.fast:
+        lda FrameCtr
+        and #$08                ; fast: "this one is yours"
+.test:
+        bne .lit
+        lda #$02                ; off-phase: near-black
+        bne .put
+.lit:
+        lda ColBriTbl,x         ; on-phase: the owner's own colour
+.put:
+        ldy Temp
+        sta PFColRam,y
+        dex
+        bpl .lamp
+.noLamps:
         ldx #NUM_CHARS-1
 .each:
         lda HeightTbl,x
@@ -1794,10 +1840,13 @@ JumpLoTbl:  .byte $20, $10, $80     ; Alex -1.9375 (10),
                                     ; jump" made load-bearing; the
                                     ; solver re-proves every floor
                                     ; against these exact tables)
-ColBriTbl:  .byte $46, $C8, $86     ; active = brighter luma, but
-ColDimTbl:  .byte $42, $C4, $82     ; kept mid-range: high TIA luma
-                                    ; whitens a hue, it does not
-                                    ; strengthen it
+ColBriTbl:  .byte $4A, $CE, $86     ; LUMA-ORDERED trio (decision
+ColDimTbl:  .byte $46, $CA, $82     ; #26): in both states Marcus is
+                                    ; darkest, Stella mid, Alex
+                                    ; brightest (gaps of 4 luma), so
+                                    ; brightness alone tells the
+                                    ; characters apart under any
+                                    ; colour vision; active = +4 luma
 NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
 OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character
@@ -1827,13 +1876,18 @@ FloorWrapTbl: .byte 1, 1, 1           ; Act 1: wrap is the baseline
 FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
 FloorStoryTbl: .byte 1, 2, 3          ; narration after each floor
 FloorActTbl:  .byte 1, 1, 1           ; Act 1 (framework metadata)
-FloorPFBriLo: .byte <Floor1PFBri, <Floor2PFBri, <Floor3PFBri
-FloorPFBriHi: .byte >Floor1PFBri, >Floor2PFBri, >Floor3PFBri
-FloorPFDimLo: .byte <Floor1PFDim, <Floor2PFDim, <Floor3PFDim
-FloorPFDimHi: .byte >Floor1PFDim, >Floor2PFDim, >Floor3PFDim
+; The lamp band for each character on each floor (char*3 + floor);
+; PrepSprites paints these bands as the colour-blind-safe home lamps.
+MulThree:     .byte 0, 3, 6
+FloorBandByChar:
+        .byte 9, 7, 6           ; Stella: F1 low totem / F2 slab / F3 b3
+        .byte 8, 9, 8           ; Alex:   F1 mid totem / F2 sill / F3 b2
+        .byte 7, 8, 10          ; Marcus: F1 top totem / F2 heart / F3 b1
 
-; 12 black bands for the wake-up opening's unlit playfield
+; 12 black bands for the wake-up opening's unlit playfield, and 12
+; plain-tan bands for the reveal (lamps start with player control)
 BlackPF:      .byte 0,0,0,0,0,0,0,0,0,0,0,0
+TanPF:        .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C
 
 ; ===============================================================
 ; ACT 1, FLOOR 1 — "Together Again"
@@ -1867,25 +1921,22 @@ BlackPF:      .byte 0,0,0,0,0,0,0,0,0,0,0,0
 ; puts anyone's feet at a foreign home height off the column.)
 Floor1HomeCharY:  .byte 67, 65, 52
 
-; Floor 1 per-band COLUPF: platform tan everywhere except the three
-; home bands — band 7 = Alex green, band 8 = Marcus blue, band 9 =
-; Stella red. PrepSprites swaps these ~2x/second so the homes pulse.
-Floor1PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$8A,$CC,$4A,$2C,$2C
-Floor1PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$86,$C8,$46,$2C,$2C
-
 ; The Floor-1 level record (66-byte layout). Open frame (wrap), a
-; full-width floor, and three centred one-way home ledges.
+; full-width floor, and three centred one-way home ledges. SHAPE
+; ECHO (decision #26): each ledge's width matches its owner's body —
+; Alex's mid ledge is double-wide (16px, PF2 bits 6-7) like his flat
+; wide self; Stella's and Marcus's are the narrow 8px column.
 ;   PF0: open edges (top bands clear so x wraps); floor band = $F0
 ;   PF1: floor band only ($FF)
-;   PF2: home-ledge bit7 on bands 7/8/9 (px 76-83 via the mirror); $FF floor
+;   PF2: home ledges bands 7/8/9 (band 8 wide); $FF floor
 Floor1Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$80,$80,$80,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$80,$C0,$80,$00,$FF
         .byte  88, 76, 68, 58, $FF,$FF    ; box tops  (ledges one-way:
         .byte  96, 76, 68, 58, $FF,$FF    ; box bottoms   top == bottom)
-        .byte   0, 76, 76, 76,   0,   0   ; box lefts
-        .byte 160, 84, 84, 84,   0,   0   ; box rights (excl)
+        .byte   0, 76, 72, 76,   0,   0   ; box lefts
+        .byte 160, 84, 88, 84,   0,   0   ; box rights (excl)
         .byte 20, 79                      ; Stella: ground, left
         .byte 40, 85                      ; Alex: ground, mid-left
         .byte 60, 82                      ; Marcus: ground, centre-left
@@ -1919,11 +1970,8 @@ Floor1Rec:
 ; home CharY: Stella slab 56-9, Alex wing 72-3, Marcus heart 70-6
 Floor2HomeCharY:  .byte 47, 69, 64
 
-; band 7 = slab (Stella red), band 8 = heart (Marcus blue),
-; bands 9-10 = sill (Alex green), rest platform tan
-Floor2PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$4A,$8A,$CC,$CC,$2C
-Floor2PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$46,$86,$C8,$C8,$2C
-
+; Lamp bands (FloorBandByChar): 7 = slab (Stella), 8 = heart
+; (Marcus), 9 = sill top (Alex); the sill's lower band stays tan.
 Floor2Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
@@ -1961,11 +2009,9 @@ Floor2Rec:
 ; home CharY: Stella b3 48-9, Alex b2 64-3, Marcus b1 80-6
 Floor3HomeCharY:  .byte 39, 61, 74
 
-; colour courses: band 6 = b3 red, band 8 = b2 green, band 10 = b1
-; blue (the wall wears each height's colour where a stair meets it)
-Floor3PFBri:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$4A,$2C,$CC,$2C,$8A,$2C
-Floor3PFDim:  .byte $2C,$2C,$2C,$2C,$2C,$2C,$46,$2C,$C8,$2C,$86,$2C
-
+; Lamp bands (FloorBandByChar): 6 = b3 (Stella), 8 = b2 (Alex),
+; 10 = b1 (Marcus) — the wall wears each stair's lamp as a painted
+; course at its height.
 Floor3Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF

@@ -3,9 +3,15 @@
 
 Reads the assembled ROM + symbol file, extracts the level records and
 physics tables, then re-implements the game's exact fixed-point
-physics to prove each character can reach its goal — including via a
-boost from the other character's head, and including exit-order
-constraints (the booster must be able to finish after the boosted).
+physics to prove each level completable under PLACE AND HOLD
+(decision #26, rc3): a character's goal counts only while it STANDS
+on it (grounded overlap), and the level completes when everyone
+present holds theirs at once. So the proof per character is a
+reachable STANDING state on its own goal — including via a boost from
+the other character's head — and at least one character must manage
+it entirely alone (the booster finishes last; the boosted one simply
+stays put). The old exit-order locks are gone; record byte +73 is
+legacy data and is ignored.
 
 Engine collision rules modelled exactly (v1.0-rc2):
 - solid boxes (top < bottom): block sideways movement (ClampBoxes,
@@ -94,7 +100,7 @@ class Level:
             [(rec[65], rec[66]), (rec[67], rec[68])],   # primary
             [(rec[69], rec[70]), (rec[71], rec[72])],   # alternate
         ]
-        self.exit_order = rec[73]  # 0 any; 1 Stella last; 2 Alex last
+        self.exit_order = rec[73]  # legacy (rc3: unused by the game)
         self.boxes = [i for i in range(NUM_BOXES) if self.tops[i] != 0xFF]
 
 
@@ -266,8 +272,12 @@ def char_can_finish(lvl, phys, ci, goal, helper):
             if run:
                 sim.extra.append(
                     (head_top, run[0], run[-1] + phys["w"][helper]))
-    goal_states, _ = sim.reachable(lvl.starts[ci], goal)
-    return len(goal_states) > 0, len(goal_states)
+    _, footing = sim.reachable(lvl.starts[ci], goal)
+    # place-and-hold: what matters is STANDING states that overlap
+    # the goal (the grounded rule), not mid-air touches
+    holds = [(x, f) for f, xs in footing.items() for x in xs
+             if sim.touch(x, f - sim.h, goal)]
+    return len(holds) > 0, len(holds)
 
 
 def check_level(idx, lvl, phys):
@@ -295,22 +305,12 @@ def check_level(idx, lvl, phys):
                       f"reachable from only {width} state(s)")
         detail = (f"S(solo={s_solo},help={s_help}) "
                   f"A(solo={a_solo},help={a_help})")
-        # someone must be able to go first (with help), and the other
-        # must then finish alone — and the in-game exit-order lock, if
-        # set, must enforce an order that actually works
-        if lvl.exit_order == 1:      # Stella locked until Alex is home
-            ok = a_help and s_solo
-        elif lvl.exit_order == 2:    # Alex locked until Stella is home
-            ok = s_help and a_solo
-        else:
-            ok = (s_help and a_solo) or (a_help and s_solo)
+        # place-and-hold: the boosted character stays put on its goal,
+        # so completion needs each to HOLD (help allowed) and at least
+        # one to manage entirely alone — that one moves last
+        ok = (s_help and a_solo) or (a_help and s_solo)
         if not ok:
-            problems.append(f"{tag}: no completable exit order "
-                            f"(lock={lvl.exit_order}) — {detail}")
-        # a lock should exist wherever exactly one order works
-        if lvl.exit_order == 0 and not (s_solo and a_solo):
-            problems.append(f"{tag}: order matters but no exit-order "
-                            f"lock is set — {detail}")
+            problems.append(f"{tag}: no workable hold order — {detail}")
     return problems
 
 

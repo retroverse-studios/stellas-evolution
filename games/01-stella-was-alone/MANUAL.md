@@ -24,9 +24,10 @@ could only look at. He didn't trust the arrangement at first. But some
 heights Stella couldn't reach, and some gaps Alex couldn't jump —
 together, though...
 
-At the far edge of their world they found the exits: one light for each
-of them, waiting. And when the last of them stepped through, Stella felt
-the world shift. Expand. Change.
+At the far edge of their world they found the lights: one for each
+of them, waiting. And when at last they each stood in their own —
+together, at the same time — Stella felt the world shift. Expand.
+Change.
 
 Then it turned completely upside down.
 
@@ -47,12 +48,15 @@ The **brighter** shape is the one you control.
 
 ## YOUR GOAL
 
-Guide each shape to the small marker of its **own color** — red for
-Stella, green for Alex. A shape that reaches its marker goes on ahead.
-When everyone still in the level is home, the world moves on.
+Guide each shape onto the small marker of its **own light** and stay
+there. Alex's light is always the **brighter** one; Stella's the deeper.
+The world moves on only when every shape is standing on its own light
+**at the same time** — nobody goes on ahead, and nobody is left behind.
 
-**A blinking marker is not ready.** Someone still needs the friend who
-would leave. Finish the other shape's task first.
+**A blinking light is an empty one.** The light blinking **fastest** is
+the one that belongs to the shape you're controlling now. When a light
+holds steady, its owner is home. If you need a friend's head first,
+they can always step off and help — no order is ever locked.
 
 ## THE SHAPES
 

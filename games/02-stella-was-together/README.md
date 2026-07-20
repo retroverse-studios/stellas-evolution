@@ -64,6 +64,11 @@ world-swap re-attaches in Act 3.
       all solver-proven including the negative proofs
 - [x] Solver upgrades: per-floor proof modes, Y-only false-completion audit,
       helper-subset stepstools, wrap-off unsolvability gate
+- [x] Colour accessibility (decision #27): luma-ordered trio (Marcus <
+      Stella < Alex in every state), HOME LAMPS (vacant homes blink — fast
+      for the controlled character — and hold steady when their owner
+      stands home), and Floor 1's shape echo (Alex's ledge is double-wide,
+      like him)
 - [ ] Act 2 (portal floors — re-attach the portal verb from `game2-workbench`)
 - [ ] Act 3 (world-swap floors — re-attach per #24), Act 4 finale
 - [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio

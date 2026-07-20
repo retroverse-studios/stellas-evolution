@@ -57,7 +57,8 @@ NAMES = ["Stella", "Alex", "Marcus"]
 # yields the home CharY (the ROM's CheckGoal is Y-only).
 FLOOR_DEFS = [
     {"rec": "Floor1Rec", "home": "Floor1HomeCharY", "mode": "coop",
-     "home_box": [(76, 84), (76, 84), (76, 84)]},
+     "home_box": [(76, 84), (72, 88), (76, 84)]},   # Alex's ledge is
+                                                    # double-wide (shape echo)
     {"rec": "Floor2Rec", "home": "Floor2HomeCharY", "mode": "fit",
      "home_box": [(64, 96), (48, 112), (76, 84)]},
     {"rec": "Floor3Rec", "home": "Floor3HomeCharY", "mode": "wrap",
