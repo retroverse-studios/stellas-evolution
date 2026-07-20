@@ -56,7 +56,8 @@ world-swap re-attaches in Act 3.
 
 - [x] Engine: 3-character physics, sprite multiplexer, **active→P0** colour
       (the controlled character never flickers), always-on wrap, per-colour goals
-- [x] Title screen (rainbow logo on gradient sky; no menu — decision #22)
+- [x] Title screen (decision #28): the big rainbow STELLA mark on the dusk
+      gradient sky, TOGETHER set small beneath (no menu — decision #22)
 - [x] State machine + in-order floor flow + between-floor narration (Game 1 text kernel)
 - [x] **Marcus wake-up opening** (STATE_WAKE: the world assembles around
       Game 1's blue epilogue square; fire skips)

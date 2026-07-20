@@ -15,9 +15,9 @@
 ; acts re-attach them to the floor framework below.
 ;
 ; The real structure this file builds:
-;   * a rainbow TITLE screen ("STELLA WAS TOGETHER") on this game's
-;     dusk-violet banded gradient sky — no menu, fire starts (decision
-;     #22: Game 2 stays switch-driven);
+;   * the TITLE (decision #28): Game 1's big rainbow STELLA logo on
+;     this game's dusk-violet gradient sky, the word TOGETHER set
+;     small beneath — no menu, fire starts (decision #22);
 ;   * the WAKING-MARCUS opening (DESIGN-KICKOFF): a recreation of
 ;     Game 1's epilogue — black screen, the small blue square — that
 ;     the world assembles itself around: the sky gradient builds band
@@ -186,6 +186,18 @@ NewFeet     ds 1
 PrevTop     ds 1
 TopV        ds 1
 BotV        ds 1
+
+; The game kernel reuses five physics-scratch bytes as its band
+; PREFETCH slots (physics runs in vblank, the kernel after it — they
+; never overlap). The next band's sky/playfield/lamp bytes are pulled
+; in one line early so the boundary line only does zero-page stores,
+; all inside hblank — this was the "broken ground" tear: indexed
+; loads on the boundary line landed mid-scanline.
+KSky        = PrevFeet
+KPF0        = NewFeet
+KPF1        = PrevTop
+KPF2        = TopV
+KCol        = BotV
 LV          ds 1
 RV          ds 1
 BoxIdx      ds 1
@@ -380,16 +392,17 @@ Bank0Entry:             ; bank 1 would arrive here (via GoBank0)
         jsr GameKernel
 
 Overscan:
-        lda #2
-        sta VBLANK
+        sta WSYNC       ; finish the last visible line cleanly —
+        lda #2          ; blanking mid-line truncated the floor's
+        sta VBLANK      ; final scanline on the right
         lda #0
         sta GRP0
         sta GRP1
         sta ENAM0
         sta ENAM1
         sta ENABL
-        lda #35
-        sta TIM64T      ; ~30 scanlines
+        lda #34         ; one unit shorter: the WSYNC above took a
+        sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
 .waitOS:
         lda INTIM
         bne .waitOS
@@ -1438,11 +1451,16 @@ PrepSprites:
         jsr FillP1              ; P1 = tonight's tenant, whole frame
         jmp .position
 .solid:
-        lda RepoDU              ; never hop on a band boundary —
-        and #7                  ; that line 1 is busy with PF writes
+        lda RepoDU              ; never hop on a band boundary OR the
+        and #7                  ; prefetch line before it — both line
+        beq .bump1              ; 1s are busy now
+        cmp #7
         bne .noShift
-        inc RepoDU              ; (gap margin guarantees the +1 fits)
-.noShift:
+        inc RepoDU              ; du==7 mod 8: +2, landing on ==1
+.bump1:
+        inc RepoDU              ; (the 2-du gap margin absorbs +1;
+.noShift:                       ; the rare +2 case can clip the lower
+                                ; sprite's first line — cosmetic)
         sty Temp
         jsr FillP1              ; P1 opens as the upper character...
         ldx Temp                ; ...and hops to the lower at RepoDU
@@ -1549,24 +1567,52 @@ GameKernel:
         sta PF1
         lda (PF2Ptr),y
         sta PF2
+        iny                     ; prefetch band 1 (still in vblank)
+        lda SkyGrad,y
+        sta KSky
+        lda (PF0Ptr),y
+        sta KPF0
+        lda (PF1Ptr),y
+        sta KPF1
+        lda (PF2Ptr),y
+        sta KPF2
+        lda (PFColPtr),y
+        sta KCol
 .kloop:
         sta WSYNC               ; ---- line 1
         dec BandLine
-        bne .noBand
-        iny                     ; next band:
-        lda SkyGrad,y           ; gradient step (@16, in hblank)
-        sta COLUBK
-        lda (PF0Ptr),y
-        sta PF0                 ; @24 (bit-4 wall constant: safe)
-        lda (PF1Ptr),y
-        sta PF1                 ; @32
-        lda (PF2Ptr),y
-        sta PF2                 ; @40
-        lda (PFColPtr),y        ; @48 platform colour for this band —
-        sta COLUPF              ; Floor 1 tints its centred home ledges
-        lda #8                  ; (px 76-83, drawn @48+) their own colour
+        beq .swap               ; boundary: stores only, in hblank
+        lda BandLine
+        cmp #1
+        beq .prefetch           ; the line before: indexed loads
+        bne .line2
+.swap:
+        lda KPF0
+        sta PF0                 ; @14 — before every display window
+        lda KPF1
+        sta PF1                 ; @20
+        lda KPF2
+        sta PF2                 ; @26
+        lda KSky
+        sta COLUBK              ; @32 (first ~28 sky px keep the old
+        lda KCol                ; shade for one line: 2-luma step,
+        sta COLUPF              ; invisible) @38 — lamps start px 48
+        lda #8
         sta BandLine
-.noBand:
+        bne .line2
+.prefetch:
+        iny                     ; Y rests on the next band from here;
+        lda SkyGrad,y           ; the boundary line only stores.
+        sta KSky                ; (PrepSprites keeps the P1 hop off
+        lda (PF0Ptr),y          ; BOTH special lines.)
+        sta KPF0
+        lda (PF1Ptr),y
+        sta KPF1
+        lda (PF2Ptr),y
+        sta KPF2
+        lda (PFColPtr),y
+        sta KCol
+.line2:
         sta WSYNC               ; ---- line 2
         txa                     ; active character (P0)
         sec
@@ -1657,26 +1703,20 @@ GameKernel:
         jmp .kloop              ; (repo du is never du 95)
 
 ; ---------------------------------------------------------------
-; TitleKernel: the rainbow logo "STELLA WAS TOGETHER" on this game's
-; dusk-violet banded gradient sky — "evolve game 1's rainbow-logo
-; technique" onto a coloured sky (decision #22: no menu, fire starts).
+; TitleKernel: the series signature (decision #28) — Game 1's big
+; 7-row STELLA logo, worn in the Atari rainbow, on THIS game's
+; dusk-violet gradient sky, with the game's word set small beneath:
 ;
-; Two zones so every scanline stays cycle-safe (the asymmetric-PF logo
-; lines are already near the 76-cycle limit, so no per-band colour
-; step can share them):
-;   * SKY (du outside the logo block): playfield blank, COLUBK stepped
-;     down the dusk gradient by band (band = du>>3 -> SkyGrad). These
-;     lines are light — the gradient lives here, top and bottom.
-;   * LOGO (the centred 18-du text block): the three words drawn on the
-;     asymmetric playfield (all six PF bytes re-fed each scanline, as
-;     game 1's text kernel), COLUPF stepped down a per-row Atari
-;     rainbow (RainbowRow), COLUBK held at the mid-sky dusk colour. The
-;     logo row is computed in line 1's slack and reused in line 2, so
-;     line 2 has room for the loop's bookkeeping.
+;       [ sky gradient ]
+;       S T E L L A          <- big, rainbow (LogoPF* tables,
+;       [ sky ]                 ported from Game 1)
+;       TOGETHER             <- small, white (text pipeline, the
+;       [ sky gradient ]        one-row story screen 0)
 ;
-; Frame: exactly 96 du x 2 WSYNCs = 192 visible lines in both zones,
-; and every WSYNC-to-WSYNC segment is <= 76 cycles, so the 262-line
-; frame is stable. NewX holds the saved logo row.
+; Five fixed zones, 40+112+8+12+20 = 192 scanlines; each zone's
+; lines are cycle-safe on their own terms (the logo lines are
+; G1's proven fixed-cycle feed; the subtitle lines are the story
+; kernel's proven feed).
 ; ---------------------------------------------------------------
 
 TitleKernel:
@@ -1690,72 +1730,142 @@ TitleKernel:
         sta PF0
         sta PF1
         sta PF2
-        lda SkyGrad             ; top gradient colour for scanline 0
-        sta COLUBK
-        lda TextTop             ; BotV = first du past the logo block
-        clc
-        adc TextEnd
-        sta BotV
-        ldx #0                  ; X = du counter (0..95)
-.tloop:
-        cpx TextTop             ; above the logo block -> sky
-        bcc .sky
-        cpx BotV                ; below the logo block -> sky
-        bcs .sky
-        ; ---- LOGO du: three words on the asymmetric playfield ----
-        sta WSYNC               ; ---- line 1
-        txa                     ; Y = logo row = du - TextTop
-        sec
-        sbc TextTop
-        tay
-        sty NewX                ; save the row for line 2
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        lda (TPtr+10),y
-        sta PF2
-        lda RainbowRow,y        ; per-row rainbow logo colour
-        sta COLUPF
-        sta WSYNC               ; ---- line 2 (re-feed asymmetric PF)
-        ldy NewX
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        lda (TPtr+10),y
-        sta PF2
-        jmp .duEnd
-.sky:
-        sta WSYNC               ; ---- line 1: blank PF, gradient step
-        lda #0
-        sta PF0
-        sta PF1
-        sta PF2
-        txa                     ; band = du >> 3 -> dusk gradient
+        ; --- top sky: 40 scanlines, gradient by band -------------
+        ldx #0
+.sky1:
+        sta WSYNC
+        txa                     ; band = scanline >> 4
+        lsr
         lsr
         lsr
         lsr
         tay
         lda SkyGrad,y
         sta COLUBK
-        sta WSYNC               ; ---- line 2
-.duEnd:
         inx
-        cpx #SCREEN_DU
-        bne .tloop
+        cpx #40
+        bne .sky1
+        ; --- the big STELLA: 7 rows x 16 scanlines ---------------
+        lda SkyGrad+4           ; hold a mid-dusk shade behind it
+        sta COLUBK
+        ldy #0                  ; Y = logo row
+        lda #8
+        sta BandLine
+        ldx #56                 ; 56 du pairs = 112 scanlines
+.lloop:
+        sta WSYNC               ; ---- line 1: fixed-cycle feed
+        lda LogoColr,y          ; per-row rainbow
+        sta COLUPF              ; @7
+        lda LogoPF0L,y
+        sta PF0                 ; @15
+        lda LogoPF1L,y
+        sta PF1                 ; @22
+        lda LogoPF2L,y
+        sta PF2                 ; @29
+        nop
+        nop
+        nop
+        lda LogoPF0R,y
+        sta PF0                 ; @42
+        lda LogoPF1R,y
+        sta PF1                 ; @49
+        nop
+        lda LogoPF2R,y
+        sta PF2                 ; @58
+        sta WSYNC               ; ---- line 2: feed again
+        lda LogoPF0L,y
+        sta PF0
+        lda LogoPF1L,y
+        sta PF1
+        lda LogoPF2L,y
+        sta PF2
+        nop
+        nop
+        nop
+        lda LogoPF0R,y
+        sta PF0
+        lda LogoPF1R,y
+        sta PF1
+        nop
+        lda LogoPF2R,y
+        sta PF2
+        dec BandLine
+        bne .lhold
+        lda #8
+        sta BandLine
+        iny
+.lhold:
+        dex
+        bne .lloop
+        lda #0                  ; clear the playfield below the logo
+        sta PF0
+        sta PF1
+        sta PF2
+        ; --- gap sky: 8 scanlines --------------------------------
+        lda SkyGrad+9
+        sta COLUBK
+        ldx #8
+.gap:
+        sta WSYNC
+        dex
+        bne .gap
+        ; --- the game's word, small and white: 12 scanlines ------
+        lda #COL_TEXT
+        sta COLUPF
+        ldy #0                  ; rows 0-5 of story screen 0
+.sub:
+        sta WSYNC               ; ---- line A (story kernel feed)
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        sta WSYNC               ; ---- line B
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        iny
+        cpy #6
+        bne .sub
+        lda #0                  ; clear below the subtitle
+        sta PF0
+        sta PF1
+        sta PF2
+        ; --- bottom sky: 20 scanlines, gradient resumes ----------
+        ldx #0
+.sky2:
+        sta WSYNC
+        txa                     ; absolute line = 172 + X
+        clc
+        adc #172
+        lsr
+        lsr
+        lsr
+        lsr
+        tay
+        lda SkyGrad,y
+        sta COLUBK
+        inx
+        cpx #20
+        bne .sky2
         rts
 
 ; ---------------------------------------------------------------
@@ -1854,11 +1964,26 @@ OtherBTbl:  .byte 2, 2, 1           ; for each character
 ; per-band gradient shape: brighter toward the horizon (5 shades)
 GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8
 
-; per-row logo rainbow (indexed by logo row 0..TextEnd-1 = up to 18):
-; the Atari hue wheel at mid luma, a few rows per hue so each of the
-; three title words sweeps its own part of the rainbow.
-RainbowRow: .byte $46,$46,$36,$36,$26,$26,$C6,$C6,$A6,$A6,$86,$86
-            .byte $76,$76,$66,$66,$56,$56,$56,$56
+; ---------------------------------------------------------------
+; The big STELLA logo, ported from Game 1 (5x7 font on the 40-column
+; asymmetric playfield; row 7 blank) — the series signature mark,
+; decision #28. 8-byte tables must not cross a page.
+; ---------------------------------------------------------------
+        ALIGN 8
+LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80
+            ds 1
+LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2
+            ds 1
+LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C
+            ds 1
+LogoPF0R:   .byte $10,$10,$10,$10,$10,$10,$F0
+            ds 1
+LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
+            ds 1
+LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
+            ds 1
+; per-row logo colours: the Atari rainbow
+LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
 
 ; ===============================================================
 ; FLOOR TABLE — the game walks this in order (FloorSeq).

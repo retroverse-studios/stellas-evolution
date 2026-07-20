@@ -156,6 +156,9 @@ SecOnes     ds 1
 SecTens     ds 1
 SecHund     ds 1
 SqCol       ds 1        ; the epilogue square's breathing color
+PFn0        ds 1        ; rc3: next band's PF bytes, prefetched one
+PFn1        ds 1        ; line early so the boundary line's writes
+PFn2        ds 1        ; land inside hblank (no more ground tear)
 
 ; ---------------------------------------------------------------
 ; Code
@@ -274,15 +277,16 @@ MainLoop:
         jsr TitleKernel
 
 Overscan:
-        lda #2
-        sta VBLANK
+        sta WSYNC       ; finish the last visible line cleanly —
+        lda #2          ; blanking mid-line truncated the ground's
+        sta VBLANK      ; final scanline on the right
         lda #0
         sta GRP0
         sta GRP1
         sta ENAM0
         sta ENAM1
-        lda #35
-        sta TIM64T      ; ~30 scanlines
+        lda #34         ; one unit shorter: the WSYNC above took a
+        sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
 .waitOS:
         lda INTIM
         bne .waitOS
@@ -1518,23 +1522,24 @@ GameKernel:
         sta PF1
         lda (PF2Ptr),y
         sta PF2
-.kloop:
-        sta WSYNC               ; ---- line 1
-        dec BandLine
-        bne .noBand
-        tya
-        clc
+        tya                     ; prefetch the SECOND band right away
+        clc                     ; (still in vblank, timing is free)
         adc BandStep
         tay
         lda (PF0Ptr),y
-        sta PF0
+        sta PFn0
         lda (PF1Ptr),y
-        sta PF1
+        sta PFn1
         lda (PF2Ptr),y
-        sta PF2
-        lda #8
-        sta BandLine
-.noBand:
+        sta PFn2
+.kloop:
+        sta WSYNC               ; ---- line 1
+        dec BandLine
+        beq .swap               ; boundary: store prefetched bytes
+        lda BandLine
+        cmp #1
+        beq .prefetch           ; the line before it: prefetch
+.m0:
         txa                     ; goal marker 0 (missile 0)
         sec
         sbc GoalDY
@@ -1546,6 +1551,41 @@ GameKernel:
         lda #0
 .sm0:
         sta ENAM0
+        jmp .line2
+.swap:
+        lda PFn0                ; the fix for the ground tear: these
+        sta PF0                 ; stores land @14/@20/@26, all before
+        lda PFn1                ; their register's display window —
+        sta PF1                 ; the old indexed loads landed mid-
+        lda PFn2                ; line and drew one ragged scanline
+        sta PF2                 ; per band edge
+        lda #8
+        sta BandLine
+        jmp .m0                 ; (M0 late on boundary lines, as the
+                                ; old band-switch line always was)
+.prefetch:
+        txa                     ; M0 first — at its usual cycle —
+        sec
+        sbc GoalDY
+        cmp #GOAL_H
+        bcs .pn0
+        lda #2
+        bne .ps0
+.pn0:
+        lda #0
+.ps0:
+        sta ENAM0
+        tya                     ; ...then pull the next band's bytes
+        clc                     ; into RAM (Y rests on the next band;
+        adc BandStep            ; the boundary line only stores).
+        tay                     ; Line total ~67 of 76 cycles.
+        lda (PF0Ptr),y
+        sta PFn0
+        lda (PF1Ptr),y
+        sta PFn1
+        lda (PF2Ptr),y
+        sta PFn2
+.line2:
         sta WSYNC               ; ---- line 2
         txa                     ; Stella
         sec
@@ -1582,7 +1622,9 @@ GameKernel:
         sta ENAM1
         inx
         cpx #SCREEN_DU
-        bne .kloop
+        beq .kdone
+        jmp .kloop              ; (line 1 grew past branch range)
+.kdone:
         rts
 
 ; ---------------------------------------------------------------

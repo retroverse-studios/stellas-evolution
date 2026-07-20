@@ -51,7 +51,8 @@ FONT = {
 # chars) per screen. Screen 0 is the TITLE logo (drawn rainbow on the
 # dusk-violet sky by TitleKernel); the rest are between-floor
 # narration screens (white on black by StoryKernel).
-#   0: title logo                     — "STELLA WAS TOGETHER"
+#   0: title SUBTITLE — the game's word, set small beneath the big
+#      ported STELLA logo (decision #28: every game is one word)
 #   1: after Act 1 Floor 1            — theme: connection & difference,
 #      "not every challenge could be overcome alone" (creative-brief.md)
 #   2: after Act 1 Floor 2 "The Low Door" — Marcus's gift (decision #21)
@@ -59,7 +60,7 @@ FONT = {
 # Adding a floor adds one narration screen here and one FloorStoryTbl
 # entry in src/main.asm.
 SCREENS = [
-    ["  STELLA", "   WAS", " TOGETHER"],                    # 0: title
+    [" TOGETHER"],                                          # 0: subtitle
     ["NOT EVERY", " CLIMB IS", "MADE ALONE"],               # 1: after F1
     [" THE DOOR", " KNEW WHO", "IT WAS FOR"],               # 2: after F2
     ["THEY WENT", "THE OTHER", "WAY AROUND"],               # 3: after F3

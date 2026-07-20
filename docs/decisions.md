@@ -619,3 +619,32 @@ is the series' colour-accessibility standard?
 - **Shape echo:** where home markers are geometry, their width matches their
   owner's body — Game 2 Floor 1's middle (Alex) ledge is double-wide. Game 1's
   missiles are capped at 8px by hardware; luma + lamps carry it there.
+
+## 28. Title & Screen Design Language Across the Series
+
+**Question:** Game 1's title (big rainbow STELLA on black) reads beautifully;
+Game 2's original title set "STELLA WAS TOGETHER" in the small 3x5 narration
+font and was hard to read. What is the series' title system — and what single
+visual element ties all four games together as their presentation grows?
+
+**Considerations:**
+- Each game's identity is one word: ALONE, TOGETHER, JOURNEY, AWARE.
+- The big 7-row STELLA logo is already the series' strongest mark; the 3x5
+  pipeline font is for sentences, not signage.
+- Per #22, UI sophistication grows per generation (G1-G2 switch-driven, G3 a
+  real navigable menu, G4 full settings) — the title screen should grow the
+  same way without losing the mark.
+- The narration screens' voice — small white text on black — is the one thing
+  that should NOT grow: the world gains fidelity, the narrator does not age.
+
+**Status:** DECIDED (2026-07-20) —
+- **The mark:** every title = the big STELLA logo in the Atari rainbow, with
+  the game's one word set small beneath. The BACKDROP evolves with the ROM:
+  G1 a black void (4K, existence), G2 the dusk gradient sky (implemented:
+  logo ported from G1, TOGETHER in small white beneath), G3 may add breadth/
+  motion, G4 whatever the ARM earns. The mark itself never changes.
+- **The constant thread:** narration/act screens stay small white-on-black
+  text in ALL four games — the series' connective tissue.
+- **Menus:** #22 unchanged. G1's switch-driven title is the homage and stays.
+- **Deferred:** G1's own small "ALONE" subtitle — the 4K ROM has ~100 bytes
+  free after rc3; add it only after a byte-diet pass frees comfortable room.
