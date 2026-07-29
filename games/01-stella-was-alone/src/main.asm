@@ -263,8 +263,16 @@ MainLoop:
 .logicDone:
 
 .waitVB:
-        lda INTIM
-        bne .waitVB
+        bit TIMINT      ; wait on the timer's underflow FLAG, not on
+        bpl .waitVB     ; INTIM: once the timer underflows it counts
+                        ; down every CYCLE from 255 while an `lda INTIM
+                        ; / bne` spin samples every 7, so it misses zero
+                        ; ~6 times in 7 and waits another 256 cycles —
+                        ; turning a ONE LINE overrun into tens of lines
+                        ; and rolling the picture. Game 2 hit this for
+                        ; real. Game 1's logic fits today; this is so a
+                        ; future overrun costs only what it overspends.
+        lda #0
         sta WSYNC
         sta VBLANK      ; A=0: beam on
 
@@ -314,8 +322,8 @@ Overscan:
         lda #34         ; one unit shorter: the WSYNC above took a
         sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
 .waitOS:
-        lda INTIM
-        bne .waitOS
+        bit TIMINT
+        bpl .waitOS
         jmp MainLoop
 
 ; ---------------------------------------------------------------

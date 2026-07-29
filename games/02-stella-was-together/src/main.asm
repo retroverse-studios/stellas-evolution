@@ -328,6 +328,30 @@ Bank0Init:
 ; use the asymmetric-playfield text kernels, play uses GameKernel.
 ; ---------------------------------------------------------------
 
+; ---------------------------------------------------------------
+; WaitVBlank pattern. The obvious `lda INTIM / bne` spin is a TRAP if
+; the logic ever overruns its budget: once the RIOT timer underflows it
+; switches to counting down every CPU CYCLE from 255, while this loop
+; samples only every 7 cycles — so it misses zero roughly six times out
+; of seven and waits another full 256 cycles for the next pass. A ONE
+; LINE overrun becomes tens of lines, the frame stops being 262, and
+; the picture rolls.
+;
+; That is exactly what moving right did. SetHorizPos's coarse-position
+; divide loop costs 5 cycles per 15 pixels of x, so a character at the
+; far right takes ~50 cycles longer to position than one at the left —
+; and it is called twice. Add ClampBoxes, which only runs while you are
+; MOVING, and the right-hand side of the screen tipped a budget the
+; left-hand side fitted in. Measured: 262 lines standing still, 324
+; walking Stella to the right.
+;
+; `bit TIMINT / bpl` waits on the timer's underflow FLAG instead, so if
+; the flag is already set the wait falls straight through and an
+; overrun costs only the cycles actually overspent. Same three bytes.
+; It does not leave A = 0 the way `lda INTIM` did, so the beam-on
+; `sta VBLANK` needs its own `lda #0`.
+; ---------------------------------------------------------------
+
 MainLoop:
         SUBROUTINE
         lda #2
@@ -338,8 +362,12 @@ MainLoop:
         sta WSYNC
         lda #0
         sta VSYNC
-        lda #44
-        sta TIM64T      ; ~37 scanlines of vertical blank
+        lda #49
+        sta TIM64T      ; ~41 scanlines of vertical blank — 5 ticks
+                        ; more than the original 44, paid for by the
+                        ; same 5 ticks off overscan below, so the frame
+                        ; total is unchanged. Overscan was idling ~29
+                        ; lines while the logic was running out of room.
 
         inc FrameCtr
         lda SWCHB       ; console RESET returns to the title
@@ -388,8 +416,9 @@ MainLoop:
         lda #0
         sta CTRLPF      ; asymmetric playfield for the logo
 .wv0:
-        lda INTIM
-        bne .wv0
+        bit TIMINT              ; wait on the underflow FLAG, not
+        bpl .wv0               ; on INTIM (see the note above)
+        lda #0
         sta WSYNC
         sta VBLANK      ; A=0: beam on
         jsr TitleKernel
@@ -400,8 +429,9 @@ MainLoop:
         lda #COL_TEXT
         sta COLUPF
 .wv1:
-        lda INTIM
-        bne .wv1
+        bit TIMINT              ; wait on the underflow FLAG, not
+        bpl .wv1               ; on INTIM (see the note above)
+        lda #0
         sta WSYNC
         sta VBLANK
         jsr StoryKernel
@@ -413,8 +443,9 @@ Bank0Entry:             ; bank 1 would arrive here (via GoBank0)
         lda PFColor     ; per-floor platform color (kernel steps it)
         sta COLUPF
 .wv2:
-        lda INTIM
-        bne .wv2
+        bit TIMINT              ; wait on the underflow FLAG, not
+        bpl .wv2               ; on INTIM (see the note above)
+        lda #0
         sta WSYNC
         sta VBLANK      ; A=0: beam on
         jsr GameKernel
@@ -434,11 +465,11 @@ Overscan:
         sta PF2         ; beam is already on for the kernel-setup
                         ; cycles before the first WSYNC, so it printed
                         ; across the top of the screen
-        lda #34         ; one unit shorter: the WSYNC above took a
-        sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
+        lda #29         ; 5 ticks lent to vblank (see above); still
+        sta TIM64T      ; ~24 idle lines here, which is ample
 .waitOS:
-        lda INTIM
-        bne .waitOS
+        bit TIMINT
+        bpl .waitOS
         jmp MainLoop
 
 ; ===============================================================
