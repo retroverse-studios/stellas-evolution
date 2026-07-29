@@ -2082,13 +2082,34 @@ JumpLoTbl:  .byte $20, $10, $80     ; Alex -1.9375 (10),
                                     ; jump" made load-bearing; the
                                     ; solver re-proves every floor
                                     ; against these exact tables)
-ColBriTbl:  .byte $4A, $CE, $86     ; LUMA-ORDERED trio (decision
-ColDimTbl:  .byte $46, $CA, $82     ; #27): in both states Marcus is
-                                    ; darkest, Stella mid, Alex
-                                    ; brightest (gaps of 4 luma), so
-                                    ; brightness alone tells the
-                                    ; characters apart under any
-                                    ; colour vision; active = +4 luma
+                                    ; SERIES PALETTE (decision #27) —
+                                    ; identical bytes in Game 1. Stella
+                                    ; is hue $3, the red design-document
+                                    ; .md specifies as $30; Alex $C,
+                                    ; Marcus $8.
+ColBriTbl:  .byte $38, $CE, $84     ; LUMA-ORDERED: Marcus darkest,
+ColDimTbl:  .byte $36, $CC, $82     ; Stella mid, Alex brightest — in
+                                    ; every MIX that reaches the screen,
+                                    ; not merely within each table.
+                                    ; Active is +2, and +2 is the most
+                                    ; the hardware allows: three
+                                    ; characters over the TIA's 8 luma
+                                    ; steps need dim tiers 4 apart, so a
+                                    ; +4 boost would lift the active
+                                    ; character onto its neighbour's
+                                    ; luma. The old tables ($4A/$CE/$86
+                                    ; over $46/$CA/$82, active +4) did
+                                    ; exactly that: with Stella active
+                                    ; she and Alex were both luma A, and
+                                    ; with Marcus active he and Stella
+                                    ; were both luma 6 — two of the
+                                    ; three states colour-blind-unsafe,
+                                    ; which is the one thing #27 exists
+                                    ; to prevent. "Which one is mine" is
+                                    ; carried by the never-flickering P0
+                                    ; slot, the wide-awake eyes and the
+                                    ; fast lamp blink, so the active cue
+                                    ; can afford to be the subtle one.
 NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
 OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character

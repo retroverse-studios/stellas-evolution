@@ -648,11 +648,46 @@ is the series' colour-accessibility standard?
 - Game 1's locked-goal blink already established "blinking marker = not ready";
   the lamps generalize that language instead of inventing a new one.
 
-**Status:** DECIDED (2026-07-20) — three layers, applied to both shipped games:
+**Status:** DECIDED (2026-07-20; palette corrected and unified 2026-07-29) — three
+layers, applied to both shipped games:
 - **Luma order:** in any state, Alex is the brightest character on screen, Stella
-  mid, Marcus darkest (gaps ≥ 4 luma within a state; active = +4 over idle).
-  Game 2 tables $4A/$CE/$86 bright, $46/$CA/$82 dim; Game 1's Alex raised to
-  $CA/$CE.
+  mid, Marcus darkest. **One palette, identical bytes in both games** — a
+  character keeps its colour across the boxed set (2026-07-29; author's call:
+  "I would prefer the colours to be the same across the games"). Any future
+  per-game colour progression must be a *deliberate* mechanic or arc, not drift,
+  and is doubted anyway on the grounds that it is hard to perceive across games
+  played apart.
+
+  | | dim (idle) | bright (active) |
+  |---|---|---|
+  | Marcus (hue $8) | `$82` | `$84` |
+  | Stella (hue $3) | `$36` | `$38` |
+  | Alex   (hue $C) | `$CC` | `$CE` |
+
+  Stella is hue $3 — the red `design-document.md` specifies as `$30`. Game 2 had
+  drifted to hue $4; Game 1 was right.
+
+  **The active boost is +2, and +2 is the hardware maximum.** The ordering must
+  hold for the *mix that reaches the screen* (one bright character plus the
+  others dim), not merely within the bright table and the dim table separately.
+  Three characters need dim tiers ≥ 4 luma apart, and the TIA gives 8 usable
+  steps, so any boost above +2 lifts the active character onto its neighbour's
+  luma. Exhaustive search over all assignments confirms no valid scheme exists
+  at +4 or more, and that no scheme keeps every gap ≥ 4 (the tightest pair is
+  Marcus-active Marcus/Stella, 2 apart).
+
+  *The bug this replaced:* the original tables ($4A/$CE/$86 bright over
+  $46/$CA/$82 dim, active +4) were ordered within each table but collided on
+  screen. With Stella controlled she and Alex were **both luma A**; with Marcus
+  controlled he and Stella were **both luma 6**. Two of the three states were
+  colour-blind-unsafe — precisely the failure this decision exists to prevent —
+  and it survived because the tables were only ever read down their columns.
+  Verify the mixes, not the columns.
+
+  "Which character am I controlling" therefore rests on the redundant channels
+  rather than on luma: the active character owns the never-flickering P0 slot,
+  wears the wide-awake eyes, and its home lamp blinks fast (Game 1: it is simply
+  the one that answers the stick, plus the fast lamp).
 - **Home lamps:** a vacant home blinks (slow), the CONTROLLED character's vacant
   home blinks FAST, a held home shows steady. Blink = to-do list; fast = "this
   one is yours"; steady = done. Game 2 builds a per-band COLUPF table in RAM each

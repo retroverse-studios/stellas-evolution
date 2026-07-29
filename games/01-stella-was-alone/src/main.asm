@@ -1912,14 +1912,20 @@ JumpLoTbl:  .byte $20, $10          ; Stella clears 16 du (24 needs Alex's
                                     ; back); Alex clears 10 — enough to
                                     ; board Stella's head (9) but nowhere
                                     ; near the 16 du ledges
-ColP0Tbl:   .byte $36, $32          ; Stella red: bright when active.
-ColP1Tbl:   .byte $CA, $CE          ; Alex green — LUMA-ORDERED
-                                    ; (decision #27): Alex is always
-                                    ; at least 4 luma brighter than
-                                    ; Stella in the same state, so
-                                    ; brightness alone tells the two
-                                    ; apart under red/green colour
-                                    ; vision; his lamp inherits it
+; SERIES PALETTE (decision #27) — the SAME bytes as Game 2's, which is
+; the point: a character keeps its colour across the boxed set. Stella
+; is hue $3 (the red design-document.md specifies as $30), Alex hue $C.
+; Both tables are indexed by ACTIVE, not by character, so each entry is
+; "this character's colour while THAT one is being controlled":
+;   active Stella -> Stella $38 (luma 8), Alex $CC (C)
+;   active Alex   -> Stella $36 (luma 6), Alex $CE (E)
+; Alex is brighter than Stella in both, so brightness alone tells them
+; apart with no colour vision at all; the goal missiles take COLUP0 /
+; COLUP1, so the home lamps inherit it for free. Game 2 adds Marcus
+; below Stella on the same ladder — Game 1 simply has no bottom tier,
+; because it has no Marcus.
+ColP0Tbl:   .byte $38, $36          ; Stella red, brighter when active
+ColP1Tbl:   .byte $CC, $CE          ; Alex green, brighter when active
 
 ; 8x7 digit glyphs for the epilogue clock, rows stored BOTTOM-UP
 ; (the win kernel walks its row counter 6 -> 0). Glyph 10 = blank.
