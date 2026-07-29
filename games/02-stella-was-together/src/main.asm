@@ -429,6 +429,11 @@ Overscan:
         sta ENAM0
         sta ENAM1
         sta ENABL
+        sta PF0         ; and the playfield — the kernel's last band
+        sta PF1         ; used to survive into the next frame, and the
+        sta PF2         ; beam is already on for the kernel-setup
+                        ; cycles before the first WSYNC, so it printed
+                        ; across the top of the screen
         lda #34         ; one unit shorter: the WSYNC above took a
         sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
 .waitOS:
@@ -1714,17 +1719,19 @@ GameKernel:
         sta PF1
         lda (PF2Ptr),y
         sta PF2
-        iny                     ; prefetch band 1 (still in vblank)
-        lda SkyGrad,y
-        sta KSky
-        lda (PF0Ptr),y
-        sta KPF0
-        lda (PF1Ptr),y
-        sta KPF1
-        lda (PF2Ptr),y
-        sta KPF2
-        lda (PFColPtr),y
-        sta KCol
+        ; NO pre-loop prefetch. Y stays on band 0, and the loop does
+        ; every fetch: the prefetch at du 7 pulls band 1, the swap at
+        ; du 8 stores it. Priming K* with band 1 here as well looked
+        ; harmless but was not — du 7's prefetch OVERWROTE it with band
+        ; 2 before du 8's swap could consume it, so band 1 was never
+        ; drawn, every band after it appeared 8 du early (which also
+        ; skipped a step of the sky gradient), and the last 8 du fell
+        ; off the end of the 12-byte tables into band "12":
+        ; PF2Ptr[12] is the record's first collision-box TOP (88 =
+        ; $58), so the bottom of every floor wore four ghost blocks in
+        ; the shape of a number, and KCol read past the lamp table into
+        ; TextEnd. The leftovers also bled into the next frame's first
+        ; line (see Overscan).
 .kloop:
         sta WSYNC               ; ---- line 1
         dec BandLine

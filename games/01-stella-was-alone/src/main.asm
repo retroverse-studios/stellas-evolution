@@ -306,6 +306,11 @@ Overscan:
         sta GRP1
         sta ENAM0
         sta ENAM1
+        sta PF0         ; and the playfield — the kernel's last band
+        sta PF1         ; used to survive into the next frame, and the
+        sta PF2         ; beam is already on for the ~40 cycles of
+                        ; kernel setup before the first WSYNC, so it
+                        ; printed across the top of the screen
         lda #34         ; one unit shorter: the WSYNC above took a
         sta TIM64T      ; line; the pre-kernel WSYNC re-aligns
 .waitOS:
@@ -1561,16 +1566,17 @@ GameKernel:
         sta PF1
         lda (PF2Ptr),y
         sta PF2
-        tya                     ; prefetch the SECOND band right away
-        clc                     ; (still in vblank, timing is free)
-        adc BandStep
-        tay
-        lda (PF0Ptr),y
-        sta PFn0
-        lda (PF1Ptr),y
-        sta PFn1
-        lda (PF2Ptr),y
-        sta PFn2
+        ; NO pre-loop prefetch. Y stays on band 0, and the loop does
+        ; every fetch: the prefetch at du 7 pulls band 1, the swap at
+        ; du 8 stores it. Priming PFn* with band 1 here as well looked
+        ; harmless but was not — du 7's prefetch OVERWROTE it with band
+        ; 2 before du 8's swap could consume it, so band 1 was never
+        ; drawn and every band after it appeared 8 du early. The last
+        ; 8 du then fell off the end of the 12-byte arrays and drew
+        ; band "12": PF2Ptr[12] is the record's first collision-box
+        ; TOP (88 = $58), so the bottom of every screen wore four
+        ; ghost blocks in the shape of a number. The leftovers also
+        ; bled into the next frame's first line (see Overscan).
 .kloop:
         sta WSYNC               ; ---- line 1
         dec BandLine
