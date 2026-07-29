@@ -83,6 +83,10 @@ STATE_TITLE = 0         ; rainbow logo, fire to start
 STATE_PLAY  = 1         ; a floor is being played
 STATE_STORY = 2         ; a between-floor narration screen
 STATE_WAKE  = 3         ; the waking-Marcus opening (game kernel)
+STATE_DONE  = 4         ; floor complete: the beat before the narration
+                        ; (game kernel — decision #26's closing image is
+                        ; all three standing home together, so the game
+                        ; holds on it instead of cutting to text)
 
 ; --- floor sequencing ------------------------------------------
 NUM_FLOORS  = 3         ; Act 1 complete: Together Again / The Low
@@ -154,7 +158,7 @@ SquashT     ds 3        ; frames of landing squash left
 Active      ds 1
 FirePrev    ds 1
 FrameCtr    ds 1
-SoundId     ds 1        ; 1=jump 2=land
+SoundId     ds 1        ; 1=jump 2=land 3=floor fanfare
 SoundT      ds 1
 
 PF0Ptr      ds 2        ; -> level record base (PF0 bands)
@@ -240,6 +244,8 @@ PFColRam    = TPtr      ; 12 bytes, one COLUPF per band
 WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
                         ; drops / 4 Alex slides in
 WakeT       ds 1        ; frame counter within the phase
+
+StateTimer  ds 1        ; STATE_DONE: frames left in the completion beat
 
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
@@ -333,7 +339,12 @@ MainLoop:
         beq .doStory
         cmp #STATE_WAKE
         beq .doWake
+        cmp #STATE_DONE
+        beq .doDone
         jsr TitleLogic
+        jmp .logicDone
+.doDone:
+        jsr DoneLogic
         jmp .logicDone
 .doWake:
         jsr WakeLogic
@@ -354,6 +365,8 @@ MainLoop:
         beq .kPlay
         cmp #STATE_WAKE
         beq .kPlay              ; the opening runs on the game kernel
+        cmp #STATE_DONE
+        beq .kPlay              ; ...and so does the completion beat
         cmp #STATE_STORY
         beq .kStory
         ; ---- title kernel ----
@@ -794,29 +807,126 @@ LoadFloor:
         rts
 
 ; ---------------------------------------------------------------
+; AtHome: X = character. Carry SET if that character is standing on
+; ITS OWN home right now — grounded, at its home height, AND
+; horizontally overlapping its home ledge.
+;
+; This is the ONE definition of "home" in the game: CheckGoal (does the
+; floor complete?) and the home lamps (the feedback that teaches the
+; rule) both call it, so what the player is told can never disagree with
+; what the game tests. It is also Game 1's CheckGoals rule exactly —
+; grounded + box overlap in X and Y — which is what decision #26 means
+; by ONE goal mechanic for the series.
+;
+; The x test used to be absent here: home was "CharY equals the home
+; value", and floors stayed honest only because check_levels.py proved
+; per floor that no OTHER reachable footing produced that height. That
+; put the guarantee in the level data instead of the code — fine for
+; three hand-audited floors, but Acts 2-4 add portals, world-swap (two
+; truths of ONE place, at identical heights) and possibly anti-gravity
+; regions (#25), where same-height surfaces stop being an accident and
+; start being the point.
+;
+; Clobbers A and Y; preserves X.
+; ---------------------------------------------------------------
+
+AtHome:
+        SUBROUTINE
+        lda OnGround,x
+        beq .no                 ; home means STOOD on, not flown through
+        lda MulThree,x
+        tay                     ; -> this character's (Y, XL, XR)
+        lda CharY,x
+        cmp (HomePtr),y
+        bne .no                 ; not at its home height
+        iny
+        lda CharX,x             ; body's right edge past the home's left
+        clc
+        adc WidthTbl,x
+        cmp (HomePtr),y
+        bcc .no
+        beq .no                 ; touching edge-on is not standing on it
+        iny
+        lda CharX,x             ; body's left edge short of home's right
+        cmp (HomePtr),y
+        bcs .no
+        sec                     ; home
+        rts
+.no:
+        clc
+        rts
+
+; ---------------------------------------------------------------
 ; CheckGoal: a three-character floor completes when EACH character
-; is grounded on ITS OWN colour home ledge (per-character CharY equals
-; the floor's home value). All home -> show this floor's narration,
-; then advance FloorSeq (looping back to the title after the last
-; real floor).
+; is standing on its own colour home ledge at the same time (AtHome).
+; All home -> the fanfare and STATE_DONE's beat; DoneLogic then loads
+; the narration and advances FloorSeq.
 ; ---------------------------------------------------------------
 
 CheckGoal:
         SUBROUTINE
         ldx #NUM_CHARS-1
 .loop:
-        lda OnGround,x
-        beq .done               ; someone airborne: not yet
-        txa
-        tay
-        lda CharY,x
-        cmp (HomePtr),y
-        bne .done               ; someone not on its own home ledge
+        jsr AtHome
+        bcc .done               ; someone isn't home: not yet
         dex
         bpl .loop
-        ; all three home: narration, then the next floor
+        ; all three home: one fanfare for the floor, then a beat to
+        ; SEE it — three characters standing together on their own
+        ; homes is the image decision #26 exists for. LoadStory waits
+        ; for DoneLogic: TPtr overlays PFColRam, so the narration
+        ; pointers would trample the lamps we are still drawing.
+        lda #3
+        sta SoundId
+        lda #16
+        sta SoundT
+        lda #STATE_DONE
+        sta State
+        lda #90
+        sta StateTimer
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; DoneLogic: the completion beat (Game 1's DoneLogic, in this game's
+; palette). Everything freezes where it stands, the fanfare plays out,
+; and the dusk sky takes a gentle 2-luma breath — Game 1 pulses its
+; black background, so Game 2 pulses the thing that replaced it. When
+; the timer runs out the narration takes over.
+; ---------------------------------------------------------------
+
+DoneLogic:
+        SUBROUTINE
+        jsr UpdateSound
+        lda StateTimer          ; the breath: sky base +0 / +2 luma
+        and #$08                ; (bigger would carry the luma nibble
+        lsr                     ; into the next HUE — dusk violet must
+        lsr                     ; stay dusk violet)
+        sta Temp
         ldx FloorSeq
-        lda FloorStoryTbl,x
+        lda FloorSkyTbl,x
+        clc
+        adc Temp
+        sta Temp
+        ldx #11
+.grad:
+        lda GradOfs,x
+        clc
+        adc Temp
+        sta SkyGrad,x
+        dex
+        bpl .grad
+        jsr PrepSprites         ; keep the P1 multiplexer running: if
+                                ; the two inactive characters overlap,
+                                ; a frozen P1 would show only one of
+                                ; them for the whole beat — and this is
+                                ; the beat where all three must be seen
+        dec StateTimer
+        beq .advance
+        rts
+.advance:
+        ldx FloorSeq            ; the lamps are finished; TPtr may now
+        lda FloorStoryTbl,x     ; take PFColRam's bytes back
         jsr LoadStory
         inc FloorSeq
         lda FloorSeq
@@ -831,7 +941,6 @@ CheckGoal:
 .toStory:
         lda #STATE_STORY
         sta State
-.done:
         rts
 
 ; ---------------------------------------------------------------
@@ -1246,7 +1355,11 @@ HeadTest:
         rts
 
 ; ---------------------------------------------------------------
-; UpdateSound: game 1's one-channel effect engine, jump + land.
+; UpdateSound: game 1's one-channel effect engine — jump, land, and
+; the floor fanfare. Nothing can cut the fanfare off: STATE_DONE runs
+; neither ReadInput nor UpdatePhysics, so no jump or landing happens
+; while it plays (game 1 needs an explicit guard for this; here the
+; state machine gives it for free).
 ; ---------------------------------------------------------------
 
 UpdateSound:
@@ -1260,8 +1373,28 @@ UpdateSound:
 .active:
         dec SoundT
         lda SoundId
+        cmp #1
+        beq .jump
         cmp #2
         beq .land
+        ; floor fanfare: low note then high note. Game 1's two notes
+        ; verbatim — decision #26 gives the series one goal mechanic,
+        ; so it gets one sound of completion too.
+        lda #12
+        sta AUDC0
+        lda SoundT
+        cmp #8
+        bcs .note1
+        lda #11
+        bne .setf
+.note1:
+        lda #15
+.setf:
+        sta AUDF0
+        lda #8
+        sta AUDV0
+        rts
+.jump:
         lda #4                  ; jump: rising pure tone
         sta AUDC0
         lda #8
@@ -1297,17 +1430,21 @@ UpdateSound:
 PrepSprites:
         SUBROUTINE
 ; ---- the HOME LAMPS: build this frame's 12-band COLUPF table ----
-; Colour-blind-safe goal feedback (decision #26): each home band is a
+; Colour-blind-safe goal feedback (decision #27): each home band is a
 ; lamp in its owner's own (luma-coded) colour. Vacant, it BLINKS
 ; against near-black — fast if its owner is the character you are
 ; controlling, slow otherwise — so the blinking is the to-do list
 ; and the fast blink answers "which home is mine?" without colour.
-; Once its owner stands home it holds steady. Gated on STATE_PLAY:
-; the wake opening drives PFColPtr at ROM tables itself, and on a
-; completion frame TPtr already belongs to the narration.
+; Once its owner stands home it holds steady. Gated on STATE_PLAY and
+; STATE_DONE (the completion beat, where all three read steady); the
+; wake opening drives PFColPtr at ROM tables itself, and once the
+; narration is loaded TPtr owns these bytes again.
         lda State
         cmp #STATE_PLAY
+        beq .lamps
+        cmp #STATE_DONE
         bne .noLamps
+.lamps:
         ldy #11                 ; base coat: platform tan
         lda #PFA_COLOR
 .tan:
@@ -1322,13 +1459,8 @@ PrepSprites:
         tay
         lda FloorBandByChar,y
         sta Temp
-        txa                     ; home? (CheckGoal's own test:
-        tay                     ; grounded at the home CharY)
-        lda OnGround,x
-        beq .vac
-        lda CharY,x
-        cmp (HomePtr),y
-        bne .vac
+        jsr AtHome              ; the one home test, shared with
+        bcc .vac                ; CheckGoal — lamp and rule agree
         lda ColBriTbl,x         ; home: the lamp holds steady
         bne .put
 .vac:
@@ -1951,7 +2083,7 @@ JumpLoTbl:  .byte $20, $10, $80     ; Alex -1.9375 (10),
                                     ; solver re-proves every floor
                                     ; against these exact tables)
 ColBriTbl:  .byte $4A, $CE, $86     ; LUMA-ORDERED trio (decision
-ColDimTbl:  .byte $46, $CA, $82     ; #26): in both states Marcus is
+ColDimTbl:  .byte $46, $CA, $82     ; #27): in both states Marcus is
                                     ; darkest, Stella mid, Alex
                                     ; brightest (gaps of 4 luma), so
                                     ; brightness alone tells the
@@ -1995,15 +2127,17 @@ LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
 
 FloorRecLo:   .byte <Floor1Rec, <Floor2Rec, <Floor3Rec
 FloorRecHi:   .byte >Floor1Rec, >Floor2Rec, >Floor3Rec
-FloorHomeLo:  .byte <Floor1HomeCharY, <Floor2HomeCharY, <Floor3HomeCharY
-FloorHomeHi:  .byte >Floor1HomeCharY, >Floor2HomeCharY, >Floor3HomeCharY
+FloorHomeLo:  .byte <Floor1Home, <Floor2Home, <Floor3Home
+FloorHomeHi:  .byte >Floor1Home, >Floor2Home, >Floor3Home
 FloorWrapTbl: .byte 1, 1, 1           ; Act 1: wrap is the baseline
 FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
 FloorStoryTbl: .byte 1, 2, 3          ; narration after each floor
 FloorActTbl:  .byte 1, 1, 1           ; Act 1 (framework metadata)
+; char*3 — indexes both FloorBandByChar (char*3 + floor) and each
+; floor's Floor?Home table (three bytes per character).
+MulThree:     .byte 0, 3, 6
 ; The lamp band for each character on each floor (char*3 + floor);
 ; PrepSprites paints these bands as the colour-blind-safe home lamps.
-MulThree:     .byte 0, 3, 6
 FloorBandByChar:
         .byte 9, 7, 6           ; Stella: F1 low totem / F2 slab / F3 b3
         .byte 8, 9, 8           ; Alex:   F1 mid totem / F2 sill / F3 b2
@@ -2035,20 +2169,23 @@ TanPF:        .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C
 ; and Marcus finish alone — a genuine, load-bearing "not alone" beat.
 ; ===============================================================
 
-; Per-character CharY when standing on its own home ledge (ledge top
-; minus character height): Stella 76-9, Alex 68-3, Marcus 58-6.
+; Each character's home, three bytes: the CharY it stands at (ledge top
+; minus its height — Stella 76-9, Alex 68-3, Marcus 58-6) and the
+; ledge's x extent [left, right). AtHome needs both.
 ; (Reworked from 76/68/60 with green/blue swapped when Marcus's jump
 ; grew to 16 du: his overshoot from the 76 ledge landed exactly on
 ; the old 60 ledge and his own 68 became unreachable — caught by the
 ; solver. Now the NEW ARRIVAL crowns the totem: Marcus's blue home
 ; is the top, two 76->68->58 hops of 8 and 10 du; Alex's green home
-; is the middle. Head-chain heights audited: no stack of friends
-; puts anyone's feet at a foreign home height off the column.)
-Floor1HomeCharY:  .byte 67, 65, 52
+; is the middle.)
+Floor1Home:
+        .byte 67, 76,  84       ; Stella: low ledge, the narrow column
+        .byte 65, 72,  88       ; Alex:   mid ledge, double-wide (echo)
+        .byte 52, 76,  84       ; Marcus: top ledge, crowning the totem
 
 ; The Floor-1 level record (66-byte layout). Open frame (wrap), a
 ; full-width floor, and three centred one-way home ledges. SHAPE
-; ECHO (decision #26): each ledge's width matches its owner's body —
+; ECHO (decision #27): each ledge's width matches its owner's body —
 ; Alex's mid ledge is double-wide (16px, PF2 bits 6-7) like his flat
 ; wide self; Stella's and Marcus's are the narrow 8px column.
 ;   PF0: open edges (top bands clear so x wraps); floor band = $F0
@@ -2092,8 +2229,12 @@ Floor1Rec:
 ; band (64-71), Game 1 RC2's documented few-du art allowance.
 ; ===============================================================
 
-; home CharY: Stella slab 56-9, Alex wing 72-3, Marcus heart 70-6
-Floor2HomeCharY:  .byte 47, 69, 64
+; home CharY + x extent: Stella slab 56-9, Alex wing 72-3 (either wing —
+; the sill top is his home along its whole width), Marcus heart 70-6
+Floor2Home:
+        .byte 47, 64,  96       ; Stella: the slab roof
+        .byte 69, 48, 112       ; Alex:   the sill top
+        .byte 64, 76,  84       ; Marcus: the heart, inside the door
 
 ; Lamp bands (FloorBandByChar): 7 = slab (Stella), 8 = heart
 ; (Marcus), 9 = sill top (Alex); the sill's lower band stays tan.
@@ -2131,8 +2272,12 @@ Floor2Rec:
 ; with wrap off: the twist is load-bearing, not decoration.
 ; ===============================================================
 
-; home CharY: Stella b3 48-9, Alex b2 64-3, Marcus b1 80-6
-Floor3HomeCharY:  .byte 39, 61, 74
+; home CharY + x extent: the three buttress stairs, Stella b3 48-9,
+; Alex b2 64-3, Marcus b1 80-6
+Floor3Home:
+        .byte 39, 68,  92       ; Stella: b3, the top stair
+        .byte 61, 64,  96       ; Alex:   b2, the middle stair
+        .byte 74, 56, 104       ; Marcus: b1, the bottom stair
 
 ; Lamp bands (FloorBandByChar): 6 = b3 (Stella), 8 = b2 (Alex),
 ; 10 = b1 (Marcus) — the wall wears each stair's lamp as a painted

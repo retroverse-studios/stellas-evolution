@@ -14,9 +14,14 @@ surfaces (add_helpers). Every floor proves:
 
   (a) all three characters can stand on their own home
       (solvable, helpers allowed), and
-  (b) homeY-uniqueness: because the game's CheckGoal compares CharY
-      ONLY (not x), no reachable standing spot outside the home box may
-      produce the home CharY — a false completion — for any character.
+  (b) homeY-uniqueness, now advisory: a WARNING (not a failure) if a
+      character can stand at its home height somewhere off its home box.
+      This was a hard failure while the ROM's CheckGoal compared CharY
+      only — the level data was the sole thing keeping completion
+      honest. AtHome now tests x in the ROM, so such a spot is merely a
+      readability wart (you are at home height, the lamp says vacant,
+      and it is right), not a false completion. Kept as a warning
+      because it is still usually worth knowing.
 
 Plus a per-floor mode proof that the floor's TEACHING is load-bearing:
 
@@ -30,7 +35,9 @@ Plus a per-floor mode proof that the floor's TEACHING is load-bearing:
       help (the wrap genuinely is the answer, not a flourish).
 
 `make` fails if any proof breaks. Adding a floor = its record + home
-table in src/main.asm plus one FLOOR_DEFS row here (mode + home boxes).
+table in src/main.asm plus one FLOOR_DEFS row here (its mode). Home
+heights AND boxes are read from the ROM's Floor?Home tables, so the
+solver and the game cannot drift apart on where home is.
 
 Known model limits (same family as Game 1's solver): helper heads are
 static surfaces over each helper's reachable footing — proved over
@@ -52,17 +59,13 @@ NUM_BOXES = 6
 ROM_BASE = 0xF000
 NAMES = ["Stella", "Alex", "Marcus"]
 
-# Per-floor proof metadata. home_box = per-character (left, right) of
-# the true home surface; the solver proves no OTHER reachable footing
-# yields the home CharY (the ROM's CheckGoal is Y-only).
+# Per-floor proof metadata. Home heights and boxes are NOT here — they
+# are read from the ROM's Floor?Home tables (3 bytes per character:
+# CharY, x-left, x-right), the same bytes AtHome tests against.
 FLOOR_DEFS = [
-    {"rec": "Floor1Rec", "home": "Floor1HomeCharY", "mode": "coop",
-     "home_box": [(76, 84), (72, 88), (76, 84)]},   # Alex's ledge is
-                                                    # double-wide (shape echo)
-    {"rec": "Floor2Rec", "home": "Floor2HomeCharY", "mode": "fit",
-     "home_box": [(64, 96), (48, 112), (76, 84)]},
-    {"rec": "Floor3Rec", "home": "Floor3HomeCharY", "mode": "wrap",
-     "home_box": [(68, 92), (64, 96), (56, 104)]},
+    {"rec": "Floor1Rec", "home": "Floor1Home", "mode": "coop"},
+    {"rec": "Floor2Rec", "home": "Floor2Home", "mode": "fit"},
+    {"rec": "Floor3Rec", "home": "Floor3Home", "mode": "wrap"},
 ]
 
 
@@ -105,14 +108,17 @@ def load(bin_path, sym_path, asm_path):
     for f in range(num_floors):
         d = FLOOR_DEFS[f]
         rec = syms[d["rec"]] - ROM_BASE
+        home = u8n(d["home"], 3 * num_chars)   # (CharY, xl, xr) per char
         floors.append({
-            "idx": f, "mode": d["mode"], "home_box": d["home_box"],
+            "idx": f, "mode": d["mode"],
+            "homeY": [home[3 * c] for c in range(num_chars)],
+            "home_box": [(home[3 * c + 1], home[3 * c + 2])
+                         for c in range(num_chars)],
             "boxes": list(rom[rec + 36:rec + 60]),
             "wrap": rom[syms["FloorWrapTbl"] - ROM_BASE + f],
             "spawns": [(rom[rec + 60], rom[rec + 61]),
                        (rom[rec + 62], rom[rec + 63]),
                        (rom[rec + 64], rom[rec + 65])],
-            "homeY": u8n(d["home"], num_chars),
         })
     return floors, phys, num_chars
 
@@ -308,7 +314,7 @@ def survey(fl, phys, wrap):
 
 
 def check_floor(fl, phys, name):
-    fails = []
+    fails, warns = [], []
     res = survey(fl, phys, fl["wrap"])
     solo = [r[0] for r in res]
     homed = [r[0] or r[1] for r in res]
@@ -319,7 +325,7 @@ def check_floor(fl, phys, name):
             fails.append("%s cannot reach home even with stepstools"
                          % NAMES[ci])
 
-    # (b) homeY-uniqueness (the ROM's CheckGoal is Y-only)
+    # (b) homeY-uniqueness — advisory since AtHome tests x in the ROM
     for ci in range(3):
         hf = fl["homeY"][ci] + phys["h3"][ci]
         hl, hr = fl["home_box"][ci]
@@ -327,7 +333,8 @@ def check_floor(fl, phys, name):
         bad = [(x, f) for f, xs in res[ci][2].items() if f == hf
                for x in xs if not (x < hr and x + w > hl)]
         if bad:
-            fails.append("%s can false-complete at homeY off the home box: %s"
+            warns.append("%s can stand at home height off the home box "
+                         "(no longer completes — AtHome tests x): %s"
                          % (NAMES[ci], sorted(bad)[:4]))
 
     mode = fl["mode"]
@@ -360,6 +367,8 @@ def check_floor(fl, phys, name):
     verdict = "ok (%s proof)" % mode if not fails else "FAIL"
     print("FLOOR %s [%s]: %s" % (name, mode, verdict))
     print("  detail: " + detail)
+    for w in warns:
+        print("  WARNING: " + w)
     for f in fails:
         print("  FAIL: " + f)
     return not fails

@@ -11,7 +11,7 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Current state (2026-07-18)
+## Current state (2026-07-29)
 
 **Act 1 is complete and the game has its opening.** Cold start → rainbow title
 on the dusk gradient sky → the **waking-Marcus opening** (black screen, the
@@ -63,13 +63,28 @@ world-swap re-attaches in Act 3.
       Game 1's blue epilogue square; fire skips)
 - [x] **Act 1 complete** — floors 1-3 (coop / Marcus's fit / the wrap twist),
       all solver-proven including the negative proofs
-- [x] Solver upgrades: per-floor proof modes, Y-only false-completion audit,
-      helper-subset stepstools, wrap-off unsolvability gate
+- [x] Solver upgrades: per-floor proof modes, helper-subset stepstools,
+      wrap-off unsolvability gate; home heights **and boxes** are read from
+      the ROM's `Floor?Home` tables, so the solver and the game cannot drift
+      apart on where home is
 - [x] Colour accessibility (decision #27): luma-ordered trio (Marcus <
       Stella < Alex in every state), HOME LAMPS (vacant homes blink — fast
       for the controlled character — and hold steady when their owner
       stands home), and Floor 1's shape echo (Alex's ledge is double-wide,
       like him)
+- [x] **The completion beat** (`STATE_DONE`): Game 1's goal fanfare and its
+      90-frame hold, so a floor's closing image — all three standing home
+      together, which is what decision #26 exists for — gets seen instead of
+      cut straight to text. The dusk sky takes a gentle 2-luma breath (Game 1
+      pulses its black background; Game 2 pulses what replaced it)
+- [x] **`AtHome`: one definition of home**, shared by `CheckGoal` and the
+      lamps, testing grounded + x/y box overlap — Game 1's rule exactly, which
+      is what decision #26 means by one goal mechanic. Home used to be "CharY
+      equals the home value", kept honest only by a per-floor solver audit —
+      the guarantee lived in the level data, not the code. Acts 2-4 (portals,
+      world-swap's two truths of one place, anti-gravity regions) make
+      same-height surfaces the point rather than an accident, so the test
+      moved into the ROM
 - [ ] Act 2 (portal floors — re-attach the portal verb from `game2-workbench`)
 - [ ] Act 3 (world-swap floors — re-attach per #24), Act 4 finale
 - [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio
