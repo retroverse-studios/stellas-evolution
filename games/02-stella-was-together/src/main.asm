@@ -1564,24 +1564,31 @@ PrepSprites:
         dex
         bpl .each
 
-        ldx Active              ; P0 = the ACTIVE character: solid,
-        lda DrawY,x             ; never multiplexed, so it never
-        sta P0Top               ; flickers. The two INACTIVE characters
-        lda DrawH,x             ; time-share P1 below.
-        sta P0Hgt
-        lda EyeByte,x
-        sta P0Eye
-        lda NusizTbl,x
-        sta NUSIZ0              ; active may be Alex (double width)
-        jsr CharColor           ; active = bright luma
-        sta COLUP0
-
-        ; ---- the P1 multiplexer: the two INACTIVE characters ----
-.mux:
+        ; ---- THE PARTITION: which two characters share a player? ----
+        ; P1 can carry TWO characters solid if they are vertically
+        ; separated — it hops mid-frame. So the question is not "which
+        ; two are inactive" but "which two SEPARATE": pair those on P1
+        ; and give the odd one out P0 to itself, and nothing flickers.
+        ; Only when no pair separates at all (all three at one height,
+        ; e.g. standing on the same floor) is flicker forced, and then
+        ; P0 goes to the ACTIVE character, exactly as before.
+        ;
+        ; Pairs are tried in an order that prefers the pair NOT
+        ; containing the active character, so the one you control keeps
+        ; P0 to itself whenever possible — #19's letter, not just its
+        ; spirit. (A hop tenant is solid, so being paired would not
+        ; flicker either; it can just clip a du at the hop.)
         ldy Active
-        ldx OtherATbl,y         ; the two characters that are NOT active
-        lda OtherBTbl,y
-        tay
+        lda MulThree,y
+        sta CY                  ; CY walks this Active's 3 preferences
+        lda #3
+        sta MoveDir             ; tries remaining
+.pairLoop:
+        ldy CY
+        ldx PrefOrd,y
+        ldy PairB,x
+        lda PairA,x
+        tax                     ; X, Y = the pair's two characters
         lda DrawY,x             ; order them by drawn top:
         cmp DrawY,y
         bcc .order              ; X already the upper one
@@ -1590,6 +1597,8 @@ PrepSprites:
         tax
         ldy Temp
 .order:                         ; X = upper, Y = lower
+        stx Temp                ; remember the pair, ordered
+        sty NewX
         lda DrawY,x
         clc
         adc DrawH,x
@@ -1597,20 +1606,35 @@ PrepSprites:
         clc
         adc #2                  ; hop needs 1 du + 1 du of margin
         cmp DrawY,y
-        bcc .solid
-        beq .solid
-        ; overlap: alternate the two inactive tenants at 30Hz
+        bcc .paired
+        beq .paired
+        inc CY
+        dec MoveDir
+        bne .pairLoop
+        ; --- no pair separates: #19's documented fallback ---
+        lda Active              ; the one you control keeps P0, solid
+        sta CYH
+        ldy Active
         lda #$FF
         sta RepoDU
+        ldx OtherATbl,y         ; the other two alternate at 30Hz
+        lda OtherBTbl,y
+        tay
         lda FrameCtr
         and #1
-        beq .fill               ; even frame: show X (the upper one)
-        tya                     ; odd frame: show Y (the lower one)
+        beq .fill               ; even frame: show X
+        tya                     ; odd frame: show Y
         tax
 .fill:
         jsr FillP1              ; P1 = tonight's tenant, whole frame
-        jmp .position
-.solid:
+        jmp .p0
+.paired:
+        ldy CY                  ; the odd one out gets P0 to itself
+        ldx PrefOrd,y
+        lda PairS,x
+        sta CYH
+        ldx Temp                ; X = upper, Y = lower, as tested
+        ldy NewX
         lda RepoDU              ; never hop on a band boundary OR the
         and #7                  ; prefetch line before it — both line
         beq .bump1              ; 1s are busy now
@@ -1637,8 +1661,20 @@ PrepSprites:
         lda NusizTbl,x
         sta P1Nu2
 
+.p0:                            ; P0 = whoever is not sharing P1
+        ldx CYH
+        lda DrawY,x
+        sta P0Top
+        lda DrawH,x
+        sta P0Hgt
+        lda EyeByte,x
+        sta P0Eye
+        lda NusizTbl,x
+        sta NUSIZ0              ; may be Alex (double width)
+        jsr CharColor           ; active = bright luma
+        sta COLUP0
 .position:
-        ldx Active              ; P0 = the active character
+        ldx CYH
         lda CharX,x
         ldx #0
         jsr SetHorizPos
@@ -2155,6 +2191,16 @@ NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
 OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character
 
+; The three possible pairings, and the character each one leaves over.
+PairA:      .byte 0, 0, 1
+PairB:      .byte 1, 2, 2
+PairS:      .byte 2, 1, 0
+; Which pairing to try first, per active character: always the pair
+; that does NOT contain it, so the character you control keeps P0.
+PrefOrd:    .byte 2, 0, 1           ; active Stella -> try (Alex,Marcus)
+            .byte 1, 0, 2           ; active Alex   -> try (Stella,Marcus)
+            .byte 0, 1, 2           ; active Marcus -> try (Stella,Alex)
+
 ; per-band gradient shape: brighter toward the horizon (5 shades)
 GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8
 
@@ -2271,7 +2317,24 @@ Floor1Rec:
         .byte 160, 84, 88, 84,   0,   0   ; box rights (excl)
         .byte 20, 79                      ; Stella: ground, left
         .byte 40, 85                      ; Alex: ground, mid-left
-        .byte 60, 82                      ; Marcus: ground, centre-left
+        .byte 76, 70                      ; Marcus: PERCHED on the low
+                                          ; ledge, not on the ground.
+                                          ; Three characters standing on
+                                          ; one floor all have their feet
+                                          ; at du 88, so every pair
+                                          ; overlaps and P1's two tenants
+                                          ; can only alternate at 30Hz —
+                                          ; the worst case, permanently,
+                                          ; on the first floor of the
+                                          ; game (#19 warned that level
+                                          ; design has to buy the
+                                          ; separation). Lifting the new
+                                          ; arrival onto the totem's
+                                          ; first step separates him from
+                                          ; both, and it reads better
+                                          ; too: he wakes already part
+                                          ; way up the thing they are
+                                          ; about to climb.
 
 ; ===============================================================
 ; ACT 1, FLOOR 2 — "The Low Door"
