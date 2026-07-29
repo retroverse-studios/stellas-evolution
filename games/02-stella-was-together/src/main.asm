@@ -2391,19 +2391,44 @@ Floor2Rec:
 ; green 64 (Alex), red 48 (Stella).
 ;
 ; Alex wakes ALONE on the far side. His green course needs a 16-du
-; rise his jump cannot make, and every friend is behind the wall.
-; The answer is the floor's name in negative: the world is a
-; cylinder — walk AWAY from the wall, off the edge of the screen,
-; and arrive beside him. The solver proves the floor UNSOLVABLE
-; with wrap off: the twist is load-bearing, not decoration.
+; rise his jump cannot make, and every friend is behind the wall. The
+; answer is the floor's name in negative: the world is a cylinder —
+; walk AWAY from the wall, off the edge of the screen, and arrive
+; beside him. The solver proves the floor UNSOLVABLE with wrap off:
+; the twist is load-bearing, not decoration.
+;
+; STAIR WIDTHS, and why they are what they are. The wall splits every
+; stair into two exposed shelves, one either side, and those shelves
+; are the only places anyone can stand. They used to taper 16px / 8px /
+; 4px going up, which put STELLA — 8px wide — on a 4px shelf, so she
+; was always half off the ledge she lived on, and her home scored 6
+; ways in on the playability check: a trick shot, the same score as the
+; Floor 1 that playtest rejected.
+;
+; Now the shelves are sized to their OWNERS (the #27 shape echo, which
+; the old widths had backwards — the 16px character stood on the 8px
+; shelf and the 8px character on the 4px one):
+;   b1 80  Marcus  20px shelves — the buttress base, widest
+;   b2 64  Alex    16px shelves — exactly his 16px body
+;   b3 48  Stella   8px shelves — exactly her 8px body
+; Still tapering upward, so it still reads as a staircase that promises
+; the top and lies. Stella goes 6 -> 14 ways in, Alex 30 -> 22 (still
+; comfortable), Marcus 48 -> 56, and every proof holds: solvable,
+; unsolvable with wrap off, Alex still unable to finish alone.
+;
+; Chosen by searching the buildable widths rather than by eye — the
+; result is not monotonic (widening Stella's shelf to 16px makes the
+; floor UNSOLVABLE, and the shape-echo-perfect widths only work once
+; b1 widens to keep it distinct from b2), which is not something
+; guessing would have found.
 ; ===============================================================
 
 ; home CharY + x extent: the three buttress stairs, Stella b3 48-9,
 ; Alex b2 64-3, Marcus b1 80-6
 Floor3Home:
-        .byte 39, 68,  92       ; Stella: b3, the top stair
-        .byte 61, 64,  96       ; Alex:   b2, the middle stair
-        .byte 74, 56, 104       ; Marcus: b1, the bottom stair
+        .byte 39, 64,  96       ; Stella: b3, top stair, 8px shelves
+        .byte 61, 56, 104       ; Alex:   b2, mid stair, 16px shelves
+        .byte 74, 52, 108       ; Marcus: b1, bottom stair, 20px shelves
 
 ; Lamp bands (FloorBandByChar): 6 = b3 (Stella), 8 = b2 (Alex),
 ; 10 = b1 (Marcus) — the wall wears each stair's lamp as a painted
@@ -2411,11 +2436,11 @@ Floor3Home:
 Floor3Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte $00,$C0,$C0,$C0,$C0,$C0,$E0,$C0,$F0,$C0,$FC,$FF
+        .byte $00,$C0,$C0,$C0,$C0,$C0,$F0,$C0,$FC,$C0,$FE,$FF
         .byte  88,  8, 80, 64, 48,$FF     ; tops: ground,wall,b1,b2,b3
         .byte  96, 88, 88, 70, 54,$FF     ; bottoms
-        .byte   0, 72, 56, 64, 68,  0     ; lefts
-        .byte 160, 88,104, 96, 92,  0     ; rights (excl)
+        .byte   0, 72, 52, 56, 64,  0     ; lefts
+        .byte 160, 88,108,104, 96,  0     ; rights (excl)
         .byte 12, 79                      ; Stella: ground, far left
         .byte 140, 85                     ; Alex: ALONE past the wall
         .byte 28, 82                      ; Marcus: ground, left
