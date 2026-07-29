@@ -64,7 +64,14 @@ Story4:  ; THE WORLD / SHIFTED. / CHANGED.
         .byte $ec,$8a,$ca,$8a,$ec,$00,$00
         .byte $03,$05,$05,$05,$03,$00,$00,$00,$00,$00,$02,$00
         .byte $00,$00,$00,$00,$02,$00,$00
-StoryLo:     .byte <Story0,<Story1,<Story2,<Story3,<Story4
-StoryHi:     .byte >Story0,>Story1,>Story2,>Story3,>Story4
-StoryLen:    .byte 12,12,18,12,18
-StoryStride: .byte 13,13,19,13,19
+Story5:  ; ALONE
+        .byte $00,$00,$00,$00,$00,$00,$00
+        .byte $04,$0a,$0e,$0a,$0a,$00,$00
+        .byte $21,$51,$51,$51,$27,$00,$00
+        .byte $50,$70,$70,$70,$50,$00,$00
+        .byte $e0,$80,$c0,$80,$e0,$00,$00
+        .byte $00,$00,$00,$00,$00,$00,$00
+StoryLo:     .byte <Story0,<Story1,<Story2,<Story3,<Story4,<Story5
+StoryHi:     .byte >Story0,>Story1,>Story2,>Story3,>Story4,>Story5
+StoryLen:    .byte 12,12,18,12,18,6
+StoryStride: .byte 13,13,19,13,19,7

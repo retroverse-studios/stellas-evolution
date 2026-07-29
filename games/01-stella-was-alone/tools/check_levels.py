@@ -10,8 +10,9 @@ present holds theirs at once. So the proof per character is a
 reachable STANDING state on its own goal — including via a boost from
 the other character's head — and at least one character must manage
 it entirely alone (the booster finishes last; the boosted one simply
-stays put). The old exit-order locks are gone; record byte +73 is
-legacy data and is ignored.
+stays put). The old exit-order locks are gone — and as of the rc3 byte
+diet the lock byte is gone from the records too, so a record is 73
+bytes, not 74.
 
 Engine collision rules modelled exactly (v1.0-rc2):
 - solid boxes (top < bottom): block sideways movement (ClampBoxes,
@@ -45,7 +46,7 @@ Usage: python3 tools/check_levels.py build/stella-was-alone.bin build/main.sym s
 import re
 import sys
 
-RECORD = 74           # bytes per level record
+RECORD = 73           # bytes per level record
 NUM_BOXES = 6
 ROM_BASE = 0xF000
 
@@ -100,7 +101,6 @@ class Level:
             [(rec[65], rec[66]), (rec[67], rec[68])],   # primary
             [(rec[69], rec[70]), (rec[71], rec[72])],   # alternate
         ]
-        self.exit_order = rec[73]  # legacy (rc3: unused by the game)
         self.boxes = [i for i in range(NUM_BOXES) if self.tops[i] != 0xFF]
 
 

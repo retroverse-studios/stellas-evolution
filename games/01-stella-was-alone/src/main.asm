@@ -71,7 +71,7 @@ LOGO_H      = 56
 COL_PF      = $0E       ; platforms: white
 COL_LOGO    = $36       ; title logo: Stella red
 
-; Level record layout (69 bytes each):
+; Level record layout (73 bytes each):
 ;   +0  12 bytes PF0 per band     +36  6 bytes box top (du)
 ;   +12 12 bytes PF1 per band     +42  6 bytes box bottom (du)
 ;   +24 12 bytes PF2 per band     +48  6 bytes box left x
@@ -79,6 +79,10 @@ COL_LOGO    = $36       ; title logo: Stella red
 ;   +60 charCount, +61 SX, +62 SY, +63 AX, +64 AY,
 ;   +65 G0X, +66 G0Y, +67 G1X, +68 G1Y   (primary goal spots)
 ;   +69 G0X, +70 G0Y, +71 G1X, +72 G1Y   (alternate goal spots)
+; (rc3 byte diet: a 74th byte, the touch-and-exit era's exit-order
+; lock, was dead from the moment place-and-hold landed — decision #26
+; needs no order — and is deleted. 10 bytes back toward #28's
+; deferred ALONE subtitle.)
 ; One of the two goal layouts is picked at level load for variety;
 ; both must pass tools/check_levels.py. A box with top==bottom is
 ; one-way (land on top, pass sideways and from below). top=$FF is
@@ -300,6 +304,12 @@ TitleLogic:
         SUBROUTINE
         lda #0
         sta AUDV1
+        lda #5                  ; point the text kernel at this game's
+        jsr LoadStory           ; one word: ALONE, set small beneath the
+                                ; mark (decision #28). TPtr is free on
+                                ; the title — only the epilogue digits
+                                ; and the narration screens contend for
+                                ; it, and neither runs here.
         lda SWCHB               ; SELECT toggles the game variation
         and #2
         bne .selUp
@@ -747,8 +757,6 @@ LoadLevel:
         lda #60
 .setTime:
         sta TimerSec
-        ; (record byte +73, the old exit-order lock, is legacy data:
-        ; place-and-hold needs no order — decision #26)
 
         lda #0
         sta CharYLo
@@ -1628,9 +1636,16 @@ GameKernel:
         rts
 
 ; ---------------------------------------------------------------
-; TitleKernel: asymmetric 40-bit playfield spelling STELLA.
+; TitleKernel: asymmetric 40-bit playfield spelling STELLA, with the
+; game's one word set small beneath it (decision #28's title system).
 ; Line 1 rewrites all six PF bytes at fixed cycles; line 2 works
 ; out which logo row the next pair falls in (row 7 = blank).
+;
+; Five zones, 40+112+8+12+20 = 192 scanlines — the SAME proportions
+; Game 2's title uses, so the mark sits in the same place on screen in
+; both games. Only the backdrop differs, and that is the point: Game 1
+; is a black void (4K, existence), Game 2 a dusk gradient sky. The mark
+; never changes; the world behind it does.
 ; ---------------------------------------------------------------
 
 TitleKernel:
@@ -1639,7 +1654,7 @@ TitleKernel:
         sta PF0
         sta PF1
         sta PF2
-        ldx #46                 ; blank sky above the logo
+        ldx #40                 ; the void above the mark
         jsr BlankLines
         ldy #0                  ; seven logo rows, 8 du each
         lda #8
@@ -1694,9 +1709,37 @@ TitleKernel:
         sta PF0
         sta PF1
         sta PF2
-        ldx #34
+        ldx #8                  ; a beat between the mark and the word
         jsr BlankLines
-        rts
+        ; --- the game's word, small and white: 12 scanlines ---------
+        lda #COL_PF             ; white — the narration voice's colour,
+        sta COLUPF              ; because this is the narrator naming it
+        ldy #0                  ; rows 0-5 of story screen 5
+.sub:
+        ldx #2                  ; each row is a double-line, and an
+.subline:                       ; asymmetric playfield must be re-fed
+        sta WSYNC               ; on EVERY scanline or the right half
+        lda (TPtr),y            ; bleeds into the left on the next one.
+        sta PF0                 ; @8   The story kernel open-codes both
+        lda (TPtr+2),y          ; lines because it does per-line row
+        sta PF1                 ; @16  bookkeeping between them; this
+        lda (TPtr+4),y          ; one has none, so it loops instead —
+        sta PF2                 ; @24  the dex/bne land at ~52, well
+        lda (TPtr+6),y          ; clear of the next WSYNC.
+        sta PF0                 ; @32
+        lda (TPtr+8),y
+        sta PF1                 ; @40
+        nop
+        lda (TPtr+10),y
+        sta PF2                 ; @50
+        dex
+        bne .subline
+        iny
+        cpy #6
+        bne .sub
+        ldx #20                 ; row 5 of a one-row screen is the
+        jsr BlankLines          ; blank separator, so the playfield is
+        rts                     ; already clear — no clear needed here
 
 ; ---------------------------------------------------------------
 ; WinKernel: the epilogue. A void, the run time in the classic
@@ -1945,7 +1988,6 @@ Level1:
         .byte 76, 77                      ; Stella's goal: on the block
         .byte 80, $FF                     ; (no second goal)
         .byte 120,85, 80,85               ; alt: ground, far right
-        .byte 0                           ; no exit-order lock
 
 ; --- Level 2 "Exploration": climb wide ledges to the high perch.
 ;     Far above, out of any reach, hang structures she can only
@@ -1964,7 +2006,6 @@ Level2:
         .byte 0,  53                      ; goal on the left perch
         .byte 80, $FF
         .byte 152,53, 80,85               ; alt: the right perch
-        .byte 0                           ; no exit-order lock
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
 ;     pillar (8 du gap; Stella is 9 du tall). His goal sits on a
@@ -1983,7 +2024,6 @@ Level3:
         .byte 24, 85                      ; Stella's goal: her side
         .byte 146,77                      ; Alex's: the far corner step
         .byte 16, 85, 124,85              ; alt: near left / past pillar
-        .byte 0                           ; no exit-order lock
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -2001,7 +2041,6 @@ Level4:
         .byte 0,  53                      ; Stella: left perch
         .byte 130,85                      ; Alex: far right, under
         .byte 0,  53, 100,85              ; alt: Alex just past it
-        .byte 0                           ; no exit-order lock
 
 ; --- Level 5 "Ascent": Stella climbs the tower Alex slips
 ;     beneath — both routes through the same obstacle ------------
@@ -2019,10 +2058,11 @@ Level5:
         .byte 76, 53                      ; Stella: top of the tower
         .byte 130,85                      ; Alex: beyond it
         .byte 76, 53, 150,85              ; alt: Alex to the corner
-        .byte 0                           ; no exit-order lock
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
-;     to leap from Stella's head. (Do his goal before hers!) -----
+;     to leap from Stella's head. Under place-and-hold the order is
+;     not a rule, it just falls out: Stella has to still be standing
+;     there to be jumped from, so she settles onto her own goal last -
 Level6:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
@@ -2037,10 +2077,10 @@ Level6:
         .byte 20, 85                      ; Stella: ground, far left
         .byte 110,69                      ; Alex: the high right ledge
         .byte 140,85, 34,69               ; alt: mirrored
-        .byte 1                           ; Stella must exit last
 
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
-;     needs the extra height from Alex's back. (Her goal first!) -
+;     needs the extra height from Alex's back, so he is the one who
+;     goes home last ------------------------------------------------
 Level7:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
@@ -2057,11 +2097,10 @@ Level7:
                                           ; no more mid-air solo grab)
         .byte 20, 85                      ; Alex: ground, far left
         .byte 40, 61, 140,85              ; alt: mirrored (flush too)
-        .byte 2                           ; Alex must exit last
 
 ; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
 ;     crosses under the tower, then needs Stella (who crossed over
-;     it) as his step. Send him home first --------------------- --
+;     it) as his step, so she reaches her own goal after him -------
 Level8:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
@@ -2076,10 +2115,9 @@ Level8:
         .byte 76, 53                      ; Stella: top of the tower
         .byte 114,69                      ; Alex: the high right ledge
         .byte 76, 53, 34, 69              ; alt: the left ledge instead
-        .byte 1                           ; Stella must exit last
 
 ; --- Level 9 "Patience": Stella's perch needs Alex's back before
-;     he leaves for his own goal beyond the pillar ---------------
+;     he goes on to his own goal beyond the pillar ---------------
 Level9:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
@@ -2095,7 +2133,6 @@ Level9:
                                           ; (rc2: flush on the perch)
         .byte 124,85                      ; Alex: beyond the pillar, after
         .byte 40, 61, 144,85              ; alt: Alex further along
-        .byte 2                           ; Alex must exit last
 
 ; --- Level 10 "The Exit": over the tower and under it, and both
 ;     goals waiting side by side beyond ---------------------------
@@ -2114,7 +2151,6 @@ Level10:
         .byte 144,85                      ; (rc2.1: past the far ledge,
                                           ; which is a real wall now)
         .byte 144,85, 132,85              ; alt: swapped
-        .byte 0                           ; no exit-order lock
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py)

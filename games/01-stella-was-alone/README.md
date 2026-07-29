@@ -44,11 +44,21 @@ upside down for 10 more, ending at the ? screen with your total time;
 orientations, the clock tightening every level (45s − 2/level, floor
 12s), rooms survived as your score.
 
-- ROM: exactly 4096 bytes; all 10 levels + goal variants re-proven under
-  place-and-hold by `tools/check_levels.py`
+Also in rc3: the title screen gained this game's one word — **ALONE**,
+set small and white beneath the big rainbow STELLA mark (decision #28),
+in the same five-zone layout Game 2 uses, so the mark lands in the same
+place on screen in both games. Paid for by deleting the exit-order lock
+byte that had been dead in all ten level records since place-and-hold.
+
+- ROM: exactly 4096 bytes, **19 free — the 4K game is now full**; treat
+  it as closed to new features
+- All 10 levels + goal variants re-proven under place-and-hold by
+  `tools/check_levels.py`, which now re-runs on every `make` (it used to
+  live inside the ROM recipe and silently skip when the ROM was current)
 - Manual draft: [MANUAL.md](MANUAL.md) (YOUR GOAL section updated)
-- Remaining before v1.0: playtest the rc3 goal feel, then flash-cart
-  hardware validation (owed again after rc3)
+- Remaining before v1.0: eyeball the new title screen in Stella, playtest
+  the rc3 goal feel, then flash-cart hardware validation (owed again
+  after rc3)
 
 ## Earlier: v0.6 — content complete: Quest 2, run clock
 

@@ -55,7 +55,12 @@ SCREENS = [
     [" AND THEN", "THERE WERE", "   TWO."],                 # before L3
     ["TOGETHER,", "THOUGH..."],                             # before L6
     ["THE WORLD", " SHIFTED.", " CHANGED."],                # ending
-]
+    ["  ALONE"],                                            # 5: the title
+]                                                           #    subtitle
+# Screen 5 is not narration: it is this game's ONE WORD, set small
+# beneath the big STELLA mark on the title screen (decision #28). Every
+# game in the series does this with the same pipeline and the same
+# small font — Game 2 sets TOGETHER exactly this way.
 
 
 def row_columns(text):
