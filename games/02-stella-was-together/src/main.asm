@@ -1487,11 +1487,19 @@ PrepSprites:
         cpx Active              ; vacant: blink — fast for YOUR home
         beq .fast
         lda FrameCtr
-        and #$20                ; slow: the to-do list
+        and #$40                ; slow: the to-do list (0.47 Hz)
         jmp .test
 .fast:
         lda FrameCtr
-        and #$08                ; fast: "this one is yours"
+        and #$10                ; fast: "this one is yours" (1.88 Hz).
+                                ; Was $08 = 3.75 Hz, over the 3-per-
+                                ; second photosensitivity limit — and
+                                ; it is the lamp you are looking at,
+                                ; since it switches from steady to
+                                ; blinking the instant you step off
+                                ; your own home. Both rates halved, so
+                                ; the 4x fast/slow ratio survives and
+                                ; both sit under the limit.
 .test:
         bne .lit
         lda #$02                ; off-phase: near-black

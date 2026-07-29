@@ -1485,11 +1485,13 @@ PlayExtras:
         cpx Active              ; vacant: blink
         beq .fast
         lda FrameCtr
-        and #$20                ; slow: still to do
+        and #$40                ; slow: still to do (0.47 Hz)
         jmp .test
 .fast:
         lda FrameCtr
-        and #$08                ; fast: this one is yours
+        and #$10                ; fast: this one is yours (1.88 Hz —
+                                ; was 3.75, over the 3-per-second
+                                ; photosensitivity limit)
 .test:
         bne .steady
         lda #HIDE_Y             ; off-phase
