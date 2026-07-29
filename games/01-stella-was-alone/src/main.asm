@@ -68,8 +68,25 @@ STATE_STORY = 4         ; narration screen
 LOGO_TOP    = 24        ; title logo: du 24-79, 7 rows of 8 du
 LOGO_H      = 56
 
-COL_PF      = $0E       ; platforms: white
-COL_LOGO    = $36       ; title logo: Stella red
+; THE WORLD IS GREYSCALE; COLOUR MEANS AGENCY (decision #27). Hue 0 is
+; the neutral ramp and the world lives there, so every hue on screen
+; belongs to something with a will: Stella, Alex, and their goal
+; markers (the missiles take COLUP0/COLUP1, so the lamps inherit it).
+; Game 1's world was already a black void — this only costs it the
+; title rainbow, which is saved for Game 4 (decision #28).
+COL_PF      = $0A       ; platforms: the one luma no character owns.
+                        ; They were WHITE ($0E) — the same luma as
+                        ; active Alex ($CE), so he vanished into every
+                        ; platform he stood on the moment he was the
+                        ; one you controlled. Same bug the Game 2
+                        ; repaint found between tan ground and idle
+                        ; Alex; the luma budget catches both.
+COL_TEXT    = $0E       ; narration + the title's word: still WHITE.
+                        ; Decision #28 keeps the narrator's voice
+                        ; unchanged in all four games — it is the one
+                        ; thing that must not evolve.
+COL_LOGO    = $0A       ; title logo: neutral (the rainbow is spent in
+                        ; Game 4, when the world itself gains colour)
 
 ; Level record layout (73 bytes each):
 ;   +0  12 bytes PF0 per band     +36  6 bytes box top (du)
@@ -263,14 +280,14 @@ MainLoop:
         lda #1
         sta CTRLPF      ; mirrored playfield in-game
         lda #COL_PF
-        sta COLUPF      ; back to white (the title dyes it red)
+        sta COLUPF      ; back to platform grey (the title dyes it)
         jsr GameKernel
         jmp Overscan
 .storyK:
         lda #0
         sta CTRLPF      ; asymmetric playfield for text
-        lda #COL_PF
-        sta COLUPF
+        lda #COL_TEXT
+        sta COLUPF      ; the narrator's white, unchanged (#28)
         jsr StoryKernel
         jmp Overscan
 .titleK:
@@ -1726,7 +1743,7 @@ TitleKernel:
         ldx #8                  ; a beat between the mark and the word
         jsr BlankLines
         ; --- the game's word, small and white: 12 scanlines ---------
-        lda #COL_PF             ; white — the narration voice's colour,
+        lda #COL_TEXT           ; white — the narration voice's colour,
         sta COLUPF              ; because this is the narrator naming it
         ldy #0                  ; rows 0-5 of story screen 5
 .sub:
@@ -1980,8 +1997,14 @@ LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
             ds 1
 LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
             ds 1
-; per-row logo colors: the Atari rainbow
-LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
+; Per-row logo shading — the neutral ramp, brightest through the middle
+; rows, which is the rainbow's per-row banding transposed into the
+; channel every player can see. The Atari rainbow itself is NOT spent
+; here: under #27's colour-means-agency rule a rainbow mark is colour
+; used as decoration, the exact habit the rule breaks. It arrives in
+; Game 4, when the world gains colour — the mark changes exactly once,
+; at the end (decision #28).
+LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 
 ; ---------------------------------------------------------------
 ; Levels. Bands are 16 scanlines; the playfield is mirrored.

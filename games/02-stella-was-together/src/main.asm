@@ -1734,16 +1734,27 @@ GameKernel:
         beq .prefetch           ; the line before: indexed loads
         bne .line2
 .swap:
-        lda KPF0
-        sta PF0                 ; @14 — before every display window
-        lda KPF1
-        sta PF1                 ; @20
-        lda KPF2
-        sta PF2                 ; @26
+        ; ORDER MATTERS: hblank is 68 colour clocks = 22.6 CPU cycles,
+        ; so only stores completing by cycle 22 land before the beam
+        ; reaches visible pixel 0. Everything after that is chasing the
+        ; beam. Each register's deadline is when it FIRST displays:
+        ; COLUBK and PF0 from px 0, PF1 from px 16, PF2 from px 32.
+        ; COLUBK used to sit fifth, completing at cycle 32 = px 28, so
+        ; the leftmost 28 of 160 px kept the previous band's sky for one
+        ; scanline — a visible jog at every band boundary, all at the
+        ; same x, which the eye joins into a vertical seam down the
+        ; screen. Harmless-looking on the old violet gradient; obvious
+        ; on a neutral ramp. It goes first now.
         lda KSky
-        sta COLUBK              ; @32 (first ~28 sky px keep the old
-        lda KCol                ; shade for one line: 2-luma step,
-        sta COLUPF              ; invisible) @38 — lamps start px 48
+        sta COLUBK              ; @14 — inside hblank, px 0 is correct
+        lda KPF0
+        sta PF0                 ; @20 — inside hblank (displays px 0)
+        lda KPF1
+        sta PF1                 ; @26 -> px 10, displays from px 16
+        lda KPF2
+        sta PF2                 ; @32 -> px 28, displays from px 32
+        lda KCol
+        sta COLUPF              ; @38 -> px 46; lamps start px 48
         lda #8
         sta BandLine
         bne .line2
