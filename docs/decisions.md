@@ -436,6 +436,25 @@ Marcus). How are three drawn on two sprites?
 - The gameplay-mechanics addendum embraces flicker-as-multiplexing rather than hiding it — level design rewards vertical separation
 - Flicker foreshadows Game 3's Flicker character (the artifact made canonical)
 
+**AMENDMENT (2026-07-29) — pair whoever SEPARATES, not whoever is inactive.**
+P1 can carry two characters solid, because it hops mid-frame. So the question was never
+"which two are inactive" but "which two separate": pair those on P1 and give the odd one
+out P0 to itself, and nothing flickers. Only when NO pair separates — all three at one
+height, which on a flat floor is every pair — is flicker forced, and then P0 goes to the
+active character exactly as this decision always said. Pairs are tried preferring the one
+NOT containing the active character, so the character you control keeps P0 to itself
+whenever possible (a hop tenant is solid and would not flicker either, but it can clip a
+du at the hop, and the one you are steering should never wear that). No kernel change —
+the hop machinery, the cycle-counted repo lines and the boundary guards are untouched;
+only the choice of who sits in which slot, made in vblank.
+
+The other half is level design, which this decision already anticipated ("level design
+rewards vertical separation") but which Floor 1 was violating: three characters standing
+on one floor have their feet at the same du, so every pair overlapped and the worst case
+was permanent, on the first floor of the game. Marcus now wakes PERCHED on the totem's
+first step. Together the two changes took Floor 1 from flicker in all three states to
+flicker in none.
+
 **Status:** DECIDED (2026-07-15) — **Option B.** Stella owns P0; Alex and Marcus time-share
 P1. When their scanlines don't overlap, the kernel repositions P1 mid-frame (an inline
 RESP1/HMOVE hop) and all three draw solid at 60 Hz; when they overlap, P1 alternates them
@@ -829,6 +848,77 @@ control never flickers — and what, mechanically, is Flicker's gift?
   way open **is** staying phased inside a wall, forever. The mechanic and the death
   resolve into a single image the player will have spent a whole game learning to
   read. Nothing has to be written to explain it.
+
+**AMENDMENT (2026-07-29) — carry is FLICKER'S, not the world's; stacks fuse.**
+
+The original entry said carry physics, unqualified. That was wrong, and the author
+caught it: *"if not in Game 1, or Game 2, then why in Game 3?"*
+
+The distinction that matters is **adding an ability versus contradicting a learned
+rule.** Every previous addition was additive — Alex slips under, Marcus fits, wrap and
+portals arrive — and nothing the player already knew became false. General carry is not
+like that. Since Game 1 level 6 the player has learned *stand on a friend, and if the
+friend walks away, you fall*. Turning that into "you ride along" in Game 3 does not add
+knowledge, it **invalidates** knowledge, silently, with no channel to announce it. The
+series teaches wordlessly, so a silent reversal is not a teaching problem to solve — it
+is a design error to remove.
+
+So:
+
+- **Only Flicker carries.** Standing on Stella, Alex or Marcus behaves exactly as it
+  always has: the platform walks out from under you and you drop. Standing on **Flicker**
+  carries you, because Flicker is half-present — you sink into it rather than resting on
+  it. Nothing the player knows is contradicted. Carry stops being a physics change and
+  becomes a property of a new character, structurally identical to Alex's flatness and
+  Marcus's fit. It also tightens Flicker's gift into ONE idea instead of two that happen
+  to arrive together: **ride me, and while you ride me, we both phase.**
+
+- **A stack containing Flicker fuses into one body** (author, 2026-07-29). Not carry
+  propagating upward — *fusion*. If Flicker is anywhere in the stack, every character in
+  it moves as a single object and phases as a single object, and any member can drive.
+  This is a mechanic, not a physics simulation, and it is the right one: the series is
+  about connection, and here connection literally makes them one thing. It also makes the
+  STACK'S SILHOUETTE the puzzle piece — Stella tall, Alex wide, Marcus square, Flicker
+  small — so *who* is in the stack and *in what order* decides what gap the fused body
+  fits through. That is a large, cheap puzzle space opening exactly where Games 3 and 4
+  need one, and it is the reason the cast caps at four (#30): a four-stack is the maximum
+  expression, and there is nothing after it.
+
+- **The blink is the teaching signal, and it is free.** When someone stands on Flicker,
+  BOTH blink; in a fused stack, ALL of them blink. Unmissable, instantaneous, wordless,
+  and temporal rather than chromatic so it survives any colour vision (#27). The gift:
+  four characters on two players *must* be multiplexed anyway, and a stack is vertically
+  contiguous — the arrangement the hop machinery draws best. So the fiction (they are
+  half-there, together) and the hardware fact (four bodies, two players) are the same
+  thing. The signal costs nothing because the hardware was going to do it regardless.
+  This is the series' standing move — a limitation wearing the mask of emergence.
+
+- **How it is discovered.** The input is already owned: standing on a friend has been in
+  the player's hands since Game 1. Nothing new is being taught except that THIS friend
+  answers it differently — the #21 pattern exactly, same input, new outcome, found by
+  trying. The teaching floor: a barrier no one can cross; Flicker walks through it (the
+  player learns phasing at once); Flicker cannot finish alone, so someone must reach the
+  far side; each other character fails against the barrier, one failure each; and then
+  the player stands someone on Flicker — a move they already have — and walks it
+  through. Keep that floor SMALL: two characters, one barrier, nothing else, so the state
+  space is minutes rather than luck.
+
+- **Narration never explains mechanics — series-wide, and load-bearing here.** Game 3 has
+  16K and could afford to tell the player. It must not. Narration carries story; mechanics
+  are taught by failure (#21, and Game 1 throughout). Written down explicitly because the
+  temptation arrives precisely when there is ROM to spare. The same rule kills speech as a
+  teaching channel: **AtariVox** is a third-party accessory most players will not own, so
+  it may add flavour or optional save state, never information the game needs — the same
+  reasoning that made narration hybrid in #2. No single channel may be load-bearing.
+
+**To prototype before committing** (the usual gate, #25): stack detection each frame; the
+fused body's collision profile; and the rule for what happens when the fusion ends inside
+solid matter. That last one is not a loose end — it is the ending. If a fused stack must
+clear the wall before it un-phases, then Flicker choosing to stay behind, holding the way
+open, is #11's sacrifice expressed in the mechanic the player has used all game. The
+solver must learn all of it, and that is likely a larger job than the ROM change.
+
+---
 
 ---
 
