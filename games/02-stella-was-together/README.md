@@ -56,8 +56,16 @@ world-swap re-attaches in Act 3.
 
 - [x] Engine: 3-character physics, sprite multiplexer, **active→P0** colour
       (the controlled character never flickers), always-on wrap, per-colour goals
-- [x] Title screen (decision #28): the big rainbow STELLA mark on the dusk
-      gradient sky, TOGETHER set small beneath (no menu — decision #22)
+- [x] Title screen (decision #28): the big STELLA mark lit in the neutral
+      ramp, on the grey dusk gradient, TOGETHER set small beneath (no menu —
+      decision #22). The Atari rainbow is saved for Game 4, when the world
+      itself gains colour
+- [x] **Greyscale world, colour = agency** (decision #27): the sky and
+      platforms live on the neutral ramp, so every hue on screen belongs to
+      something with a will — the characters and their home lamps. Sky ramps
+      luma 0→8 (Game 1's void, grown a horizon); platforms sit at luma A, the
+      one level no character uses, so nobody blends with the ground they
+      stand on
 - [x] State machine + in-order floor flow + between-floor narration (Game 1 text kernel)
 - [x] **Marcus wake-up opening** (STATE_WAKE: the world assembles around
       Game 1's blue epilogue square; fire skips)

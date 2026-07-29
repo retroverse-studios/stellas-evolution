@@ -96,9 +96,24 @@ NUM_FLOORS  = 3         ; Act 1 complete: Together Again / The Low
 WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
 WAKE_EYES   = 70        ; phase 2: eyes open before Stella arrives
 
-FLOOR1_SKY  = $62       ; Act 1 dusk violet (blue stays Marcus's alone)
-TITLE_SKY   = $62       ; the title shares Act 1's dusk-violet sky
-PFA_COLOR   = $2C       ; warm tan platforms (initial COLUPF)
+; THE WORLD IS GREYSCALE; COLOUR MEANS AGENCY (decision #27).
+; Hue 0 is the neutral ramp, so every hue on screen belongs to
+; something with a will: the three characters, and their home lamps
+; (a home is a character's intent). The world itself is inert and grey.
+; Two channels, two jobs, and neither asks the player to tell red from
+; green: colour answers "is this an actor?", the luma ladder answers
+; "which actor?".
+;
+; Luma budget. The characters occupy six of the TIA's eight levels
+; (Marcus 2/4, Stella 6/8, Alex C/E), which leaves 0 and A for the
+; world. So the world takes exactly those: the sky ramps 0 -> 8 (a
+; black zenith, Game 1's void, lifting to a grey horizon — the void did
+; not get replaced, it grew a horizon), and the platforms sit at A, the
+; one level no character ever uses. Every character therefore differs
+; in brightness from the ground it stands on, whoever it is.
+FLOOR1_SKY  = $00       ; Act 1 sky base; +GradOfs -> luma 0..8
+TITLE_SKY   = $00       ; the title shares Act 1's sky
+PFA_COLOR   = $0A       ; platforms: the one luma no character owns
 COL_TEXT    = $0E       ; narration text: white
 
 SCREEN_DU   = 96
@@ -564,10 +579,10 @@ WakeLogic:
         lda #0
         sta WakeT
         lda #PFA_COLOR          ; the sky stands: platforms appear
-        sta PFColor             ; (plain tan — the home lamps only
-        lda #<TanPF             ; begin once the player has control)
+        sta PFColor             ; (plain grey — the home lamps only
+        lda #<GreyPF            ; begin once the player has control)
         sta PFColPtr
-        lda #>TanPF
+        lda #>GreyPF
         sta PFColPtr+1
         bne .draw
 .p2:
@@ -1445,7 +1460,7 @@ PrepSprites:
         cmp #STATE_DONE
         bne .noLamps
 .lamps:
-        ldy #11                 ; base coat: platform tan
+        ldy #11                 ; base coat: platform grey
         lda #PFA_COLOR
 .tan:
         sta PFColRam,y
@@ -2135,8 +2150,16 @@ LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
             ds 1
 LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
             ds 1
-; per-row logo colours: the Atari rainbow
-LogoColr:   .byte $46,$36,$26,$16,$C6,$86,$66
+; Per-row logo shading. The Atari rainbow is NOT spent here: under the
+; colour-means-agency rule a rainbow mark is colour used as decoration,
+; the exact habit the rule breaks. So the mark is lit in the neutral
+; ramp for Games 1-3 and BLOOMS into the full rainbow in Game 4, when
+; the world itself gains colour. #28 said the mark never changes; it is
+; stronger for changing exactly once, at the end — a thing that never
+; changes is a rule, a thing that changes once is an event.
+; The rainbow's per-row banding survives, transposed into the channel
+; every player can see: a highlight brightest through the middle rows.
+LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 
 ; ===============================================================
 ; FLOOR TABLE — the game walks this in order (FloorSeq).
@@ -2165,9 +2188,9 @@ FloorBandByChar:
         .byte 7, 8, 10          ; Marcus: F1 top totem / F2 heart / F3 b1
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
-; plain-tan bands for the reveal (lamps start with player control)
+; plain-grey bands for the reveal (lamps start with player control)
 BlackPF:      .byte 0,0,0,0,0,0,0,0,0,0,0,0
-TanPF:        .byte $2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C,$2C
+GreyPF:       .byte $0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A
 
 ; ===============================================================
 ; ACT 1, FLOOR 1 — "Together Again"

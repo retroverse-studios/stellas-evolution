@@ -648,8 +648,40 @@ is the series' colour-accessibility standard?
 - Game 1's locked-goal blink already established "blinking marker = not ready";
   the lamps generalize that language instead of inventing a new one.
 
-**Status:** DECIDED (2026-07-20; palette corrected and unified 2026-07-29) — three
-layers, applied to both shipped games:
+**Status:** DECIDED (2026-07-20; palette corrected and unified 2026-07-29; the
+world/actor split added 2026-07-29) — a governing rule, then three layers:
+
+- **COLOUR MEANS AGENCY; the world is greyscale.** (2026-07-29, author's proposal.)
+  Hue 0 is the neutral ramp, and the world lives there — sky, platforms, the mark.
+  Every hue on screen therefore belongs to something with a will: the characters,
+  and their home lamps (a home is a character's *intent*, which is why the lamps
+  were already in character colours). This splits two jobs onto two channels, and
+  **neither one asks the player to tell red from green** — the failure mode this
+  whole decision exists for:
+  - *Colour* answers **"is this an actor?"** — anything not grey. Red/green colour
+    vision still separates coloured from neutral even when it cannot name the hue.
+  - *Luma order* answers **"which actor?"** (below).
+
+  **Luma budget.** The characters own six of the TIA's eight levels (2/4, 6/8,
+  C/E), leaving 0 and A for the world, so the world takes exactly those: sky ramps
+  0 → 8, platforms sit at A. Every character then differs in brightness from the
+  ground it stands on, whoever it is. Verified in Game 2; the repaint also caught
+  a live collision, tan platforms at luma C against Alex's idle luma C.
+  Residual, and accepted: a *gradient* sky must cross someone, so Marcus fades in
+  the mid sky and Stella in the low sky. Those are reduced contrast, not
+  invisibility — hue still separates, because the sky is neutral and they are not.
+  Any new sky palette must be checked band-by-band against the character lumas.
+
+  **The arc.** This is #23's awareness thread made global rather than a fifth
+  progression axis. G1-G2 the world is inert and grey; **G3** the corruption gets
+  colour — something else is alive, and it is wrong, announcing itself by breaking
+  the world's own rule; **G4** the world itself gains colour, because it wakes up.
+  The game named *Stella Was Aware* is where the world becomes aware.
+
+  Consequence for per-act sky palettes (Game 2 README, "altitude as the progress
+  bar"): the sky **brightens as you climb**. Altitude on the luma channel is both
+  more literal than a hue shift and the only version of it the author can see.
+
 - **Luma order:** in any state, Alex is the brightest character on screen, Stella
   mid, Marcus darkest. **One palette, identical bytes in both games** — a
   character keeps its colour across the boxed set (2026-07-29; author's call:
@@ -715,11 +747,21 @@ visual element ties all four games together as their presentation grows?
   that should NOT grow: the world gains fidelity, the narrator does not age.
 
 **Status:** DECIDED (2026-07-20) —
-- **The mark:** every title = the big STELLA logo in the Atari rainbow, with
-  the game's one word set small beneath. The BACKDROP evolves with the ROM:
-  G1 a black void (4K, existence), G2 the dusk gradient sky (implemented:
-  logo ported from G1, TOGETHER in small white beneath), G3 may add breadth/
-  motion, G4 whatever the ARM earns. The mark itself never changes.
+- **The mark:** every title = the big STELLA logo, with the game's one word set
+  small beneath. The BACKDROP evolves with the ROM: G1 a black void (4K,
+  existence), G2 a grey dusk gradient (implemented: logo ported from G1,
+  TOGETHER in small white beneath), G3 may add breadth/motion, G4 whatever the
+  ARM earns.
+- **The mark's colour — revised 2026-07-29.** It was the Atari rainbow. Under
+  #27's colour-means-agency rule a rainbow mark is colour used as decoration,
+  which is the exact habit the rule breaks — and spending the rainbow on Game 1
+  wastes it. So the mark is lit in the neutral ramp (`$08,$0A,$0C,$0E,$0C,$0A,
+  $08` — the rainbow's per-row banding transposed into the channel every player
+  can see) for **Games 1-3**, and **BLOOMS into the full Atari rainbow in Game
+  4**, when the world itself gains colour. This supersedes "the mark itself never
+  changes": it is stronger for changing exactly once, at the end. A thing that
+  never changes is a rule; a thing that changes once is an event — and this one
+  lands on the game about becoming aware.
 - **The constant thread:** narration/act screens stay small white-on-black
   text in ALL four games — the series' connective tissue.
 - **Menus:** #22 unchanged. G1's switch-driven title is the homage and stays.
