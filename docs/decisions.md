@@ -736,3 +736,81 @@ visual element ties all four games together as their presentation grows?
   to new features; anything further needs its own diet first. This is a fine
   place for it to end up — #22's whole argument is that G1's presentation is
   supposed to be the constrained one.
+
+## 29. The Fourth Character — Flicker's Blink as Sprite Budget, and Phase-by-Contact
+
+**Question:** Flicker (circle, joins mid-way through "Stella's Journey") is defined
+by being visible only every other frame. How is a FOURTH character drawn on the
+TIA's two players without wrecking decision #19's guarantee that the character you
+control never flickers — and what, mechanically, is Flicker's gift?
+
+**Considerations:**
+- #19's arrangement (P0 = the active character, solid; P1 time-shares the two
+  inactive ones) does not extend to four: P1 would carry three tenants at 20 Hz,
+  well below fusion, and read as strobing rather than as flicker.
+- The series' signature move is to let a hardware limitation wear the mask of
+  emergence — Space Invaders' lockstep march, the eyes as awakening (#23). Flicker
+  is the purest available case: the 2600's real multiplexing artifact, made a
+  person. Drawing its blink as a deliberate *effect* would waste that.
+- The brief gives Flicker passage through *"unstable" barriers* specifically, not
+  through all matter — level-design control for free, and it dovetails with Game
+  3's corruption zones, which are already the series' first antagonist force.
+- Standing on a friend already means *lift me* (Game 1 levels 6-7, Game 2 Floor 1).
+  The series escalates by giving an old verb a new meaning, not by adding verbs.
+
+**Status:** DECIDED (2026-07-29, to be validated when Game 3 prototypes) —
+
+- **The register arrangement — Flicker's fragility PAYS FOR the fourth sprite.**
+  - *Flicker inactive:* P0 = the active character, solid (#19 holds unchanged).
+    P1 three-way shares the rest, so Flicker — last in the rotation — is simply
+    the blinkiest thing on screen. Its nature is arithmetic, not a drawn effect.
+  - *Flicker active:* P0 = Flicker, drawn every other frame BECAUSE THAT IS WHAT
+    IT IS. The alternate frames fall free, and go to an inactive character.
+  This is an explicit, documented **exception** to #19 rather than a violation:
+  the rule exists so the player can track what they control, and being hard to
+  hold onto is precisely what controlling Flicker should feel like. It is also
+  opt-in — you chose to pick Flicker up.
+
+- **The mechanic — phase by contact.** Flicker passes through unstable barriers.
+  A character STANDING ON Flicker phases too: both blink, both pass. The lift
+  becomes a loan of identity, which is the whole series' thesis performed in one
+  input the player already knows.
+  - This needs **carry physics** (the rider moves with the base), which the engine
+    has never had — stacking is currently one-way, the stander merely treats a
+    head as a surface. Game 3's 16K and Game 4's ARM have the room; the solver
+    must learn it too. Accepted as real work, not a footnote.
+  - Contact IS the limit. No phased state persists after stepping off, so the
+    power cannot leak into puzzles it was not invited to.
+
+- **Why this mechanic and not another:** #11 has Flicker sacrifice itself *to hold
+  the way open*. If Flicker's gift is phasing through solid matter, then holding a
+  way open **is** staying phased inside a wall, forever. The mechanic and the death
+  resolve into a single image the player will have spent a whole game learning to
+  read. Nothing has to be written to explain it.
+
+---
+
+## 30. The Playable Cast Caps at Four
+
+**Question:** #3 sets the progression at 2-3-4-5+ and describes Game 4 as "5+
+characters including original echo characters." Does a fifth PLAYABLE character
+ever arrive, or does the cast stop at four?
+
+**Considerations:**
+- Two independent limits converge on four. The TIA has two players, and four
+  bodies on two players is already the crunch that makes Flicker's blink
+  load-bearing (#29) — a fifth has nothing left to ride on. And Down+Fire cycling
+  is comfortable at four and tedious past it (#22 puts a real navigable menu in
+  Game 3, which is where character select may want a better affordance anyway).
+- The echoes are explicitly observe-but-never-touch (#6; brief §181) — scenery
+  with presence, not a roster. So the cast already stopped at four; #3 simply does
+  not say so, and its "5+" reads like a fifth playable character is planned.
+- Game 4 runs on an ARM coprocessor, so hardware would NOT cap it there. The cap
+  therefore has to be a design commitment, or it will quietly erode.
+
+**Status:** DECIDED (2026-07-29) — **four playable characters, series-wide.**
+Stella, Alex, Marcus, Flicker; nobody else is ever picked up. This **amends #3**:
+its "5+" counts echoes, which are not playable. Game 4 grows in *awareness*, not
+headcount — which keeps every game's growth axis distinct and legible: spatial
+scale (#18), UI sophistication (#22), the eye motif (#23), and cast (#3, closed
+here at four).

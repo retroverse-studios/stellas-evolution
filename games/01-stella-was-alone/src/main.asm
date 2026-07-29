@@ -1429,6 +1429,20 @@ PlayExtras:
         lda TimerSec
         cmp #16
         bcs .noTimer
+        lda FrameCtr            ; PULSE the red, don't hold it: 16
+        and #$10                ; frames on, 16 off (~1.9 Hz, under the
+        bne .noTimer            ; 3-per-second photosensitivity limit;
+                                ; bit 3 would be 7.5 Hz and unsafe).
+                                ; A held tint parks the background on
+                                ; Stella's exact luma twice during the
+                                ; sweep — she is hue $3, the tint hue
+                                ; $4, one step apart and therefore the
+                                ; same thing to red/green colour vision
+                                ; — and she vanishes for about a second
+                                ; each time, in the mode least able to
+                                ; afford it. A pulse cannot do that,
+                                ; and flashing reads as MORE urgent
+                                ; than a wash, not less.
         lda #16
         sec
         sbc TimerSec
