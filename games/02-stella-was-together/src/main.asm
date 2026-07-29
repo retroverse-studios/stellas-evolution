@@ -465,8 +465,12 @@ Overscan:
         sta PF2         ; beam is already on for the kernel-setup
                         ; cycles before the first WSYNC, so it printed
                         ; across the top of the screen
-        lda #29         ; 5 ticks lent to vblank (see above); still
-        sta TIM64T      ; ~24 idle lines here, which is ample
+        lda #28         ; 5 ticks lent to vblank (see above), then one
+        sta TIM64T      ; more off to land back on 262: `bit TIMINT`
+                        ; exits at the UNDERFLOW, where `lda INTIM`
+                        ; exited up to 64 cycles earlier (INTIM reads 0
+                        ; for the last tick before it underflows), so
+                        ; the robust wait cost the frame a line.
 .waitOS:
         bit TIMINT
         bpl .waitOS
@@ -2219,8 +2223,8 @@ MulThree:     .byte 0, 3, 6
 ; The lamp band for each character on each floor (char*3 + floor);
 ; PrepSprites paints these bands as the colour-blind-safe home lamps.
 FloorBandByChar:
-        .byte 9, 7, 6           ; Stella: F1 low totem / F2 slab / F3 b3
-        .byte 8, 9, 8           ; Alex:   F1 mid totem / F2 sill / F3 b2
+        .byte 8, 7, 6           ; Stella: F1 mid totem / F2 slab / F3 b3
+        .byte 9, 9, 8           ; Alex:   F1 low totem / F2 sill / F3 b2
         .byte 7, 8, 10          ; Marcus: F1 top totem / F2 heart / F3 b1
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
@@ -2240,13 +2244,38 @@ GreyPF:       .byte $0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A
 ; 68, blue = Marcus top ledge 58 — the new arrival crowns the totem).
 ; Completes only when ALL THREE stand on their own-colour ledge.
 ;
-; The cooperative beat (one gentle beat): Alex's weak jump (~10 du)
-; cannot reach the first ledge (top 76, a 12 du rise) from the ground,
-; while Marcus (16) and Stella (21) can. So a friend stands on the
-; centre ground as a stepstool; Alex hops onto their head and onto the
-; ledge, then hops 76 -> 68 to his green home; Marcus climbs on to
-; 58. tools/check_levels.py proves Alex needs the boost while Stella
-; and Marcus finish alone — a genuine, load-bearing "not alone" beat.
+; The cooperative beat, and WHO OWNS WHICH LEDGE. The homes are assigned
+; by what each character's own jump naturally CATCHES, because on a
+; totem the ledges shadow one another: falling, you land on the first
+; surface your feet cross, so a strong jump sails past its own ledge and
+; lands on the one above.
+;
+; Originally Stella owned the low ledge (76) and Alex the mid (68), and
+; the obvious move — stand under the totem, press fire — put EVERY
+; character on the wrong ledge. Stella rises 20.6 du from the ground, so
+; her feet peak at 67 and she catches 68 (Alex's) on the way down, every
+; time; her own ledge sat 8 du below in the shadow of a WIDER one, so no
+; jump could ever reach it from above. It was reachable — the solver
+; proved it, from 15 positions — but only by arcing in from the side so
+; you slip past 68 outside its x range and drop onto 76. A pixel-perfect
+; move, on the first floor of the game, teaching nothing. Playtest found
+; it "really hard" and playtest was right.
+;
+; So Stella and Alex swapped homes, and the shape echo (#27) followed
+; Alex down — the double-wide ledge is wherever Alex lives. Now:
+;   Stella (rise 20.6, peaks at 67): one jump from the ground lands her
+;     on the MID ledge 68. Her home, first try, no instruction.
+;   Marcus (rise 15.4): peaks at 72, catches the LOW ledge 76; from
+;     there 68; from there his own TOP ledge 58. A three-hop solo climb
+;     where every hop lands on the next rung, because his weaker jump
+;     cannot overshoot one.
+;   Alex (rise 9.1): peaks at 78.9 and catches NOTHING from the ground —
+;     the low ledge is 12 du up. A friend stands on the ground as a
+;     stepstool, he hops from their head, and lands exactly on the LOW
+;     ledge 76, his home. One boost, and the only boost on the floor.
+;
+; tools/check_levels.py proves Alex needs that boost while Stella and
+; Marcus finish alone — a genuine, load-bearing "not alone" beat.
 ; ===============================================================
 
 ; Each character's home, three bytes: the CharY it stands at (ledge top
@@ -2259,9 +2288,9 @@ GreyPF:       .byte $0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A,$0A
 ; is the top, two 76->68->58 hops of 8 and 10 du; Alex's green home
 ; is the middle.)
 Floor1Home:
-        .byte 67, 76,  84       ; Stella: low ledge, the narrow column
-        .byte 65, 72,  88       ; Alex:   mid ledge, double-wide (echo)
-        .byte 52, 76,  84       ; Marcus: top ledge, crowning the totem
+        .byte 59, 76,  84       ; Stella: MID ledge 68, narrow column
+        .byte 73, 72,  88       ; Alex:   LOW ledge 76, double-wide (echo)
+        .byte 52, 76,  84       ; Marcus: TOP ledge 58, crowning the totem
 
 ; The Floor-1 level record (66-byte layout). Open frame (wrap), a
 ; full-width floor, and three centred one-way home ledges. SHAPE
@@ -2274,11 +2303,11 @@ Floor1Home:
 Floor1Rec:
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$80,$C0,$80,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$80,$80,$C0,$00,$FF
         .byte  88, 76, 68, 58, $FF,$FF    ; box tops  (ledges one-way:
         .byte  96, 76, 68, 58, $FF,$FF    ; box bottoms   top == bottom)
-        .byte   0, 76, 72, 76,   0,   0   ; box lefts
-        .byte 160, 84, 88, 84,   0,   0   ; box rights (excl)
+        .byte   0, 72, 76, 76,   0,   0   ; box lefts
+        .byte 160, 88, 84, 84,   0,   0   ; box rights (excl)
         .byte 20, 79                      ; Stella: ground, left
         .byte 40, 85                      ; Alex: ground, mid-left
         .byte 76, 70                      ; Marcus: PERCHED on the low
