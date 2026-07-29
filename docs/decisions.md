@@ -249,7 +249,13 @@ spare banks free up for characters, levels, and animation.
 
 **Recommendation:** 10 levels + the five short in-ROM text screens (both fit), with the expanded prose version of the story in the manual for the physical release. Levels win any remaining space fight.
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-29, recorded retroactively — shipped since v0.4) — the
+recommendation, in full and unchanged. `NUM_LEVELS = 10`, and the creative brief's five
+moments are the entire in-ROM script (`tools/gentext.py` SCREENS): "STELLA WAS ALONE." /
+"THERE HAD TO BE MORE" / "AND THEN THERE WERE TWO." / "TOGETHER, THOUGH..." before levels
+1, 2, 3 and 6, and "THE WORLD SHIFTED. CHANGED." at the ending. `LvlStory` maps levels to
+screens; `$FF` means "no narration, straight into play". Both fit with ~110 bytes to
+spare. The expanded prose lives in `MANUAL.md` for the physical release, per #2's hybrid.
 
 ---
 
@@ -281,7 +287,22 @@ spare banks free up for characters, levels, and animation.
 
 **Recommendation:** Build `tools/check-levels.py`, run it from `make` so an unsolvable level breaks the build. Author levels by hand; use the solver as the safety net (and later, optionally, as the filter for generated candidates worth hand-curating).
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-29, recorded retroactively — shipped since v0.4) — the
+recommendation, and it has more than paid for itself. `tools/check_levels.py` exists in
+**both** games, re-implements the ROM's exact physics tables, and runs from `make` as its
+own always-run target (not a step inside the ROM recipe — that shape silently skipped the
+proof whenever the ROM happened to be up to date; fixed in both Makefiles 2026-07-29).
+Levels are authored by hand; the solver is the net. Real bugs it caught, none of which a
+human had noticed:
+- Alex could not jump onto Stella's head (she is 9 du tall, his jump rose 8.2) — G1 v0.4.
+- A solo-cheat on G1 levels 7 and 9: perch goals were tappable mid-air, so the boost
+  levels could be beaten without the boost (#17, RC2).
+- Marcus's Floor 1 regression when his jump grew to 16 du for Floor 2's sill: his overshoot
+  landed exactly on the old 60 ledge and his own home became unreachable (G2, Act 1).
+It has since grown negative proofs too — G2 Floor 3 is asserted UNSOLVABLE with wrap off,
+so a floor's *teaching* is proven load-bearing, not just its solution proven to exist.
+Generated levels remain unbuilt and unneeded; the generate/validate/curate pipeline stays
+available if a "bonus room" mode is ever wanted (#13).
 
 ---
 
@@ -301,7 +322,17 @@ spare banks free up for characters, levels, and animation.
 
 **Recommendation:** A + C: closing narration line, and a small blue square quietly present on the win screen (upgrade to an in-level cameo if kernel budget allows).
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-29, recorded retroactively — shipped since v0.4) — **A + C, and
+it turned out to be load-bearing.** The closing screen carries "THE WORLD SHIFTED.
+CHANGED." (screen 4), and `EnterWin` puts a small blue square below the run time — missile
+1, 8px, breathing on a slow four-shade cycle (`SqCol`), unexplained and unnamed. The
+in-level cameo was not needed and would have cost kernel budget for less mystery.
+
+Not merely a teaser in hindsight: that square **is** Marcus, and Game 2's opening
+(`STATE_WAKE`) is a deliberate recreation of this exact screen — black void, the small blue
+square, alone — which the new world then assembles itself around, his eyes appearing as the
+moment he wakes (see #21 and #23). The two games are joined at this image. Neither the
+epilogue square nor the wake-up opening may be changed without the other.
 
 ---
 
@@ -316,7 +347,18 @@ spare banks free up for characters, levels, and animation.
 
 **Recommendation:** Implement the addendum's drone: low hum that rises in pitch each level — "the world waking up." Defer anything melodic to the 8K game.
 
-**Status:** OPEN
+**Status:** DECIDED (2026-07-29, recorded retroactively — shipped since v0.6) — the drone,
+and it grew slightly past the recommendation because the bytes were there. `PlayExtras`
+runs channel 1 (AUDC1 = 1) as a **four-note rising figure** (`ArpOff` = 8,5,3,0) over a base
+pitch of `23 - 2*Level` — so the figure transposes up every level, and the world audibly
+wakes across the run rather than only humming higher. Under time pressure (`TimerSec` < 16)
+the figure doubles its tempo, which is the timed mode's tension carried in sound rather than
+in a score display, matching #13's ambient-feedback principle. Effects stay on channel 0
+(jump / land / goal fanfare) — the two channels never fight.
+
+Still true: nothing melodic in the 4K game, and two-voice harmony remains the 8K game's
+territory. **Game 2 currently has no background audio at all** — its two-voice score is
+outstanding work, tracked in that game's README.
 
 ## 17. Collision Model — Boxes Span Exactly What They Draw (4K, RC2/RC2.1)
 
@@ -646,5 +688,16 @@ visual element ties all four games together as their presentation grows?
 - **The constant thread:** narration/act screens stay small white-on-black
   text in ALL four games — the series' connective tissue.
 - **Menus:** #22 unchanged. G1's switch-driven title is the homage and stays.
-- **Deferred:** G1's own small "ALONE" subtitle — the 4K ROM has ~100 bytes
-  free after rc3; add it only after a byte-diet pass frees comfortable room.
+- **Done (2026-07-29):** G1's own small "ALONE" subtitle now ships. The byte
+  diet that paid for it: the touch-and-exit era's exit-order lock byte was
+  still sitting in all ten level records, dead since #26 (+10 bytes), and the
+  title's subtitle feed loops its paired scanlines instead of open-coding
+  them (the story kernel open-codes both lines only because it does per-line
+  row bookkeeping between them; the title has none). G1's title is now the
+  same five-zone shape as G2's — 40 + 112 (mark) + 8 + 12 (word) + 20 = 192 —
+  so the mark sits in the same place on screen in both games, over a black
+  void in G1 and a dusk sky in G2.
+- **Consequence: Game 1 is full.** 19 bytes free. Treat the 4K ROM as closed
+  to new features; anything further needs its own diet first. This is a fine
+  place for it to end up — #22's whole argument is that G1's presentation is
+  supposed to be the constrained one.
