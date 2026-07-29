@@ -22,6 +22,14 @@ surfaces (add_helpers). Every floor proves:
       readability wart (you are at home height, the lamp says vacant,
       and it is right), not a false completion. Kept as a warning
       because it is still usually worth knowing.
+  (c) PLAYABILITY MARGIN, advisory: WAYS IN — how many distinct (state,
+      action) pairs arrive at home from somewhere that is not already
+      home. This is the check that would have caught Floor 1, which was
+      provably solvable and miserable to play: every character's obvious
+      jump landed on the WRONG ledge, and the proof passed on the
+      strength of a pixel-perfect side arc. SOLVABLE IS NOT FINDABLE.
+      Calibrated on that floor — the bad version scored 6, its
+      replacement 92, and every comfortable home scores 30+.
 
 Plus a per-floor mode proof that the floor's TEACHING is load-bearing:
 
@@ -56,6 +64,10 @@ import re
 import sys
 
 NUM_BOXES = 6
+WRAP_LIMIT = 160
+MIN_WAYS_IN = 12  # calibrated: the Floor 1 that playtest called "really
+                  # hard" scored 6; the version that replaced it scores 92,
+                  # and every comfortable home on floors 1-2 scores 30+
 ROM_BASE = 0xF000
 NAMES = ["Stella", "Alex", "Marcus"]
 
@@ -313,8 +325,53 @@ def survey(fl, phys, wrap):
     return out
 
 
+def entry_moves(sim, start, hf, hl, hr):
+    """Every (state, action) that ARRIVES at home from a state that is not
+    already home — "how many ways in", which is what playability turns on.
+    Counting home states instead is misleading: once you are standing on a
+    wide ledge, shuffling along it counts as dozens of home positions while
+    there may be only one way to get onto it."""
+    def is_home(x, feet):
+        return feet == hf and x < hr and x + sim.w > hl
+    ways = []
+    for feet, xs in sim.footing(start).items():
+        for x in xs:
+            if is_home(x, feet):
+                continue
+            for d in (-1, 1):
+                nx = sim.clamp_x(x, x + d * sim.spd, feet - sim.h, d)
+                if nx != x:
+                    if sim.landing(feet, feet, nx) is not None:
+                        if is_home(nx, feet):
+                            ways.append(((x, feet), "walk"))
+                    else:
+                        land = sim.arc(x, feet, False, d)
+                        if land and is_home(*land):
+                            ways.append(((x, feet), "step off"))
+            for d in (-1, 0, 1):
+                land = sim.arc(x, feet, True, d)
+                if land and is_home(*land):
+                    ways.append(((x, feet), "jump"))
+    return ways
+
+
+def shadowed(fl, phys, ci, hf, hl, hr):
+    """Is the home in the SHADOW of a higher surface? Falling, you land on
+    the first surface your feet cross, so a home lying under a ledge that
+    spans the same x can never be dropped onto — it is reachable only by
+    arcing in from the side, which is the Floor 1 fault: solvable, and
+    miserable. Returns (fully_shadowed, blocked_columns, total_columns)."""
+    b, w = fl["boxes"], phys["w3"][ci]
+    tops = [(b[i], b[i + 12], b[i + 18]) for i in range(NUM_BOXES)
+            if b[i] != 0xFF and b[i] < hf]
+    cols = range(max(0, hl - w + 1), min(WRAP_LIMIT, hr))
+    blocked = [any(x < r and x + w > l for (_, l, r) in tops) for x in cols]
+    return all(blocked), sum(blocked), len(blocked)
+
+
+
 def check_floor(fl, phys, name):
-    fails, warns = [], []
+    fails, warns, margins = [], [], []
     res = survey(fl, phys, fl["wrap"])
     solo = [r[0] for r in res]
     homed = [r[0] or r[1] for r in res]
@@ -336,6 +393,39 @@ def check_floor(fl, phys, name):
             warns.append("%s can stand at home height off the home box "
                          "(no longer completes — AtHome tests x): %s"
                          % (NAMES[ci], sorted(bad)[:4]))
+
+    # (c) PLAYABILITY MARGIN — advisory, and the check that would have
+    # caught Floor 1. A floor can be provably solvable and still be
+    # miserable: Floor 1 shipped with every character's obvious jump
+    # landing on the WRONG ledge, and the proof passed because a
+    # pixel-perfect side arc existed. SOLVABLE IS NOT FINDABLE.
+    #
+    # The measure is WAYS IN: distinct (state, action) pairs that arrive
+    # at home from a state that is not already home. Counting home
+    # positions instead is misleading — once you are on a wide ledge,
+    # shuffling along it scores dozens while there may be one way onto
+    # it. Taken over the best helper subset, matching how (a) proves it.
+    for ci in range(3):
+        hf = fl["homeY"][ci] + phys["h3"][ci]
+        hl, hr = fl["home_box"][ci]
+        best, kinds = 0, []
+        for sub in [()] + helper_subsets(ci):
+            sim = Char1(fl["boxes"], phys, ci, fl["wrap"])
+            add_helpers(sim, [(Char1(fl["boxes"], phys, hj, fl["wrap"]),
+                               fl["spawns"][hj]) for hj in sub])
+            w = entry_moves(sim, fl["spawns"][ci], hf, hl, hr)
+            if len(w) > best:
+                best, kinds = len(w), sorted({k for _, k in w})
+        full, nblocked, ncols = shadowed(fl, phys, ci, hf, hl, hr)
+        shade = ("%d/%d shadowed" % (nblocked, ncols)) if nblocked else "open"
+        margins.append("%s %d in (%s)" % (NAMES[ci], best, shade))
+        if best < MIN_WAYS_IN:
+            warns.append("%s has only %d way(s) in%s, %s — a trick shot "
+                         "rather than a move; the floor is provable but "
+                         "likely to feel unfair"
+                         % (NAMES[ci], best,
+                            " (" + ", ".join(kinds) + ")" if kinds else "",
+                            shade))
 
     mode = fl["mode"]
     coop = not all(solo)
@@ -367,6 +457,8 @@ def check_floor(fl, phys, name):
     verdict = "ok (%s proof)" % mode if not fails else "FAIL"
     print("FLOOR %s [%s]: %s" % (name, mode, verdict))
     print("  detail: " + detail)
+    if margins:
+        print("  margin: " + " ; ".join(margins))
     for w in warns:
         print("  WARNING: " + w)
     for f in fails:
