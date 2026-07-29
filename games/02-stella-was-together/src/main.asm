@@ -1564,60 +1564,35 @@ PrepSprites:
         dex
         bpl .each
 
-        ; ---- THE PARTITION: which two characters share a player? ----
-        ; P1 can carry TWO characters solid if they are vertically
-        ; separated — it hops mid-frame. So the question is not "which
-        ; two are inactive" but "which two SEPARATE": pair those on P1
-        ; and give the odd one out P0 to itself, and nothing flickers.
-        ; Only when no pair separates at all (all three at one height,
-        ; e.g. standing on the same floor) is flicker forced, and then
-        ; P0 goes to the ACTIVE character, exactly as before.
+        ; ---- P0 = the ACTIVE character. P1 = the other two,
+        ; ALWAYS alternating at 30Hz. ----
         ;
-        ; Pairs are tried in an order that prefers the pair NOT
-        ; containing the active character, so the one you control keeps
-        ; P0 to itself whenever possible — #19's letter, not just its
-        ; spirit. (A hop tenant is solid, so being paired would not
-        ; flicker either; it can just clip a du at the hop.)
-        ldy Active
-        lda MulThree,y
-        sta CY                  ; CY walks this Active's 3 preferences
-        lda #3
-        sta MoveDir             ; tries remaining
-.pairLoop:
-        ldy CY
-        ldx PrefOrd,y
-        ldy PairB,x
-        lda PairA,x
-        tax                     ; X, Y = the pair's two characters
-        lda DrawY,x             ; order them by drawn top:
-        cmp DrawY,y
-        bcc .order              ; X already the upper one
-        stx Temp                ; else swap X <-> Y
-        tya
-        tax
-        ldy Temp
-.order:                         ; X = upper, Y = lower
-        stx Temp                ; remember the pair, ordered
-        sty NewX
-        lda DrawY,x
-        clc
-        adc DrawH,x
-        sta RepoDU              ; first du past the upper sprite
-        clc
-        adc #2                  ; hop needs 1 du + 1 du of margin
-        cmp DrawY,y
-        bcc .paired
-        beq .paired
-        inc CY
-        dec MoveDir
-        bne .pairLoop
-        ; --- no pair separates: #19's documented fallback ---
-        lda Active              ; the one you control keeps P0, solid
-        sta CYH
-        ldy Active
+        ; #19 hopped P1 mid-frame whenever the two inactive characters
+        ; separated vertically, so they drew solid and only flickered
+        ; when the geometry forced it. That made the look CONDITIONAL —
+        ; solid here, flickering there, switching as characters moved —
+        ; and no amount of level design removes the flickering case, so
+        ; the player just gets an inconsistent picture.
+        ;
+        ; The author's call: LEAN IN. The flicker is this machine's
+        ; signature artifact and the series' whole method is to let a
+        ; limitation wear the mask of emergence (#3, #23). Uniform beats
+        ; occasionally-better.
+        ;
+        ; And it sets up Game 3. Over two games the player learns one
+        ; rule without being told it: THE CHARACTER YOU CONTROL IS
+        ; SOLID, THE OTHERS FLICKER. Then they meet Flicker, who
+        ; flickers even while you control it (#29) — the only character
+        ; that breaks a rule two games long in the teaching. Making the
+        ; rule absolute here is what gives Flicker something to violate.
+        ;
+        ; The kernel's .repo hop is left intact and simply unreachable
+        ; while RepoDU is $FF, so Acts 2-3 can reconsider by deleting
+        ; two instructions.
         lda #$FF
-        sta RepoDU
-        ldx OtherATbl,y         ; the other two alternate at 30Hz
+        sta RepoDU              ; never hop
+        ldy Active
+        ldx OtherATbl,y         ; the two characters that are NOT active
         lda OtherBTbl,y
         tay
         lda FrameCtr
@@ -1627,42 +1602,9 @@ PrepSprites:
         tax
 .fill:
         jsr FillP1              ; P1 = tonight's tenant, whole frame
-        jmp .p0
-.paired:
-        ldy CY                  ; the odd one out gets P0 to itself
-        ldx PrefOrd,y
-        lda PairS,x
-        sta CYH
-        ldx Temp                ; X = upper, Y = lower, as tested
-        ldy NewX
-        lda RepoDU              ; never hop on a band boundary OR the
-        and #7                  ; prefetch line before it — both line
-        beq .bump1              ; 1s are busy now
-        cmp #7
-        bne .noShift
-        inc RepoDU              ; du==7 mod 8: +2, landing on ==1
-.bump1:
-        inc RepoDU              ; (the 2-du gap margin absorbs +1;
-.noShift:                       ; the rare +2 case can clip the lower
-                                ; sprite's first line — cosmetic)
-        sty Temp
-        jsr FillP1              ; P1 opens as the upper character...
-        ldx Temp                ; ...and hops to the lower at RepoDU
-        lda CharX,x
-        sta P1X2
-        lda DrawY,x
-        sta P1Y2
-        lda DrawH,x
-        sta P1H2
-        lda EyeByte,x
-        sta P1Eye2
-        jsr CharColor
-        sta P1Col2
-        lda NusizTbl,x
-        sta P1Nu2
 
-.p0:                            ; P0 = whoever is not sharing P1
-        ldx CYH
+.p0:                            ; P0 = the active character, solid
+        ldx Active
         lda DrawY,x
         sta P0Top
         lda DrawH,x
@@ -1674,7 +1616,7 @@ PrepSprites:
         jsr CharColor           ; active = bright luma
         sta COLUP0
 .position:
-        ldx CYH
+        ldx Active
         lda CharX,x
         ldx #0
         jsr SetHorizPos
@@ -2191,15 +2133,6 @@ NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
 OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character
 
-; The three possible pairings, and the character each one leaves over.
-PairA:      .byte 0, 0, 1
-PairB:      .byte 1, 2, 2
-PairS:      .byte 2, 1, 0
-; Which pairing to try first, per active character: always the pair
-; that does NOT contain it, so the character you control keeps P0.
-PrefOrd:    .byte 2, 0, 1           ; active Stella -> try (Alex,Marcus)
-            .byte 1, 0, 2           ; active Alex   -> try (Stella,Marcus)
-            .byte 0, 1, 2           ; active Marcus -> try (Stella,Alex)
 
 ; per-band gradient shape: brighter toward the horizon (5 shades)
 GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8
