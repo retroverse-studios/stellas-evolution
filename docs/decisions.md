@@ -793,10 +793,20 @@ visual element ties all four games together as their presentation grows?
   same five-zone shape as G2's — 40 + 112 (mark) + 8 + 12 (word) + 20 = 192 —
   so the mark sits in the same place on screen in both games, over a black
   void in G1 and a dusk sky in G2.
-- **Consequence: Game 1 is full.** 19 bytes free. Treat the 4K ROM as closed
-  to new features; anything further needs its own diet first. This is a fine
-  place for it to end up — #22's whole argument is that G1's presentation is
-  supposed to be the constrained one.
+- **Consequence: Game 1 is nearly full** — 27 bytes free after the band-12 fix
+  gave some back. **Amended 2026-07-30:** the original wording, "closed to new
+  features", was too blunt and the author pushed back correctly. A NEW FEATURE
+  and a CONSISTENCY FIX are not the same commitment:
+  - A *new feature* adds something the series never promised. Game 1 is closed
+    to those, and #22's whole argument is that its presentation is supposed to
+    be the constrained one.
+  - A *consistency or expectation fix* pays down a promise the series has
+    ALREADY made — one mechanic (#26), one palette and one feedback language
+    (#27), one mark (#28). Those are never out of scope. If one does not fit,
+    the answer is a byte diet, not a dropped fix; the alternative is a boxed
+    set whose four games quietly disagree with each other, which costs more
+    than the bytes do. Every diet so far has been paid for by deleting
+    something already dead (the exit-order lock, the pre-loop prefetch).
 
 ## 29. The Fourth Character — Flicker's Blink as Sprite Budget, and Phase-by-Contact
 
@@ -946,3 +956,66 @@ its "5+" counts echoes, which are not playable. Game 4 grows in *awareness*, not
 headcount — which keeps every game's growth axis distinct and legible: spatial
 scale (#18), UI sophistication (#22), the eye motif (#23), and cast (#3, closed
 here at four).
+
+---
+
+## 31. The Form of Home Evolves With the Cast
+
+**Question:** A home is a small 8x6 missile PAD in Game 1 and the tinted LEDGE
+itself in Game 2. Should the two be unified, or is the difference the world
+evolving?
+
+**Considerations:**
+- What matters is already identical. The mechanic is one (#26: place and hold,
+  stand on your own colour and stay) and so is the feedback language (#27:
+  blinking means to-do, fast blinking means yours, steady means held). In both
+  games the action reads the same — *stand on the coloured thing that is yours*.
+  Only whether that thing is a pad ON the world or a piece OF the world differs,
+  which is the least load-bearing layer of the three.
+- **The difference is forced, and forced at exactly the right place.** Game 1's
+  model works only because two characters map onto two player registers: Stella's
+  marker is M0 and takes COLUP0, Alex's is M1 and takes COLUP1, one each, stable.
+  A third character has nowhere to go — and in Game 2 COLUP0 is the ACTIVE
+  character's colour, which changes the instant you switch, while COLUP1 changes
+  mid-frame at the P1 hop and again every frame under the flicker. A missile
+  would wear whichever character happened to own that register. Three
+  independently coloured markers do not exist on this hardware, so the colour had
+  to move into the playfield. The form changed at precisely the step where the
+  cast grew from two to three, and cast growth is the series' own axis (#3).
+- **Additive, not contradictory** — the test #29 turned on. Carry physics was
+  rejected because it would make something the player had learned FALSE. Nothing
+  here does: Game 2 simply has no pads, the rule is unchanged, and the action is
+  unchanged. Re-learning a shape is not the same as un-learning a rule.
+- #27 already conceded the difference in passing — *"where home markers are
+  geometry, their width matches their owner's body… Game 1's missiles are capped
+  at 8px by hardware"* — without ever saying why, or that it was meant.
+- Unifying is not a trade-off with a price. Game 1 → Game 2's model needs a
+  12-byte RAM colour table plus kernel work against 27 free bytes; Game 2 →
+  Game 1's model is impossible per the register argument. One direction is
+  unaffordable, the other unavailable.
+
+**Status:** DECIDED (2026-07-30) — **keep the difference, and promote it from
+accident to intent.** The form of home is a per-generation axis like spatial
+scale (#18), UI (#22) and the eyes (#23):
+
+- **G1 (4K):** home is a MARK ON the world — something placed there. The world
+  is too simple to mean anything by itself.
+- **G2 (8K):** home is a PLACE IN the world — the architecture itself is yours.
+  The world has become able to hold meaning. (Author: *"gives a feel the world is
+  opening up."*)
+- **G3 (16K):** OPEN, but the world extends and scrolls, so home plausibly
+  becomes a DESTINATION you travel to. The game is called *Stella's Journey*.
+- **G4 (ARM):** OPEN. The world gains colour everywhere (#27), so "coloured =
+  home" stops being distinctive and the idea has to become something else.
+
+G3 and G4 are recorded as questions waiting, not as a plan quietly hardening —
+decide them when those games are prototyped, against whatever the cast and the
+hardware turn out to need.
+
+**How it is told:** through the MANUALS, one quiet line each, exactly as #23 does
+for the eyes — never stated in ROM. The author's point stands: this arc is only
+legible to someone who reads the manuals, and that is not a weakness but the
+period-accurate answer. Atari games told their stories in the manual precisely
+because the cartridge could not, and a series *about* four generations of
+hardware should be honest about that. A player who never opens the manual loses
+nothing playable; the mechanic and the feedback carry the game on their own.
