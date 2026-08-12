@@ -15,34 +15,38 @@
 ; acts re-attach them to the floor framework below.
 ;
 ; The real structure this file builds:
-;   * the TITLE (decision #28): Game 1's big rainbow STELLA logo on
-;     this game's dusk-violet gradient sky, the word TOGETHER set
-;     small beneath — no menu, fire starts (decision #22);
-;   * the WAKING-MARCUS opening (DESIGN-KICKOFF): a recreation of
-;     Game 1's epilogue — black screen, the small blue square — that
-;     the world assembles itself around: the sky gradient builds band
-;     by band, Marcus's eyes appear (the moment he wakes), Stella
-;     drops in, Alex slides in, and Floor 1 begins. Fire skips it;
-;   * floors that play IN ORDER (not SELECT-cycled), walked from a
-;     clean FLOOR TABLE (record + narration id + act);
-;   * a between-floor NARRATION text screen (Game 1's text kernel +
-;     tools/gentext.py pipeline, ported);
-;   * ALL OF ACT 1 (three floors, decision #18's 3/3/3/1 shape):
-;       Floor 1 "Together Again"  — coop: the head-boost carries over
-;       Floor 2 "The Low Door"    — Marcus's gift (decision #21): a
-;         tunnel under a slab only he can enter — Stella is 1 du too
-;         tall for the slot, Alex's jump is 6 du too weak for the sill
-;       Floor 3 "The Wall"        — the wrap twist: a wall to the sky
-;         splits the world, Alex wakes alone on the far side, and the
-;         only way to him is off the edge of the screen — the banked
-;         "decoy platforms, wrap is the answer" puzzle
-;   * boot flow: title -> wake-up -> floors 1-2-3 (each followed by
-;     its narration) -> back to the title.
+;   * the ANNEX (bank 1): the TITLE (decision #28: the big STELLA mark
+;     in the neutral ramp on the dusk gradient, the game's one word
+;     beneath — no menu, fire starts) and the NARRATION screens (Game
+;     1's text kernel + tools/gentext.py). Neither state ever shares a
+;     frame with play, so both live in bank 1; MainLoop's top hands
+;     them the frame and Bank0Entry receives it back;
+;   * the WAKING-MARCUS opening (bank 0, game kernel): Game 1's
+;     epilogue — black screen, the small blue square — that the world
+;     assembles itself around. Fire skips it;
+;   * floors that play IN ORDER, walked from a clean FLOOR TABLE
+;     (record + home table + wrap flag + sky base + narration id +
+;     lamp bands + portal/rift columns);
+;   * ACTS 1-3 COMPLETE (decision #18's ladder, one verb each, verbs
+;     accrete):
+;       Act 1 wrap (always-on): F1 "Together Again" (the boost), F2
+;         "The Low Door" (Marcus's gift, #21), F3 "The Wall" (the wrap
+;         twist);
+;       Act 2 portal (UP in a blinking column teleports to its mouth):
+;         F4 "The Fold" (locked room), F5 "The High Door" (boost gates
+;         the door), F6 "The Cross" (the doors cross the screen);
+;       Act 3 world-swap (UP grounded in a thin rift beam swaps which
+;         truth the room is in — the sky reverses as the tell): F7
+;         "Two Truths" (the approach ladder is only true in B), F8
+;         "The Handoff" (neither world alone suffices), F9 "The Way
+;         Home" (the stairs are in B, the homes in A: swap back).
+;   * boot flow: title -> wake-up -> floors 1-9 (each followed by its
+;     narration) -> back to the title.
 ;
-; Adding Floor 4+ is: one row in each Floor* table + one Floor?Rec
-; record + one Floor?HomeCharY + one Floor?PFBri/Dim pair + one
-; narration string in tools/gentext.py's SCREENS + one FLOOR_DEFS row
-; in tools/check_levels.py. Act order (docs/decisions.md #18):
+; Adding a floor is: one row in each Floor* table + one record (with
+; its OFF plane, and world-B pages for dual floors) + one Floor?Home +
+; one narration string in tools/gentext.py's SCREENS + one FLOOR_DEFS
+; row in tools/check_levels.py. Act order (docs/decisions.md #18):
 ;   Act 1 = wrap (the always-on baseline), Act 2 = portal, Act 3 =
 ;   world-swap, Act 4 = finale. Wrap is on for every floor.
 ;
@@ -89,8 +93,12 @@ STATE_DONE  = 4         ; floor complete: the beat before the narration
                         ; holds on it instead of cutting to text)
 
 ; --- floor sequencing ------------------------------------------
-NUM_FLOORS  = 3         ; Act 1 complete: Together Again / The Low
-                        ; Door / The Wall
+NUM_FLOORS  = 9         ; Act 1 (wrap):   Together Again / The Low Door
+                        ;   / The Wall
+                        ; Act 2 (portal): The Fold / The High Door / The
+                        ;   Cross
+                        ; Act 3 (worlds): Two Truths / The Handoff /
+                        ;   His Own Truth
 
 ; --- wake-up opening timing (frames) ---------------------------
 WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
@@ -261,6 +269,19 @@ WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
 WakeT       ds 1        ; frame counter within the phase
 
 StateTimer  ds 1        ; STATE_DONE: frames left in the completion beat
+UpPrev      ds 1        ; UP edge-detect for the portal/rift verbs
+
+; --- Act 3 (world-swap) -------------------------------------------
+CurWorld    ds 1        ; 0 = world A, 1 = world B (decision #9's two
+                        ; truths of one place). RAM is the whole point:
+                        ; the banked copies hold geometry; PEOPLE persist.
+RecPtr      ds 2        ; -> this floor's record, fixed at LoadFloor.
+                        ; PF0Ptr can't anchor swaps any more (Act 3's
+                        ; rift blink repoints it), so swaps and blinks
+                        ; both reckon from RecPtr.
+StoryId     ds 1        ; the narration screen the annex should show
+                        ; (bank 0 sets it at the floor boundary; bank 1
+                        ; re-points TPtr from it every frame)
 
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
@@ -352,8 +373,37 @@ Bank0Init:
 ; `sta VBLANK` needs its own `lda #0`.
 ; ---------------------------------------------------------------
 
+; Bank0Entry: the bank-1 annex (title + story) hands the frame back
+; here on fire. Entering PLAY means a floor boundary was crossed while
+; we were away: load it, and rebuild the lamps NOW (PFColRam still
+; holds the narration pointers). Entering WAKE means the title's fire:
+; the opening runs on the game kernel, in this bank.
+Bank0Entry:
+        SUBROUTINE
+        lda State
+        cmp #STATE_PLAY
+        beq .enterPlay
+        cmp #STATE_WAKE
+        beq .enterWake
+        jmp MainLoop
+.enterPlay:
+        jsr LoadFloor
+        jsr PrepSprites
+        jmp MainLoop
+.enterWake:
+        jsr WakeInit
+        jmp MainLoop
+
 MainLoop:
         SUBROUTINE
+        lda State               ; title and narration run entirely in
+        cmp #STATE_STORY        ; the bank-1 annex (neither ever shares
+        beq .annex              ; a frame with play): hand it the frame;
+        cmp #STATE_TITLE        ; it hands back on fire (Bank0Entry
+        bne .bank0frame         ; above)
+.annex:
+        jmp GoBank1
+.bank0frame:
         lda #2
         sta VBLANK
         sta VSYNC
@@ -378,29 +428,27 @@ MainLoop:
         lda State
         cmp #STATE_PLAY
         beq .doPlay
-        cmp #STATE_STORY
-        beq .doStory
         cmp #STATE_WAKE
         beq .doWake
         cmp #STATE_DONE
         beq .doDone
-        jsr TitleLogic
-        jmp .logicDone
-.doDone:
+        jmp .logicDone        ; (the title's frame never reaches here —
+.doDone:                        ;  the annex dispatch above caught it)
         jsr DoneLogic
         jmp .logicDone
 .doWake:
         jsr WakeLogic
         jmp .logicDone
-.doStory:
-        jsr StoryLogic
-        jmp .logicDone
 .doPlay:
         jsr ReadInput
+        jsr ReadPortal  ; UP in a portal column -> teleport (Act 2)
+        jsr ReadRift    ; UP grounded in a rift -> swap worlds (Act 3)
         jsr UpdatePhysics
         jsr CheckGoal   ; all three home -> narration, then next floor
         jsr UpdateSound
         jsr PrepSprites ; draw params + P1 multiplexer + positioning
+        jsr BlinkPortal ; portal columns are only ever half-present
+        jsr BlinkRifts  ; ...and the rifts, one size thinner
 .logicDone:
 
         lda State
@@ -410,34 +458,8 @@ MainLoop:
         beq .kPlay              ; the opening runs on the game kernel
         cmp #STATE_DONE
         beq .kPlay              ; ...and so does the completion beat
-        cmp #STATE_STORY
-        beq .kStory
-        ; ---- title kernel ----
-        lda #0
-        sta CTRLPF      ; asymmetric playfield for the logo
-.wv0:
-        bit TIMINT              ; wait on the underflow FLAG, not
-        bpl .wv0               ; on INTIM (see the note above)
-        lda #0
-        sta WSYNC
-        sta VBLANK      ; A=0: beam on
-        jsr TitleKernel
-        jmp Overscan
-.kStory:
-        lda #0
-        sta CTRLPF      ; asymmetric playfield for text
-        lda #COL_TEXT
-        sta COLUPF
-.wv1:
-        bit TIMINT              ; wait on the underflow FLAG, not
-        bpl .wv1               ; on INTIM (see the note above)
-        lda #0
-        sta WSYNC
-        sta VBLANK
-        jsr StoryKernel
-        jmp Overscan
-.kPlay:
-Bank0Entry:             ; bank 1 would arrive here (via GoBank0)
+        jmp Overscan            ; (title/story never reach here — the
+.kPlay:                         ;  annex owns them)
         lda #1
         sta CTRLPF      ; mirrored playfield
         lda PFColor     ; per-floor platform color (kernel steps it)
@@ -477,45 +499,11 @@ Overscan:
         jmp MainLoop
 
 ; ===============================================================
-; TITLE + NARRATION logic
+; TITLE + NARRATION logic — moved to the bank-1 annex (the title and
+; the story never share a frame with play). Bank 0 keeps only the
+; handover: MainLoop's top dispatches both states through GoBank1,
+; and Bank0Entry receives the frame back.
 ; ===============================================================
-
-; ---------------------------------------------------------------
-; TitleLogic: build the dusk-violet sky gradient, point the text
-; kernel at the "STELLA WAS TOGETHER" logo (story screen 0), and
-; start the game on fire. No menu (decision #22).
-; ---------------------------------------------------------------
-
-TitleLogic:
-        SUBROUTINE
-        lda #TITLE_SKY          ; dusk violet -> banded gradient in RAM
-        sta Temp
-        ldx #11
-.grad:
-        lda GradOfs,x
-        clc
-        adc Temp
-        sta SkyGrad,x
-        dex
-        bpl .grad
-        lda #0                  ; screen 0 = the logo
-        jsr LoadStory
-
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
-        lda #0
-        sta FirePrev
-        sta FloorSeq            ; start at the first floor...
-        jsr WakeInit            ; ...via the waking-Marcus opening
-        rts
-.release:
-        lda #$80
-        sta FirePrev
-.done:
-        rts
 
 ; ---------------------------------------------------------------
 ; The waking-Marcus opening (DESIGN-KICKOFF, promoted 2026-07-15).
@@ -692,74 +680,6 @@ WakeLogic:
 .awake:
         rts
 
-; ---------------------------------------------------------------
-; StoryLogic: hold on the narration until fire, then continue —
-; to the next floor, or (after the last floor) back to the title.
-; ---------------------------------------------------------------
-
-StoryLogic:
-        SUBROUTINE
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
-        lda #0
-        sta FirePrev
-        lda StoryAfter
-        bne .toTitle
-        jsr LoadFloor           ; FloorSeq already advanced by CheckGoal
-        lda #STATE_PLAY
-        sta State
-        jsr PrepSprites         ; rebuild the lamps NOW — PFColRam
-        rts                     ; still holds the narration pointers
-.toTitle:
-        lda #STATE_TITLE
-        sta State
-        rts
-.release:
-        lda #$80
-        sta FirePrev
-.done:
-        rts
-
-; ---------------------------------------------------------------
-; LoadStory: A = screen id. Points the six plane pointers at the
-; generated text data and centers the block vertically. (Ported
-; verbatim from game 1's narration kernel.)
-; ---------------------------------------------------------------
-
-LoadStory:
-        SUBROUTINE
-        tay
-        lda StoryLo,y
-        sta TPtr
-        lda StoryHi,y
-        sta TPtr+1
-        lda StoryLen,y
-        sta TextEnd
-        lda StoryStride,y
-        sta Temp
-        ldx #0
-.mk:
-        lda TPtr,x
-        clc
-        adc Temp
-        sta TPtr+2,x
-        lda TPtr+1,x
-        adc #0
-        sta TPtr+3,x
-        inx
-        inx
-        cpx #10
-        bne .mk
-        lda #96
-        sec
-        sbc TextEnd
-        lsr
-        sta TextTop
-        rts
-
 ; ===============================================================
 ; FLOOR FRAMEWORK — walk the FloorTable in order
 ; ===============================================================
@@ -842,23 +762,48 @@ LoadFloor:
         lda #2                  ; all three characters have physics
         sta ActiveM1
 
-        ldx FloorSeq            ; per-floor sky base -> banded gradient
-        lda FloorSkyTbl,x
-        sta Temp
-        ldx #11
-.grad:
-        lda GradOfs,x
-        clc
-        adc Temp
-        sta SkyGrad,x
-        dex
-        bpl .grad
+        lda PF0Ptr              ; the record anchor for swaps and the
+        sta RecPtr              ; rift blink (PF0Ptr itself gets
+        lda PF0Ptr+1            ; repointed by both, so it can't serve)
+        sta RecPtr+1
+        lda #0                  ; every floor begins in world A
+        sta CurWorld
+
+        jsr BuildSky            ; world A's sky (CurWorld was just zeroed)
         lda #PFA_COLOR
         sta PFColor
         lda #<PFColRam          ; the kernel's per-band COLUPF table
         sta PFColPtr            ; lives in RAM (the home lamps),
         lda #>PFColRam          ; rebuilt by PrepSprites every frame
         sta PFColPtr+1
+        rts
+
+; ---------------------------------------------------------------
+; BuildSky: rebuild the 12-band sky gradient for the CURRENT world.
+; The which-world tell (kickoff rule 2, adapted to the greyscale
+; world of #27): in world A the sky brightens toward the horizon; in
+; world B the ramp runs BACKWARDS. Hue never changes — the world is
+; neutral — but no two adjacent bands keep their order, so the swap
+; reads on the whole screen for every kind of colour vision.
+; ---------------------------------------------------------------
+
+BuildSky:
+        SUBROUTINE
+        ldx FloorSeq
+        lda FloorSkyTbl,x
+        sta Temp
+        ldx #11
+.loop:
+        lda GradOfs,x
+        ldy CurWorld
+        beq .fwd
+        lda GradOfsR,x          ; world B: the ramp reversed
+.fwd:
+        clc
+        adc Temp
+        sta SkyGrad,x
+        dex
+        bpl .loop
         rts
 
 ; ---------------------------------------------------------------
@@ -928,9 +873,9 @@ CheckGoal:
         bpl .loop
         ; all three home: one fanfare for the floor, then a beat to
         ; SEE it — three characters standing together on their own
-        ; homes is the image decision #26 exists for. LoadStory waits
-        ; for DoneLogic: TPtr overlays PFColRam, so the narration
-        ; pointers would trample the lamps we are still drawing.
+        ; homes is the image decision #26 exists for. The annex's story
+        ; handover waits for DoneLogic: TPtr overlays PFColRam, so the
+        ; narration pointers would trample the lamps we are drawing.
         lda #3
         sta SoundId
         lda #16
@@ -966,6 +911,10 @@ DoneLogic:
         ldx #11
 .grad:
         lda GradOfs,x
+        ldy CurWorld            ; a floor can complete in world B: the
+        beq .fwd                ; beat must not flip the sky back
+        lda GradOfsR,x
+.fwd:
         clc
         adc Temp
         sta SkyGrad,x
@@ -980,9 +929,9 @@ DoneLogic:
         beq .advance
         rts
 .advance:
-        ldx FloorSeq            ; the lamps are finished; TPtr may now
-        lda FloorStoryTbl,x     ; take PFColRam's bytes back
-        jsr LoadStory
+        ldx FloorSeq            ; the lamps are finished; the annex
+        lda FloorStoryTbl,x     ; reads the screen id from StoryId each
+        sta StoryId             ; frame and points TPtr there itself
         inc FloorSeq
         lda FloorSeq
         cmp #NUM_FLOORS
@@ -1118,6 +1067,352 @@ WalkSpeed:
         and #1
         clc
         adc SpeedTbl,x
+        rts
+
+; ---------------------------------------------------------------
+; THE PORTAL VERB (Act 2; decision #18's middle rung: move through
+; space -> SHORTCUT through space -> change space). A portal is a
+; linked pair of 8px columns drawn by the mirrored playfield, pulsing
+; ~2x/second. UP (edge) while the ACTIVE character overlaps a column
+; teleports them to that column's MOUTH — a position chosen per floor,
+; so a column can lift, drop, or cross the screen (the mouths, not the
+; columns, carry the puzzle). Only the active character teleports:
+; friends never follow — each crossing is a separate, deliberate act.
+;
+; Re-attached from the game2-workbench tag's proven P1/WP1 verb, with
+; changes the real game's constraints forced:
+;   * The workbench blinked the column through a 24-byte PFRam copy;
+;     RAM here ends 7 bytes from the stack ceiling, so the blink is a
+;     POINTER SWAP instead: the kernel already draws the playfield
+;     through PF1Ptr/PF2Ptr, so BlinkPortal repoints the portal plane
+;     between the record's ON copy and a 12-byte OFF copy kept right
+;     after the record (+66). Zero RAM, kernel untouched.
+;   * The workbench was Stella-only, so mouths stored her CharY. With
+;     three heights, mouth tables store FEET du and arrival subtracts.
+;   * Byte diet (bank 0 is nearly full): column tables store only each
+;     column's LEFT edge (columns are always 8px, so R = L+8), and the
+;     plane is derived from x (columns left of 48 live in PF1, the rest
+;     PF2) rather than carried as a table.
+; ---------------------------------------------------------------
+
+; ReadPortal: the input half. UP while the active character overlaps a
+; column -> DoTeleport. Edge-gated like the workbench's, so holding UP
+; never chains; floors without portals park FloorPortL at 255.
+ReadPortal:
+        SUBROUTINE
+        ldy FloorSeq
+        lda FloorPortL,y
+        bmi .done               ; 255: no portal on this floor
+        lda SWCHA
+        and #%00010000          ; UP (active low)
+        bne .release
+        bit UpPrev
+        bpl .done               ; held: already handled this press
+        ldx Active
+        jsr InPortal            ; carry set + Y = column index
+        bcc .clear
+        jsr DoTeleport
+.clear:
+        lda #0
+        sta UpPrev
+        rts
+.release:
+        lda #$80
+        sta UpPrev
+.done:
+        rts
+
+; InPortal: X = character. Carry SET and Y = 0/1 if the character's
+; body overlaps a column (any height — a beam has no top). Columns are
+; 8px wide; the test is AtHome's overlap rule against [L, L+8).
+InPortal:
+        SUBROUTINE
+        lda CharX,x
+        clc
+        adc WidthTbl,x          ; body's right edge
+        sta Temp
+        ldy FloorSeq
+        lda FloorPortL,y        ; column A: [L, L+8)
+        sta CY                  ; CY = L (physics scratch, dead here)
+        clc
+        adc #8
+        cmp CharX,x             ; left edge at/past R: not in A
+        beq .tryB
+        bcc .tryB
+        lda Temp
+        cmp CY                  ; right edge short of/even with L
+        beq .tryB
+        bcc .tryB
+        ldy #0
+        sec
+        rts
+.tryB:
+        lda FloorPort2L,y       ; column B, same test
+        sta CY
+        clc
+        adc #8
+        cmp CharX,x
+        beq .out
+        bcc .out
+        lda Temp
+        cmp CY
+        beq .out
+        bcc .out
+        ldy #1
+        sec
+        rts
+.out:
+        clc
+        rts
+
+; DoTeleport: X = character, Y = column. Move them to that column's
+; mouth: mouth tables hold FEET du, so CharY = feet - height. Arrive
+; grounded with zeroed velocity, a short settle-squash and the portal
+; blip — the landing reads as deliberate, and a mouth over open air
+; would simply fall (none of the shipped floors do that). Mouths are
+; interleaved per floor (FloorMouX/Y: floor*2 + column) so one indexed
+; load serves both columns.
+DoTeleport:
+        SUBROUTINE
+        lda FloorSeq
+        asl
+        sta CY
+        tya
+        ora CY
+        tay                     ; mouth slot = floor*2 + column
+        lda FloorMouX,y
+        sta CharX,x
+        lda FloorMouY,y
+        sec
+        sbc HeightTbl,x         ; mouth feet -> this character's top
+        sta CharY,x
+        lda #0
+        sta CharYLo,x
+        sta CharVYHi,x
+        sta CharVYLo,x
+        lda #1
+        sta OnGround,x          ; physics re-seats her this frame
+        lda #3
+        sta SquashT,x
+        lda #4                  ; the portal blip
+        sta SoundId
+        lda #8
+        sta SoundT
+        rts
+
+; BlinkPortal: the draw half — pulse the column ~0.5s on / 0.5s off by
+; swapping the portal plane's pointer between the record's ON copy and
+; the OFF copy at record+66. Runs only in STATE_PLAY (the completion
+; beat freezes the world, portal included). check_levels.py proves the
+; two copies differ by exactly the column mask, and that the mask is
+; what the trigger tables claim — the drawn portal and the tested
+; portal cannot drift apart.
+BlinkPortal:
+        SUBROUTINE
+        ldy FloorSeq
+        lda FloorPortL,y
+        bmi .done
+        sta CY                  ; the column's left edge selects the
+                                ; plane: x < 48 -> PF1, else PF2
+        lda FrameCtr
+        and #%00010000
+        beq .off
+        lda #12                 ; ON: the record's own plane...
+        ldy CY
+        cpy #48
+        bcc .have               ; columns left of 48 live in PF1 (+12)
+        lda #24                 ; ...the rest in PF2 (+24)
+        bne .have
+.off:
+        lda #66                 ; OFF: the extra plane after the record
+.have:
+        clc
+        adc RecPtr              ; the record anchor (PF0Ptr is off
+        sta Temp                ; limits: Act 3's rift blink repoints it)
+        lda RecPtr+1
+        adc #0
+        sta CYH                 ; Temp/CYH = the chosen plane's address
+        lda CY
+        cmp #48
+        bcc .plane1
+        lda Temp                ; PF2 column
+        sta PF2Ptr
+        lda CYH
+        sta PF2Ptr+1
+        rts
+.plane1:
+        lda Temp
+        sta PF1Ptr
+        lda CYH
+        sta PF1Ptr+1
+.done:
+        rts
+
+; ---------------------------------------------------------------
+; THE WORLD-SWAP VERB (Act 3; decisions #9 + #18's final rung: change
+; space itself). A RIFT is a thin 4px beam standing at the screen's
+; edge (PF0 — the one plane that never differs between worlds), drawn
+; as a mirrored pair like everything else. UP while GROUNDED in a rift
+; swaps the world: the player's x, y and velocity persist (that RAM
+; persistence is the whole pitch), and the geometry around them
+; changes to the floor's other truth.
+;
+; Two grammar rules keep three characters safe in a world that
+; rearranges itself (the workbench was Stella-only and never faced
+; this):
+;   * SWAPS ARE GROUNDED-ONLY, in the rift — so the swap moment is a
+;     finite set of standing states, and the solver can prove every
+;     one of them is clear in the other world.
+;   * WHAT DIFFERS BETWEEN WORLDS IS ALWAYS ONE-WAY (ledge art that
+;     exists in only one truth). One-way boxes never side-block, so no
+;     body can be left inside a new wall — the worst a swap can do is
+;     drop you, which is legal. The solver audits this too.
+;
+; The delivery is a POINTER SWAP, not the F8 bank switch the workbench
+; prototyped: world B's interior planes and boxes live after the
+; record (at +78/+90/+102; the rift-blink's PF0 OFF copy at +66), and
+; SwapWorld repoints PF1Ptr/PF2Ptr/PlatPtr and reverses the sky. RAM
+; is full (the lamps own the old union trick's bytes), and honestly —
+; the truth the mechanic teaches is "two truths of one place", which
+; the player can only ever SEE; the mapper chip was never visible.
+; ---------------------------------------------------------------
+
+; ReadRift: UP (edge) while the ACTIVE character stands grounded in a
+; rift column -> SwapWorld. Floors without rifts park FloorRiftL=255.
+; (Shares UpPrev with ReadPortal, but no floor in acts 2-3 has both
+; verbs, so the two never contend; Act 4 must merge the reads first.)
+ReadRift:
+        SUBROUTINE
+        ldy FloorSeq
+        lda FloorRiftL,y
+        bmi .done
+        lda SWCHA
+        and #%00010000          ; UP (active low)
+        bne .release
+        bit UpPrev
+        bpl .done
+        ldx Active
+        lda OnGround,x          ; grounded only — see the grammar above
+        beq .clear
+        jsr InRift
+        bcc .clear
+        jsr SwapWorld
+.clear:
+        lda #0
+        sta UpPrev
+        rts
+.release:
+        lda #$80
+        sta UpPrev
+.done:
+        rts
+
+; InRift: X = character. Carry SET if the character's body overlaps a
+; rift column — the PF0 pair [L, L+4) and its mirror [156-L, 160-L).
+InRift:
+        SUBROUTINE
+        lda CharX,x
+        clc
+        adc WidthTbl,x          ; body's right edge
+        sta Temp
+        ldy FloorSeq
+        lda FloorRiftL,y
+        sta CY                  ; CY = L
+        clc
+        adc #4
+        cmp CharX,x             ; left edge at/past L+4: not in the left
+        beq .try2               ; column
+        bcc .try2
+        lda Temp
+        cmp CY                  ; right edge short of/even with L
+        beq .try2
+        bcc .try2
+        sec
+        rts
+.try2:
+        lda #156                ; the mirror column: [156-L, 160-L)
+        sec
+        sbc CY
+        sta CY
+        clc
+        adc #4
+        cmp CharX,x
+        beq .out
+        bcc .out
+        lda Temp
+        cmp CY
+        beq .out
+        bcc .out
+        sec
+        rts
+.out:
+        clc
+        rts
+
+; SwapWorld: flip CurWorld, repoint the interior pointers at the other
+; world's pages of the record, rebuild the sky (reversed), chime. PF0
+; is untouched: it is the shared plane — the frame, the floor, and the
+; rifts themselves are the things BOTH truths agree on.
+SwapWorld:
+        SUBROUTINE
+        lda CurWorld
+        eor #1
+        sta CurWorld
+        bne .toB
+        lda #12                 ; world A: PF1/PF2/boxes at +12/+24/+36
+        bne .have
+.toB:
+        lda #78                 ; world B: the variants at +78/+90/+102
+.have:
+        sta Temp
+        ldx #0
+.loop:
+        lda RecPtr
+        clc
+        adc Temp
+        sta PF1Ptr,x            ; PF1Ptr, PF2Ptr, PlatPtr are
+        lda RecPtr+1            ; consecutive zero-page pairs — one loop
+        adc #0                  ; repoints all three
+        sta PF1Ptr+1,x
+        lda Temp
+        clc
+        adc #12
+        sta Temp
+        inx
+        inx
+        cpx #6
+        bne .loop
+        jsr BuildSky            ; the full-screen tell, reversed ramp
+        lda #5                  ; the two-world chime (UpdateSound
+        sta SoundId             ; reads CurWorld for the direction)
+        lda #8
+        sta SoundT
+        rts
+
+; BlinkRifts: pulse the rift columns ~0.5s on/off by swapping PF0Ptr
+; between the record's PF0 page and its OFF copy at +66. Same language
+; as the portal blink (a beam that is only ever half-present), drawn a
+; size thinner (4px) so the two verbs never share a silhouette.
+BlinkRifts:
+        SUBROUTINE
+        ldy FloorSeq
+        lda FloorRiftL,y
+        bmi .done
+        lda FrameCtr
+        and #%00010000
+        beq .off
+        lda #0                  ; ON: the record's own PF0 page
+        beq .have
+.off:
+        lda #66                 ; OFF: the copy after the record
+.have:
+        clc
+        adc RecPtr
+        sta PF0Ptr
+        lda RecPtr+1
+        adc #0
+        sta PF0Ptr+1
+.done:
         rts
 
 ; ---------------------------------------------------------------
@@ -1432,6 +1727,10 @@ UpdateSound:
         beq .jump
         cmp #2
         beq .land
+        cmp #4
+        beq .blip
+        cmp #5
+        beq .chime
         ; floor fanfare: low note then high note. Game 1's two notes
         ; verbatim — decision #26 gives the series one goal mechanic,
         ; so it gets one sound of completion too.
@@ -1465,6 +1764,33 @@ UpdateSound:
         lda #25
         sta AUDF0
         lda #8
+        sta AUDV0
+        rts
+.blip:
+        lda #1                  ; portal: a short buzzy chirp — the one
+        sta AUDC0               ; machine timbre in a game of voices
+        lda #20
+        sta AUDF0
+        lda #5
+        sta AUDV0
+        rts
+.chime:
+        lda #4                  ; world-swap: a pure tone stepping with
+        sta AUDC0               ; the swap — rising back into world A,
+        lda SoundT              ; falling into B (the workbench's
+        ldy CurWorld            ; signature, kept: the two truths have
+        bne .down               ; two pitches)
+        lda #16
+        sec
+        sbc SoundT
+        jmp .setf0
+.down:
+        lda #10
+        clc
+        adc SoundT
+.setf0:
+        sta AUDF0
+        lda #7
         sta AUDV0
         rts
 
@@ -1889,234 +2215,6 @@ GameKernel:
         jmp .kloop              ; (repo du is never du 95)
 
 ; ---------------------------------------------------------------
-; TitleKernel: the series signature (decision #28) — Game 1's big
-; 7-row STELLA logo, worn in the Atari rainbow, on THIS game's
-; dusk-violet gradient sky, with the game's word set small beneath:
-;
-;       [ sky gradient ]
-;       S T E L L A          <- big, rainbow (LogoPF* tables,
-;       [ sky ]                 ported from Game 1)
-;       TOGETHER             <- small, white (text pipeline, the
-;       [ sky gradient ]        one-row story screen 0)
-;
-; Five fixed zones, 40+112+8+12+20 = 192 scanlines; each zone's
-; lines are cycle-safe on their own terms (the logo lines are
-; G1's proven fixed-cycle feed; the subtitle lines are the story
-; kernel's proven feed).
-; ---------------------------------------------------------------
-
-TitleKernel:
-        SUBROUTINE
-        lda #0
-        sta GRP0
-        sta GRP1
-        sta ENAM0
-        sta ENAM1
-        sta ENABL
-        sta PF0
-        sta PF1
-        sta PF2
-        ; --- top sky: 40 scanlines, gradient by band -------------
-        ldx #0
-.sky1:
-        sta WSYNC
-        txa                     ; band = scanline >> 4
-        lsr
-        lsr
-        lsr
-        lsr
-        tay
-        lda SkyGrad,y
-        sta COLUBK
-        inx
-        cpx #40
-        bne .sky1
-        ; --- the big STELLA: 7 rows x 16 scanlines ---------------
-        lda SkyGrad+4           ; hold a mid-dusk shade behind it
-        sta COLUBK
-        ldy #0                  ; Y = logo row
-        lda #8
-        sta BandLine
-        ldx #56                 ; 56 du pairs = 112 scanlines
-.lloop:
-        sta WSYNC               ; ---- line 1: fixed-cycle feed
-        lda LogoColr,y          ; per-row rainbow
-        sta COLUPF              ; @7
-        lda LogoPF0L,y
-        sta PF0                 ; @15
-        lda LogoPF1L,y
-        sta PF1                 ; @22
-        lda LogoPF2L,y
-        sta PF2                 ; @29
-        nop
-        nop
-        nop
-        lda LogoPF0R,y
-        sta PF0                 ; @42
-        lda LogoPF1R,y
-        sta PF1                 ; @49
-        nop
-        lda LogoPF2R,y
-        sta PF2                 ; @58
-        sta WSYNC               ; ---- line 2: feed again
-        lda LogoPF0L,y
-        sta PF0
-        lda LogoPF1L,y
-        sta PF1
-        lda LogoPF2L,y
-        sta PF2
-        nop
-        nop
-        nop
-        lda LogoPF0R,y
-        sta PF0
-        lda LogoPF1R,y
-        sta PF1
-        nop
-        lda LogoPF2R,y
-        sta PF2
-        dec BandLine
-        bne .lhold
-        lda #8
-        sta BandLine
-        iny
-.lhold:
-        dex
-        bne .lloop
-        lda #0                  ; clear the playfield below the logo
-        sta PF0
-        sta PF1
-        sta PF2
-        ; --- gap sky: 8 scanlines --------------------------------
-        lda SkyGrad+9
-        sta COLUBK
-        ldx #8
-.gap:
-        sta WSYNC
-        dex
-        bne .gap
-        ; --- the game's word, small and white: 12 scanlines ------
-        lda #COL_TEXT
-        sta COLUPF
-        ldy #0                  ; rows 0-5 of story screen 0
-.sub:
-        sta WSYNC               ; ---- line A (story kernel feed)
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        nop
-        lda (TPtr+10),y
-        sta PF2
-        sta WSYNC               ; ---- line B
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        nop
-        lda (TPtr+10),y
-        sta PF2
-        iny
-        cpy #6
-        bne .sub
-        lda #0                  ; clear below the subtitle
-        sta PF0
-        sta PF1
-        sta PF2
-        ; --- bottom sky: 20 scanlines, gradient resumes ----------
-        ldx #0
-.sky2:
-        sta WSYNC
-        txa                     ; absolute line = 172 + X
-        clc
-        adc #172
-        lsr
-        lsr
-        lsr
-        lsr
-        tay
-        lda SkyGrad,y
-        sta COLUBK
-        inx
-        cpx #20
-        bne .sky2
-        rts
-
-; ---------------------------------------------------------------
-; StoryKernel: narration text on the asymmetric playfield. All six
-; PF bytes re-fed every scanline from the generated plane data (an
-; asymmetric playfield must be re-fed or the right half bleeds into
-; the left). Ported verbatim from game 1. White text on black.
-; ---------------------------------------------------------------
-
-StoryKernel:
-        SUBROUTINE
-        lda #0
-        sta GRP0
-        sta GRP1
-        sta ENAM0
-        sta ENAM1
-        sta ENABL
-        sta PF0
-        sta PF1
-        sta PF2
-        sta COLUBK
-        ldx #0
-        ldy TextEnd             ; blank row until the text block starts
-.sloop:
-        sta WSYNC               ; ---- line 1
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        nop
-        lda (TPtr+10),y
-        sta PF2
-        sta WSYNC               ; ---- line 2
-        lda (TPtr),y
-        sta PF0
-        lda (TPtr+2),y
-        sta PF1
-        lda (TPtr+4),y
-        sta PF2
-        lda (TPtr+6),y
-        sta PF0
-        lda (TPtr+8),y
-        sta PF1
-        nop
-        lda (TPtr+10),y
-        sta PF2
-        inx
-        cpx TextTop
-        bne .noStart
-        ldy #$FF                ; so the iny below lands on row 0
-.noStart:
-        cpy TextEnd
-        beq .hold               ; stay on the blank row
-        iny
-.hold:
-        cpx #SCREEN_DU
-        bne .sloop
-        rts
-
 ; ---------------------------------------------------------------
 ; Character data (index 0 = Stella, 1 = Alex, 2 = Marcus)
 ; ---------------------------------------------------------------
@@ -2171,35 +2269,7 @@ OtherBTbl:  .byte 2, 2, 1           ; for each character
 
 ; per-band gradient shape: brighter toward the horizon (5 shades)
 GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8
-
-; ---------------------------------------------------------------
-; The big STELLA logo, ported from Game 1 (5x7 font on the 40-column
-; asymmetric playfield; row 7 blank) — the series signature mark,
-; decision #28. 8-byte tables must not cross a page.
-; ---------------------------------------------------------------
-        ALIGN 8
-LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80
-            ds 1
-LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2
-            ds 1
-LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C
-            ds 1
-LogoPF0R:   .byte $10,$10,$10,$10,$10,$10,$F0
-            ds 1
-LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
-            ds 1
-LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
-            ds 1
-; Per-row logo shading. The Atari rainbow is NOT spent here: under the
-; colour-means-agency rule a rainbow mark is colour used as decoration,
-; the exact habit the rule breaks. So the mark is lit in the neutral
-; ramp for Games 1-3 and BLOOMS into the full rainbow in Game 4, when
-; the world itself gains colour. #28 said the mark never changes; it is
-; stronger for changing exactly once, at the end — a thing that never
-; changes is a rule, a thing that changes once is an event.
-; The rainbow's per-row banding survives, transposed into the channel
-; every player can see: a highlight brightest through the middle rows.
-LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
+GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
 
 ; ===============================================================
 ; FLOOR TABLE — the game walks this in order (FloorSeq).
@@ -2210,22 +2280,80 @@ LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 ; ===============================================================
 
 FloorRecLo:   .byte <Floor1Rec, <Floor2Rec, <Floor3Rec
+        .byte <Floor4Rec, <Floor5Rec, <Floor6Rec
+        .byte <Floor7Rec, <Floor8Rec, <Floor9Rec
 FloorRecHi:   .byte >Floor1Rec, >Floor2Rec, >Floor3Rec
+        .byte >Floor4Rec, >Floor5Rec, >Floor6Rec
+        .byte >Floor7Rec, >Floor8Rec, >Floor9Rec
 FloorHomeLo:  .byte <Floor1Home, <Floor2Home, <Floor3Home
+        .byte <Floor4Home, <Floor5Home, <Floor6Home
+        .byte <Floor7Home, <Floor8Home, <Floor9Home
 FloorHomeHi:  .byte >Floor1Home, >Floor2Home, >Floor3Home
-FloorWrapTbl: .byte 1, 1, 1           ; Act 1: wrap is the baseline
+        .byte >Floor4Home, >Floor5Home, >Floor6Home
+        .byte >Floor7Home, >Floor8Home, >Floor9Home
+FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
+        .byte 1, 1, 1                 ; (decision #18) — every act
+        .byte 1, 1, 1
 FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
+        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
 FloorStoryTbl: .byte 1, 2, 3          ; narration after each floor
-FloorActTbl:  .byte 1, 1, 1           ; Act 1 (framework metadata)
+        .byte 4, 5, 6
+        .byte 7, 8, 9
+; Act boundaries are a comment, not a table (the ROM never read it):
+; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
+; (world-swap), 10 = the finale (decision #18).
+;
+; RIFT TABLE (Act 3): the PF0 bit position of the floor's rift pair,
+; as the left edge x of the left column (4 = PF0 bit5 -> px 4-7, with
+; the mirror at 152-155 free). 255 = no rift. The mirror range is
+; [156-L, 160-L) — InRift tests both. Rifts always live in PF0: the
+; frame/floor plane is the one plane both worlds share.
+FloorRiftL:  .byte 255,255,255
+        .byte 255,255,255
+        .byte   4,  4,  4
 ; char*3 — indexes both FloorBandByChar (char*3 + floor) and each
 ; floor's Floor?Home table (three bytes per character).
 MulThree:     .byte 0, 3, 6
 ; The lamp band for each character on each floor (char*3 + floor);
 ; PrepSprites paints these bands as the colour-blind-safe home lamps.
+; RULE the table keeps honest: three distinct bands per floor, and the
+; tinted band's playfield content IS that character's home (a zone can
+; be "the whole shelf" or "either twin ledge", never a slice of either).
 FloorBandByChar:
-        .byte 8, 7, 6           ; Stella: F1 mid totem / F2 slab / F3 b3
-        .byte 9, 9, 8           ; Alex:   F1 low totem / F2 sill / F3 b2
-        .byte 7, 8, 10          ; Marcus: F1 top totem / F2 heart / F3 b1
+        .byte 8, 7, 6, 1, 2, 5, 3, 5, 5   ; Stella
+        .byte 9, 9, 8, 4, 9, 7, 5, 7, 7   ; Alex
+        .byte 7, 8, 10, 2, 5, 11, 4, 6, 6 ; Marcus
+
+; ---------------------------------------------------------------
+; PORTAL TABLES (Act 2). Per floor: two column LEFT edges (columns
+; are always 8px, so R = L+8) — a floor with no portals parks
+; FloorPortL at 255; a floor with one column parks FloorPort2L at 255
+; — and per column a MOUTH (arrival x + feet du), interleaved
+; floor*2+column so DoTeleport is one indexed load. The mouths carry
+; the puzzle: a column can lift (F4), be gated (F5), or cross the
+; screen to somewhere its twin isn't (F6). The plane is derived from
+; x, not tabled: columns left of 48 live in PF1, the rest in PF2 (the
+; mirror always lands in the same plane). The OFF plane (the same 12
+; band bytes minus the column mask) sits at record+66. The solver
+; reads all of this from the ROM and re-proves the columns are where
+; the art says — tables and art cannot drift apart.
+; ---------------------------------------------------------------
+FloorPortL:  .byte 255,255,255, 32, 76,  40
+FloorPort2L: .byte 255,255,255,120,255, 112
+FloorMouX:   .byte   0,  0,   0,  0,   0,  0
+        .byte 124, 36                 ; F4: L col -> right column's
+                                      ; shelf spot; R col -> left
+                                      ; column's ground spot
+        .byte  76,  0                 ; F5: the one central column ->
+                                      ; the shelf above it
+        .byte 124, 52                 ; F6: the doors CROSS — L col ->
+                                      ; Alex's right ledge; R col ->
+                                      ; the shelf's left end
+FloorMouY:   .byte   0,  0,   0,  0,   0,  0
+        .byte  32, 88                 ; F4: shelf top / ground
+        .byte  40,  0                 ; F5: shelf top
+        .byte  62, 40                 ; F6: ledge top / shelf top
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
 ; plain-grey bands for the reveal (lamps start with player control)
@@ -2445,13 +2573,357 @@ Floor3Rec:
         .byte 140, 85                     ; Alex: ALONE past the wall
         .byte 28, 82                      ; Marcus: ground, left
 
+; ===============================================================
+; ACT 2, FLOOR 4 — "The Fold"
+;
+; The portal introduce floor, and Act 2's locked room. One full-width
+; SHELF floats at top 32 with every home on or above it — and NOTHING
+; climbs there: the strongest solo jump tops out at feet 67 (Stella),
+; the strongest three-friend stack-jump at ~58, and the shelf's
+; underside is at 40. Eighteen du of proof margin. The only way up is
+; the pair of blinking columns: stand in either, press UP, arrive at
+; the other column's height-adjusted mouth on the shelf.
+;
+; The columns are PF1 bits 3+2 (px 32-39 and the mirror 120-127),
+; blinking by pointer swap. LEFT column -> the RIGHT column's spot on
+; the shelf (124, 32); RIGHT column -> the LEFT column's spot on the
+; ground (36, 88): the way back down, so nobody is ever stranded on
+; the shelf and the pair reads as two ends of one door.
+;
+; Homes are deliberately gentle — the work was noticing the door:
+;   Stella: a high one-way ledge (top 14, on the mirror axis) — from
+;     the shelf (32) a rise of 18; hers alone (Marcus peaks 4 du low).
+;   Marcus: either of the twin low ledges (top 22, x 16-31 & 128-143 —
+;     mirrored pairs share one home zone, the Floor-3 pattern).
+;   Alex: the shelf ITSELF (his zone spans it, like Floor 2's sill —
+;     the wide green lamp band paints exactly his home).
+;
+; tools/check_levels.py proves the floor UNSOLVABLE with the portal
+; off (nothing reaches the shelf), which is what makes the column the
+; lesson and not a flourish.
+; ===============================================================
+
+Floor4Home:
+        .byte  5, 64,  96       ; Stella: high ledge (top 14), band 1
+        .byte 29,  0, 160       ; Alex:   the whole shelf (32), band 4
+        .byte 16, 16, 144       ; Marcus: twin ledges (22), band 2
+
+Floor4Rec:
+;   PF0: open edges (wrap); shelf band 4; floor band 11
+        .byte $00,$00,$00,$00,$F0,$00,$00,$00,$00,$00,$00,$F0
+;   PF1 (portal plane, ON): columns $0C in bands 0-10; band 2 adds
+;   Marcus's ledges ($F0|$0C=$FC); band 4 the shelf ($FF); band 11 floor
+        .byte $0C,$0C,$FC,$0C,$FF,$0C,$0C,$0C,$0C,$0C,$0C,$FF
+;   PF2: band 1 Stella's ledge ($F0, axis 64-95); band 4 shelf; floor
+        .byte $00,$F0,$00,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+;   boxes: ground / shelf / Stella's ledge (one-way) / Marcus's twins
+        .byte  88, 32, 14, 22, 22,$FF    ; tops
+        .byte  96, 40, 14, 22, 22,$FF    ; bottoms (one-way: top==bottom)
+        .byte   0,  0, 64, 16,128,  0    ; lefts
+        .byte 160,160, 96, 32,144,  0    ; rights (excl)
+        .byte 148, 79                     ; Stella: ground, far right
+        .byte 104, 85                     ; Alex: ground, right
+        .byte  60, 82                     ; Marcus: ground, mid-left
+;   PF1 OFF (record+66): the same bands minus the $0C column mask
+        .byte $00,$00,$F0,$00,$FF,$00,$00,$00,$00,$00,$00,$FF
+
+; ===============================================================
+; ACT 2, FLOOR 5 — "The High Door"
+;
+; Develop: the old verb gates the new one. The portal column stands on
+; the mirror axis (PF2 bit7 -> px 76-83, self-mirrored), but its ground
+; entrance sits in a SLOT between two guard walls (tops 72 — a 16-du
+; mount): Stella clears it, Marcus clears it exactly (the Floor 2 sill
+; again), Alex's 10-du jump never will. Alex reaches the door the way
+; he reached Floor 1's ledge: off a friend's head. Then UP, and the
+; mouth is on the shelf (top 40) spanning the slot above.
+;
+; The boost is load-bearing AND so is the portal, and the solver proves
+; both: portal-off, nothing reaches the shelf (stack-jumps peak at ~58,
+; the shelf's underside is 48); Alex alone never passes the guards.
+;
+; Homes:
+;   Alex: the guard LINTELS themselves (top 72, either one — the twin
+;     zone). The boost that was always his floor-1 duty is here his
+;     destination: the door was high, and the high place is his.
+;   Marcus: the shelf (whole-shelf zone; he arrives on it).
+;   Stella: a one-way ledge (top 22, axis) above the shelf — a rise of
+;     18 from the shelf; only her jump makes it.
+;
+; The column shares PF2 with everything interior this floor, so the OFF
+; plane matters: bands 9-10 keep the guards ($0E) and lose the column
+; ($80); bands 2/5 keep ledge/shelf ($F0/$FF) untouched.
+; ===============================================================
+
+Floor5Home:
+        .byte 13, 64,  96       ; Stella: ledge (top 22), band 2
+        .byte 69, 52, 108       ; Alex: either guard lintel (72), band 9
+        .byte 34,  0, 160       ; Marcus: the shelf (40), band 5
+
+Floor5Rec:
+;   PF0: open edges; floor band 11
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+;   PF1: floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 (portal plane, ON): central column $80 in bands 0-10; band 2
+;   Stella's ledge ($F0); band 5 the shelf ($FF); bands 9-10 the
+;   guards ($0E|$80=$8E); band 11 floor
+        .byte $80,$80,$F0,$80,$80,$FF,$80,$80,$80,$8E,$8E,$FF
+;   boxes: ground / guardL / guardR / shelf / Stella's ledge (one-way)
+        .byte  88, 72, 72, 40, 22,$FF    ; tops
+        .byte  96, 88, 88, 48, 22,$FF    ; bottoms
+        .byte   0, 52, 96, 48, 64,  0    ; lefts
+        .byte 160, 64,108,112, 96,  0    ; rights (excl)
+        .byte  16, 79                     ; Stella: ground, far left
+        .byte 120, 85                     ; Alex: ground, right of the slot
+        .byte 140, 82                     ; Marcus: ground, far right
+;   PF2 OFF (record+66): minus the $80 column bit
+        .byte $00,$00,$F0,$00,$00,$FF,$00,$00,$00,$0E,$0E,$FF
+
+; ===============================================================
+; ACT 2, FLOOR 6 — "The Cross"
+;
+; The twist. Two portal pairs, and the doors CROSS the screen: the LEFT
+; column (px 40-47) exits high RIGHT — on Alex's dive ledge (top 62);
+; the RIGHT column (112-119) exits back LEFT — on the shelf (top 40).
+; After two floors of "portals go up", the doors turn out to go
+; *sideways*: each column's mouth is nowhere near its twin.
+;
+; Nobody's route is another's:
+;   Alex walks into the left column on the ground and steps out onto
+;     his ledge — arrival IS home (the gentlest ride; his second gift
+;     after speed is that doors like him).
+;   Marcus rides the right column to the shelf's left end; the whole
+;     shelf is his home (the Floor 2 sill rule).
+;   Stella rides the right column too, then claims the one thing the
+;     doors don't hand out: her perch (top 22, axis) is an 18-du rise
+;     off the shelf — only her jump closes the act.
+;
+; Every home needs a door: portal-off, the highest stack-jump (~58 du)
+; can't touch the shelf's underside (48), let alone the perch. The
+; ledges are mirrored twins sharing one zone (the Floor 3 pattern), so
+; Alex's band-7 lamp paints exactly his two possible homes.
+; ===============================================================
+
+Floor6Home:
+        .byte 13, 64,  96       ; Stella: perch (top 22), band 2
+        .byte 59, 16, 144       ; Alex: twin dive ledges (62), band 7
+        .byte 34,  0, 160       ; Marcus: the shelf (40), band 5
+
+Floor6Rec:
+;   PF0: open edges; floor band 11
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+;   PF1 (portal plane, ON): columns $03 in bands 0-10; band 7 adds
+;   Alex's ledges ($FC|$03=$FF); band 11 floor
+        .byte $03,$03,$03,$03,$03,$03,$03,$FF,$03,$03,$03,$FF
+;   PF2: band 2 Stella's perch ($F0, axis 64-95); band 5 the shelf
+;   ($FF, 48-111 mirrored); band 11 floor
+        .byte $00,$00,$F0,$00,$00,$FF,$00,$00,$00,$00,$00,$FF
+;   boxes: ground / shelf / Stella's perch / Alex's ledges (one-way)
+        .byte  88, 40, 22, 62, 62,$FF    ; tops
+        .byte  96, 48, 22, 62, 62,$FF    ; bottoms
+        .byte   0, 48, 64, 16,120,  0    ; lefts
+        .byte 160,112, 96, 40,144,  0    ; rights (excl)
+        .byte   8, 79                     ; Stella: ground, far left
+        .byte  24, 85                     ; Alex: ground, left
+        .byte 136, 82                     ; Marcus: ground, right — near
+                                          ; the door that isn't his
+;   PF1 OFF (record+66): minus the $03 column mask
+        .byte $00,$00,$00,$00,$00,$00,$00,$FC,$00,$00,$00,$FF
+
+; ===============================================================
+; ACT 3 — the world-swap floors. Each dual floor's record is 126
+; bytes: the 66-byte world-A record, the PF0 OFF copy for the rift
+; blink (+66), then world B's interior planes (+78/+90) and boxes
+; (+102). PF0 — frame, floor, rifts — is the shared plane: the things
+; BOTH truths agree on. The grammar that keeps three characters safe
+; (the workbench was Stella-only and never faced it): swaps are
+; grounded-only and rift-gated, and EVERY box that differs between
+; worlds is one-way, so no body can ever be left inside a new wall —
+; the worst a swap can do is drop you. check_levels.py audits both.
+; ===============================================================
+
+; ===============================================================
+; ACT 3, FLOOR 7 — "Two Truths"
+;
+; The introduce floor, and the act's locked room. All three homes sit
+; on a shared shelf-and-totem at mid-screen — VISIBLE from the first
+; frame, lamps blinking — and unreachable in world A: the shelf's top
+; is 40, and the best three-friend stack-jump the engine allows peaks
+; at feet ~58. World A is a flat room with a thin blinking beam at its
+; edges. The beam is the only move.
+;
+; UP in the beam (grounded) swaps the world: same room, same shelf —
+; but world B HAS the approach ladder (two one-way ledges, 72 and 56,
+; that were never there in A). The truths differ only in what you can
+; STAND on, which is the act's grammar: every box that differs between
+; worlds is one-way, so a swap can never leave a body inside a new
+; wall — the worst it does is drop you. (A solid wall that exists in
+; only one world — the workbench's T1 — is exactly the design this
+; grammar forbids: with three characters, a friend standing where the
+; wall reappears would be embedded. The workbench was Stella-only and
+; never faced it.)
+;
+; The ladder's 16-du hops gate Alex out (his 10-du jump): he is
+; boosted up the ladder — Floor 1's lesson, the act remembering it —
+; while Stella and Marcus climb alone. The solver proves world A alone
+; can never reach any home.
+; ===============================================================
+
+Floor7Home:
+        .byte 15, 72,  88       ; Stella: totem crown (top 24), band 3
+        .byte 37, 48, 112       ; Alex:   the shelf itself (40), band 5
+        .byte 26, 64,  96       ; Marcus: totem middle (32), band 4
+
+Floor7Rec:
+;   PF0 (shared): the rift (b5 = px 4-7 & mirror 152-155) bands 0-10;
+;   floor band 11
+        .byte $20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$20,$F0
+;   PF1 world A: floor only (no ladder in this truth)
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 world A: band 3 the totem crown ($C0 = 72-87, axis); band 4
+;   the totem middle ($F0 = 64-95); band 5 the shelf ($FF = 48-111);
+;   floor
+        .byte $00,$00,$00,$C0,$F0,$FF,$00,$00,$00,$00,$00,$FF
+;   boxes A: ground / shelf (solid) / totem ledges (one-way)
+        .byte  88, 40, 32, 24,$FF,$FF      ; tops
+        .byte  96, 48, 32, 24,$FF,$FF      ; bottoms
+        .byte   0, 48, 64, 72,  0,  0      ; lefts
+        .byte 160,112, 96, 88,  0,  0      ; rights (excl)
+        .byte  20, 79                      ; Stella: ground, left
+        .byte  28, 85                      ; Alex: ground, left
+        .byte  36, 82                      ; Marcus: ground, left
+;   PF0 OFF (+66): minus the rift bit
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$F0
+;   PF1 world B (+78): band 7 the 56-rung ($3C = 24-39); band 9 the
+;   72-rung's PF1 part ($03 = 40-47); floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$3C,$00,$03,$00,$FF
+;   PF2 world B (+90): the shared totem/shelf (identical to A) + the
+;   72-rung's PF2 part (band 9, $03 = 48-55)
+        .byte $00,$00,$00,$C0,$F0,$FF,$00,$00,$00,$03,$00,$FF
+;   boxes B (+102): ground / shelf / totem / the two ladder rungs
+        .byte  88, 40, 32, 24, 72, 56      ; tops
+        .byte  96, 48, 32, 24, 72, 56      ; bottoms (rungs one-way)
+        .byte   0, 48, 64, 72, 40, 24      ; lefts
+        .byte 160,112, 96, 88, 56, 40      ; rights (excl)
+
+; ===============================================================
+; ACT 3, FLOOR 8 — "The Handoff"
+;
+; Develop: NEITHER truth alone reaches the top. World A holds the
+; lower staircase (80/72/64) zigzagging up-left to a perch in the
+; beam (56); world B holds the continuation (48/40) away from the
+; beam. The perch is shared, so the swap at altitude strands nobody —
+; the two truths hand the climb off between your feet.
+;
+; The perch sits at 56 for a reason: the best three-friend stack-jump
+; the engine allows peaks at feet ~58, and 58 never lands on 56 — so
+; world B alone can't start (no stairs, stack-proof) and world A alone
+; can't finish (no continuation). The solver proves BOTH directions
+; fail alone (the "swapboth" proof), which is what makes this a
+; handoff and not a choice of doors.
+;
+; Homes: Alex owns the perch itself (he holds the door open for the
+; climb); Marcus the first continuation ledge; Stella the top.
+; ===============================================================
+
+Floor8Home:
+        .byte 31, 32,  48       ; Stella: top ledge (40), band 5
+        .byte 53,  4,  20       ; Alex: the beam perch (56), band 7
+        .byte 42, 16,  32       ; Marcus: continuation (48), band 6
+
+Floor8Rec:
+;   PF0 (shared): rift b5 bands 0-10; band 7 adds the perch (b5-b7 =
+;   px 4-15, the rift's own bit inside it); floor
+        .byte $20,$20,$20,$20,$20,$20,$20,$E0,$20,$20,$20,$F0
+;   PF1 world A: band 7 the perch's PF1 part (16-19, SHARED — world B
+;   carries it identical); bands 8/9 the 64/72 stairs; band 10 the
+;   80-stair's left part; floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$80,$F0,$3C,$03,$FF
+;   PF2 world A: band 10 the 80-stair's right part; floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$FF
+;   boxes A: ground / the two beam perches (one-way, shared) / stairs
+        .byte  88, 56, 56, 64, 72, 80      ; tops
+        .byte  96, 56, 56, 64, 72, 80      ; bottoms (one-way all)
+        .byte   0,  4,140, 16, 24, 40      ; lefts
+        .byte 160, 20,156, 32, 40, 56      ; rights (excl)
+        .byte 100, 79                      ; Stella: ground, right
+        .byte 116, 85                      ; Alex: ground, right
+        .byte 132, 82                      ; Marcus: ground, right
+;   PF0 OFF (+66): minus the rift bit (band 7 keeps the perch)
+        .byte $00,$00,$00,$00,$00,$00,$00,$C0,$00,$00,$00,$F0
+;   PF1 world B (+78): the perch part (identical, shared); bands 6/5
+;   the 48/40 continuation; floor
+        .byte $00,$00,$00,$00,$00,$0F,$F0,$80,$00,$00,$00,$FF
+;   PF2 world B (+90): floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   boxes B (+102): ground / perches / the continuation ledges
+        .byte  88, 56, 56, 48, 40,$FF
+        .byte  96, 56, 56, 48, 40,$FF
+        .byte   0,  4,140, 16, 32,  0
+        .byte 160, 20,156, 32, 48,  0
+
+; ===============================================================
+; ACT 3, FLOOR 9 — "The Way Home"
+;
+; The twist. Two floors taught "the other world is the answer"; this
+; one's stairs are in world B but its HOMES are in world A. The play:
+; world A shows you the homes (lamps blinking on their ledges) with
+; nothing to climb — the beam-perch (56) is stack-proof by the usual
+; two du. So you swap, climb world B's staircase to the beam... and
+; the lamps VANISH: in world B those ledges were never true. The only
+; move left is to swap BACK, and the perch you earned in world B is
+; still under you — it is the one thing both truths agree on. Then
+; climb down onto your homes.
+;
+; There and back again: the act's last lesson is that the swap is not
+; a direction but a door you may owe two crossings. The solver proves
+; neither world alone suffices (swapboth). Alex's home is the perch
+; itself — he holds the door, twice.
+; ===============================================================
+
+Floor9Home:
+        .byte 31, 32,  48       ; Stella: top ledge (40), band 5
+        .byte 53,  4,  20       ; Alex: the beam perch (56), band 7
+        .byte 42, 16,  32       ; Marcus: mid ledge (48), band 6
+
+Floor9Rec:
+;   PF0 (shared): as Floor 8 — rift b5; band 7 the perch; floor
+        .byte $20,$20,$20,$20,$20,$20,$20,$E0,$20,$20,$20,$F0
+;   PF1 world A: band 7 the perch's PF1 part (shared); bands 6/5 the
+;   HOME ledges (they are only true here); floor
+        .byte $00,$00,$00,$00,$00,$0F,$F0,$80,$00,$00,$00,$FF
+;   PF2 world A: floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   boxes A: ground / the perches (shared) / the two home ledges
+        .byte  88, 56, 56, 48, 40,$FF      ; tops
+        .byte  96, 56, 56, 48, 40,$FF      ; bottoms (one-way all)
+        .byte   0,  4,140, 16, 32,  0      ; lefts
+        .byte 160, 20,156, 32, 48,  0      ; rights (excl)
+        .byte 100, 79                      ; Stella: ground, right
+        .byte 116, 85                      ; Alex: ground, right
+        .byte 132, 82                      ; Marcus: ground, right
+;   PF0 OFF (+66): minus the rift bit (band 7 keeps the perch)
+        .byte $00,$00,$00,$00,$00,$00,$00,$C0,$00,$00,$00,$F0
+;   PF1 world B (+78): the perch part (identical); bands 8/9/10 the
+;   staircase (64 / 72 / 80) — only true HERE; floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$80,$F0,$3C,$03,$FF
+;   PF2 world B (+90): the 80-stair's right part; floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$FF
+;   boxes B (+102): ground / perches / the staircase
+        .byte  88, 56, 56, 80, 72, 64      ; tops
+        .byte  96, 56, 56, 80, 72, 64      ; bottoms (one-way all)
+        .byte   0,  4,140, 40, 24, 16      ; lefts
+        .byte 160, 20,156, 56, 40, 32      ; rights (excl)
+
 ; ---------------------------------------------------------------
-; Narration text (generated by tools/gentext.py):
-;   screen 0 = the "STELLA WAS TOGETHER" title logo
-;   screen 1 = the between-floor narration after Floor 1
+; Narration text (generated by tools/gentext.py): ALL of it lives in
+; the bank-1 annex (the title and story states never share a frame
+; with play, so their kernels, logic, and text map in over there).
+; Bank 0 keeps nothing of it but the handover: MainLoop's dispatch,
+; Bank0Entry, and the StoryId byte.
 ; ---------------------------------------------------------------
 
-        include "text.inc"
 
 ; ---------------------------------------------------------------
 ; Bank 0 hotspots + vectors
@@ -2499,15 +2971,481 @@ Bank1Top:
         ERR
         ENDIF
 
-; Minimal bank-1 targets the stubs reference. Neither is reached by
-; the shipped floors (no world-swap floor is built yet); they exist so
-; the F8 call/return shape is preserved and the file assembles. A real
-; Act-3 floor replaces CopyBWorker with the 24-byte world-B fetch and
-; Bank1Entry with a bank-1 frame (see the git tag).
+; ---------------------------------------------------------------
+; THE ANNEX. The title and the narration never share a frame with
+; play, so both states — their frame loops, kernels, logic, and ALL
+; the text — live in bank 1, mapped in for the state's whole duration
+; (MainLoop hands over via GoBank1 when State is TITLE or STORY; the
+; loops hand the frame back at the next frame boundary, so no torn
+; frame ever leaves). This is what the F8 skeleton's second bank was
+; keeping honest for. What it buys: ~1.1 KB of bank 0 back — the room
+; Acts 3-4 are spent from — and space for the script to grow with the
+; acts.
+;
+; Handover discipline: bank 0 sets StoryId (RAM, shared) at a floor
+; boundary; StoryFrame re-points TPtr from it EVERY frame (LoadStory1
+; is idempotent, so no "just entered" state is needed). The title is
+; always world A and screen 0. CopyBWorker is kept as the stubs'
+; byte-identical call/return shape, unused for now.
+; ---------------------------------------------------------------
+
 Bank1Entry:
-        jmp GoBank0             ; nothing in bank 1 yet: hop back
+        lda State
+        cmp #STATE_TITLE
+        beq TitleFrame
+        jmp StoryFrame          ; STATE_STORY
+
+; ---------------------------------------------------------------
+; TitleFrame: the title's whole frame, in the annex. The dusk
+; gradient, the big mark, the game's one word beneath, fire to start
+; (no menu — decision #22). Behaviour-identical to the bank-0
+; original; only the bank changed.
+; ---------------------------------------------------------------
+
+TitleFrame:
+        SUBROUTINE
+        lda #2
+        sta VBLANK
+        sta VSYNC
+        sta WSYNC
+        sta WSYNC
+        sta WSYNC
+        lda #0
+        sta VSYNC
+        lda #49
+        sta TIM64T
+        inc FrameCtr
+        lda SWCHB               ; console RESET (cold start, as bank 0)
+        lsr
+        bcs .noReset
+        jmp ColdStart
+.noReset:
+        lda #TITLE_SKY          ; the dusk gradient, banded (the annex
+        sta Temp                ; has its own copy of GradOfs — the
+        ldx #11                 ; two banks can't read each other's ROM)
+.grad:
+        lda GradOfs1,x
+        clc
+        adc Temp
+        sta SkyGrad,x
+        dex
+        bpl .grad
+        lda #0                  ; screen 0 = the logo + the game's word
+        jsr LoadStory1
+        lda INPT4               ; fire: begin (at the waking opening)
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .inputDone
+        lda #0
+        sta FirePrev
+        sta FloorSeq            ; start at the first floor
+        lda #STATE_WAKE
+        sta State
+        jmp .inputDone
+.release:
+        lda #$80
+        sta FirePrev
+.inputDone:
+.wv:
+        bit TIMINT
+        bpl .wv
+        lda #0
+        sta WSYNC
+        sta VBLANK              ; A=0: beam on
+        sta CTRLPF              ; asymmetric playfield for the logo
+        jsr TitleKernel
+        jsr AnnexOverscan
+        lda State
+        cmp #STATE_TITLE
+        beq TitleFrame
+        jmp GoBank0             ; fire was pressed: to bank 0's wake
+
+; ---------------------------------------------------------------
+; StoryFrame: the narration state, held until fire — then back to
+; bank 0 for the next floor (Bank0Entry loads it; FloorSeq was already
+; advanced by DoneLogic before the handover) or, after the last floor,
+; the title.
+; ---------------------------------------------------------------
+
+StoryFrame:
+        SUBROUTINE
+        lda #2
+        sta VBLANK
+        sta VSYNC
+        sta WSYNC
+        sta WSYNC
+        sta WSYNC
+        lda #0
+        sta VSYNC
+        lda #49
+        sta TIM64T
+        inc FrameCtr
+        lda SWCHB               ; console RESET returns to the title
+        lsr
+        bcs .noReset
+        jmp ColdStart           ; this bank's own copy: maps bank 0
+.noReset:
+        lda StoryId             ; bank 0 named the screen at the floor
+        jsr LoadStory1          ; boundary; re-point TPtr every frame
+        lda INPT4
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .inputDone
+        lda #0
+        sta FirePrev
+        lda StoryAfter
+        bne .toTitle
+        lda #STATE_PLAY
+        sta State
+        jmp .inputDone
+.toTitle:
+        lda #STATE_TITLE
+        sta State
+        jmp .inputDone
+.release:
+        lda #$80
+        sta FirePrev
+.inputDone:
+.wv:
+        bit TIMINT
+        bpl .wv
+        lda #0
+        sta WSYNC
+        sta VBLANK              ; A=0: beam on
+        sta CTRLPF              ; asymmetric playfield for text
+        lda #COL_TEXT
+        sta COLUPF
+        jsr StoryKernel
+        jsr AnnexOverscan
+        lda State
+        cmp #STATE_STORY
+        beq StoryFrame
+        jmp GoBank0
+
+; ---------------------------------------------------------------
+; AnnexOverscan: the shared blank-and-wait tail of both annex frames.
+; ---------------------------------------------------------------
+
+AnnexOverscan:
+        SUBROUTINE
+        sta WSYNC               ; finish the last visible line cleanly
+        lda #2
+        sta VBLANK
+        lda #0
+        sta GRP0
+        sta GRP1
+        sta ENAM0
+        sta ENAM1
+        sta ENABL
+        sta PF0
+        sta PF1
+        sta PF2
+        lda #28
+        sta TIM64T
+.waitOS:
+        bit TIMINT
+        bpl .waitOS
+        rts
+
+; ---------------------------------------------------------------
+; LoadStory1: A = screen id. Points the six plane pointers at the
+; generated text data and centers the block vertically. (Game 1's
+; LoadStory, verbatim; lives in the annex, like everything it reads.)
+; ---------------------------------------------------------------
+
+LoadStory1:
+        SUBROUTINE
+        tay
+        lda StoryLo,y
+        sta TPtr
+        lda StoryHi,y
+        sta TPtr+1
+        lda StoryLen,y
+        sta TextEnd
+        lda StoryStride,y
+        sta Temp
+        ldx #0
+.mk:
+        lda TPtr,x
+        clc
+        adc Temp
+        sta TPtr+2,x
+        lda TPtr+1,x
+        adc #0
+        sta TPtr+3,x
+        inx
+        inx
+        cpx #10
+        bne .mk
+        lda #96
+        sec
+        sbc TextEnd
+        lsr
+        sta TextTop
+        rts
+
+; ---------------------------------------------------------------
+; TitleKernel: the series signature (decision #28) — Game 1's big
+; 7-row STELLA logo on this game's greyscale dusk gradient, with the
+; game's word set small beneath:
+;
+;       [ sky gradient ]
+;       S T E L L A          <- big (LogoPF* tables, ported from G1)
+;       [ sky ]
+;       TOGETHER             <- small, white (text pipeline, screen 0)
+;       [ sky gradient ]
+;
+; Five fixed zones, 40+112+8+12+20 = 192 scanlines; each zone's lines
+; are cycle-safe on their own terms (the logo lines are G1's proven
+; fixed-cycle feed; the subtitle lines are the story kernel's).
+; ---------------------------------------------------------------
+
+TitleKernel:
+        SUBROUTINE
+        lda #0
+        sta GRP0
+        sta GRP1
+        sta ENAM0
+        sta ENAM1
+        sta ENABL
+        sta PF0
+        sta PF1
+        sta PF2
+        ; --- top sky: 40 scanlines, gradient by band -------------
+        ldx #0
+.sky1:
+        sta WSYNC
+        txa                     ; band = scanline >> 4
+        lsr
+        lsr
+        lsr
+        lsr
+        tay
+        lda SkyGrad,y
+        sta COLUBK
+        inx
+        cpx #40
+        bne .sky1
+        ; --- the big STELLA: 7 rows x 16 scanlines ---------------
+        lda SkyGrad+4           ; hold a mid-dusk shade behind it
+        sta COLUBK
+        ldy #0                  ; Y = logo row
+        lda #8
+        sta BandLine
+        ldx #56                 ; 56 du pairs = 112 scanlines
+.lloop:
+        sta WSYNC               ; ---- line 1: fixed-cycle feed
+        lda LogoColr,y          ; per-row neutral highlight
+        sta COLUPF              ; @7
+        lda LogoPF0L,y
+        sta PF0                 ; @15
+        lda LogoPF1L,y
+        sta PF1                 ; @22
+        lda LogoPF2L,y
+        sta PF2                 ; @29
+        nop
+        nop
+        nop
+        lda LogoPF0R,y
+        sta PF0                 ; @42
+        lda LogoPF1R,y
+        sta PF1                 ; @49
+        nop
+        lda LogoPF2R,y
+        sta PF2                 ; @58
+        sta WSYNC               ; ---- line 2: feed again
+        lda LogoPF0L,y
+        sta PF0
+        lda LogoPF1L,y
+        sta PF1
+        lda LogoPF2L,y
+        sta PF2
+        nop
+        nop
+        nop
+        lda LogoPF0R,y
+        sta PF0
+        lda LogoPF1R,y
+        sta PF1
+        nop
+        lda LogoPF2R,y
+        sta PF2
+        dec BandLine
+        bne .lhold
+        lda #8
+        sta BandLine
+        iny
+.lhold:
+        dex
+        bne .lloop
+        lda #0                  ; clear the playfield below the logo
+        sta PF0
+        sta PF1
+        sta PF2
+        ; --- gap sky: 8 scanlines --------------------------------
+        lda SkyGrad+9
+        sta COLUBK
+        ldx #8
+.gap:
+        sta WSYNC
+        dex
+        bne .gap
+        ; --- the game's word, small and white: 12 scanlines ------
+        lda #COL_TEXT
+        sta COLUPF
+        ldy #0                  ; rows 0-5 of story screen 0
+.sub:
+        sta WSYNC               ; ---- line A (story kernel feed)
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        sta WSYNC               ; ---- line B
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        iny
+        cpy #6
+        bne .sub
+        lda #0                  ; clear below the subtitle
+        sta PF0
+        sta PF1
+        sta PF2
+        ; --- bottom sky: 20 scanlines, gradient resumes ----------
+        ldx #0
+.sky2:
+        sta WSYNC
+        txa                     ; absolute line = 172 + X
+        clc
+        adc #172
+        lsr
+        lsr
+        lsr
+        lsr
+        tay
+        lda SkyGrad,y
+        sta COLUBK
+        inx
+        cpx #20
+        bne .sky2
+        rts
+
+; ---------------------------------------------------------------
+; StoryKernel: narration text on the asymmetric playfield. All six
+; PF bytes re-fed every scanline from the generated plane data (an
+; asymmetric playfield must be re-fed or the right half bleeds into
+; the left). Ported verbatim from game 1. White text on black.
+; ---------------------------------------------------------------
+
+StoryKernel:
+        SUBROUTINE
+        lda #0
+        sta GRP0
+        sta GRP1
+        sta ENAM0
+        sta ENAM1
+        sta ENABL
+        sta PF0
+        sta PF1
+        sta PF2
+        sta COLUBK
+        ldx #0
+        ldy TextEnd             ; blank row until the text block starts
+.sloop:
+        sta WSYNC               ; ---- line 1
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        sta WSYNC               ; ---- line 2
+        lda (TPtr),y
+        sta PF0
+        lda (TPtr+2),y
+        sta PF1
+        lda (TPtr+4),y
+        sta PF2
+        lda (TPtr+6),y
+        sta PF0
+        lda (TPtr+8),y
+        sta PF1
+        nop
+        lda (TPtr+10),y
+        sta PF2
+        inx
+        cpx TextTop
+        bne .noStart
+        ldy #$FF                ; so the iny below lands on row 0
+.noStart:
+        cpy TextEnd
+        beq .hold               ; stay on the blank row
+        iny
+.hold:
+        cpx #SCREEN_DU
+        bne .sloop
+        rts
+
 CopyBWorker:
-        jmp GoBackBank0         ; no world data yet: return to caller
+        jmp GoBackBank0         ; the call/return shape, kept honest
+
+; ---------------------------------------------------------------
+; Annex data: the logo (ported from Game 1; 8-byte tables must not
+; cross a page), its neutral highlight ramp, and this bank's copy of
+; the sky gradient offsets (two banks can't read each other's ROM).
+; ---------------------------------------------------------------
+        ALIGN 8
+LogoPF0L:   .byte $80,$40,$40,$80,$00,$40,$80
+            ds 1
+LogoPF1L:   .byte $CF,$22,$02,$C2,$22,$22,$C2
+            ds 1
+LogoPF2L:   .byte $7D,$04,$04,$3C,$04,$04,$7C
+            ds 1
+LogoPF0R:   .byte $10,$10,$10,$10,$10,$10,$F0
+            ds 1
+LogoPF1R:   .byte $20,$20,$20,$20,$20,$20,$BE
+            ds 1
+LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
+            ds 1
+; The mark is lit in the neutral ramp for Games 1-3 and BLOOMS into
+; the full Atari rainbow in Game 4, when the world itself gains colour
+; (decision #28, revised). The rainbow's per-row banding survives,
+; transposed into the channel every player can see.
+LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
+
+GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; == GradOfs (bank 0's copy
+                                            ; lives beside BuildSky)
+
+        include "text.inc"      ; every screen, including the title's
+        include "storytab.inc"  ; LoadStory1's pointer tables
 
 ; ---------------------------------------------------------------
 ; Bank 1 hotspots + vectors (identical to bank 0's: whichever bank is

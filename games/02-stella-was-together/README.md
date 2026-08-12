@@ -11,29 +11,69 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Current state (2026-07-29)
+## Current state (2026-08-13)
 
-**Act 1 is complete and the game has its opening.** Cold start → rainbow title
-on the dusk gradient sky → the **waking-Marcus opening** (black screen, the
-blue square alone; the sky assembles band by band, his eyes appear, Stella
-drops in, Alex slides in — fire skips) → Act 1's three floors in order, each
-with its narration:
+**Acts 1, 2 and 3 are complete.** Cold start → title on the dusk gradient →
+the **waking-Marcus opening** → nine floors in order, each with narration.
+The spatial ladder stands full height: wrap (always on) → portal →
+world-swap, each verb kept as the next arrives (decision #18).
 
-1. **Together Again** — the cooperative boost carries over from Game 1; the
-   colour totem teaches per-colour homes. *"NOT EVERY CLIMB IS MADE ALONE."*
-2. **The Low Door** — Marcus's gift (decision #21): a tunnel only he can
-   enter — Stella is 1 du too tall for the slot, Alex's jump 6 du too weak
-   for the sill; Stella alone crowns the slab above it.
-   *"THE DOOR KNEW WHO IT WAS FOR."*
-3. **The Wall** — the wrap twist: a wall to the sky, decoy stairs that
-   promise the top and lie, Alex alone on the far side — and the answer is
-   off the edge of the screen. *"THEY WENT THE OTHER WAY AROUND."*
+**Act 1 — wrap:**
+1. **Together Again** — the boost carries over; the totem teaches per-colour
+   homes. *"NOT EVERY CLIMB IS MADE ALONE."*
+2. **The Low Door** — Marcus's gift: a tunnel only he fits. *"THE DOOR KNEW
+   WHO IT WAS FOR."*
+3. **The Wall** — the wrap twist: the answer is off the edge of the screen.
+   *"THEY WENT THE OTHER WAY AROUND."*
 
-Every floor is solver-proven (`make` runs `tools/check_levels.py`; the build
-fails if a floor isn't provably completable, has a false-completion spot, or
-its teaching isn't load-bearing — Floor 3 is proven UNSOLVABLE with wrap off).
-Adding a floor is one row in the floor tables + a record + a narration string
-+ a proof row in the solver.
+**Act 2 — portal** (UP in a blinking 8px column teleports the active
+character to that column's mouth):
+4. **The Fold** — locked room: every home above a stack-proof shelf; the
+   only move is the door. *"IT FOLDED."*
+5. **The High Door** — old verb gates the new: guard walls around the
+   column; Alex needs a boost to reach it, and the lintel is his home.
+   *"TOO HIGH."*
+6. **The Cross** — the doors cross the screen; portals stop meaning "up".
+   *"SIDEWAYS."*
+
+**Act 3 — world-swap** (UP while grounded in a thin 4px **rift** beam at
+the screen's edge swaps which truth the room is in; you never move — the
+world does; the sky's gradient reverses as the constant which-world tell):
+7. **Two Truths** — the homes sit visible on their totem from frame one,
+   provably unreachable in world A; world B owns the approach ladder (and
+   its 16-du rungs gate Alex into a boost). *"TWO TRUTHS / ONE PLACE."*
+8. **The Handoff** — world A's staircase ends at a shared perch in the
+   beam; world B's continuation begins there. Proven: NEITHER world alone
+   can finish (the perch sits 2 du above the best stack-jump), so the
+   handoff is the only way. *"EACH TRUE / IN TURN."*
+9. **The Way Home** — the twist: the stairs are in world B but the homes
+   are in world A — swap there, climb, and the lamps VANISH (in B those
+   ledges were never true), so swap back onto what you earned. *"THE WAY
+   HOME / WAS THROUGH."*
+
+**The world-swap grammar** (what makes three characters safe in a world
+that rearranges itself — the workbench was Stella-only and never faced it):
+swaps are **grounded-only** and **rift-gated**, and every box that differs
+between worlds is **one-way** — no body can be left inside a new wall; the
+worst a swap can do is drop you. The delivery is a **pointer swap** (world
+B's interior planes + boxes live after the record; `SwapWorld` repoints
+three pointers and reverses the sky), not the workbench's 24-byte-RAM bank
+copy — RAM is full (the lamps own those bytes now), and the mapper chip was
+never visible to the player anyway. See decisions.md #9's amendment.
+
+**The solver** runs per-floor proofs on every `make`: solvable with help,
+teaching load-bearing (wrap-off / portal-off / swap-off / each-world-alone
+negative proofs), playability margins, and the art audits (portal and rift
+columns: the ON/OFF plane copies must differ by exactly the column mask the
+input tables claim). Adding a floor is one row in each floor table + a
+record + a narration string + a proof row.
+
+**The bank-1 annex.** The title and narration states never share a frame
+with play, so both live in bank 1 now (frame loops, kernels, logic, all
+text) — bank 0 hands over at `MainLoop`'s top and gets the frame back on
+fire. That's what funded Act 3 (and what the F8 skeleton was keeping honest
+for). ROM: exactly 8192 bytes; **bank 0 has 11 bytes free** (Act 4's finale
+will need a small diet first, as usual); bank 1 has ~2.5 KB free.
 
 Build & run: `make` → `build/stella-was-together.bin` (exactly 8192 bytes).
 Note: Stella caches a ROM in memory — after a rebuild, quit and reopen the
@@ -93,7 +133,15 @@ world-swap re-attaches in Act 3.
       world-swap's two truths of one place, anti-gravity regions) make
       same-height surfaces the point rather than an accident, so the test
       moved into the ROM
-- [ ] Act 2 (portal floors — re-attach the portal verb from `game2-workbench`)
-- [ ] Act 3 (world-swap floors — re-attach per #24), Act 4 finale
+- [x] **Act 2 (portal floors)** — the verb re-attached from
+      `game2-workbench` (pointer-swap blink; feet-du mouths), three floors
+      (locked room / boost-gated door / the doors cross), all proven:
+      solvable, portal-off unsolvable, art-vs-table audit clean
+- [x] **Act 3 (world-swap floors)** — grounded rift-gated swaps; the
+      one-way-difference grammar (audited); F7/F8/F9 with swap-off and
+      each-world-alone negative proofs; the sky reverses as the
+      which-world tell. The bank-1 annex (title + story moved out of the
+      game bank) funded it
+- [ ] Act 4 finale (one floor composing wrap + portal + swap)
 - [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio
-- [ ] Dual-gravity variation floors where Acts 2-3 want them (decision #25)
+- [ ] Dual-gravity variation floors where Act 4 wants them (decision #25)

@@ -198,6 +198,38 @@ place" idea may migrate to Game 4's meta-awareness theme. The lighter spatial ve
 carry Game 2 — screen wrap and in-screen portals — need no bank switching at all, so 8K's
 spare banks free up for characters, levels, and animation.
 
+**AMENDMENT (2026-08-13) — how Act 3's swap is actually delivered, and the
+grammar that makes it safe.** Two things the prototype never had to face:
+
+- **Delivery: pointer swap, not bank switch.** The workbench moved world B's
+  planes through a 24-byte RAM copy (`PFRam`); the real game's RAM is full
+  (the home lamps own the old per-state-union bytes). So a dual floor's
+  record carries world B's interior planes and boxes after the world-A
+  record, and the swap repoints `PF1Ptr/PF2Ptr/PlatPtr` and reverses the sky
+  gradient — the which-world tell runs on the luma channel (ramp backwards),
+  not a warm/cool hue flip, per #27. The mapper chip never switches during
+  play at all. What the player learns — "this place has two truths" — is
+  unchanged; the hardware poetry was never visible to them. (Bank 1 did not
+  go to waste: it is the ANNEX — title and narration live there, which is
+  what paid for Act 3's bank-0 bytes.)
+- **The grammar: only ONE-WAY boxes may differ between worlds, and swaps are
+  grounded-only and rift-gated.** The workbench was Stella-only; with three
+  characters, swapping a solid wall in leaves any friend standing in its
+  footprint embedded in it — a silent rules-violation the series' teaching
+  style can't announce. One-way ledges never side-block, so the worst a swap
+  can do is drop you (legal). The rift gate makes every swap moment a finite
+  standing state the solver can prove clear in both worlds. The workbench's
+  mid-air switch (T3) is retired by the grounded rule — the solver only
+  models standing states, and an unprovable verb is a bug farm.
+  `check_levels.py` audits both rules on every build, plus the rift art
+  mask, plus the negative proofs (no-swap, and for the interleave floors,
+  each-world-alone).
+
+Also settled by Act 3's floors: homes are fixed across worlds (the truths
+differ in what you can STAND on, never in where home is), and place-and-hold
+(#26) therefore forces every floor's homes to coexist in ONE world — the
+"her truth / his truth" split ending is impossible by construction.
+
 ---
 
 ## 10. Repository Structure
@@ -747,6 +779,16 @@ world/actor split added 2026-07-29) — a governing rule, then three layers:
 - **Shape echo:** where home markers are geometry, their width matches their
   owner's body — Game 2 Floor 1's middle (Alex) ledge is double-wide. Game 1's
   missiles are capped at 8px by hardware; luma + lamps carry it there.
+
+**AMENDMENT (2026-08-13) — the lamp's honesty rule.** A home lamp paints its
+whole playfield BAND, so a home must BE its band's content: Act 2's floors
+keep to the rule that the tinted feature and the home zone coincide — "the
+whole shelf" (F4's Alex, F5/F6's Marcus), "either mirrored twin" (F4's Marcus
+ledges, F6's Alex ledges — one zone spanning both, the Floor-3 pattern), or
+"both guard lintels" (F5's Alex) — and never a *slice* of a tinted feature,
+which would promise more home than the test grants. Bands are per-floor
+distinct per character (three homes, three bands); this ruled out
+ground-level homes outright, because band 11's content is the whole floor.
 
 ## 28. Title & Screen Design Language Across the Series
 
