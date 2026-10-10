@@ -2081,12 +2081,12 @@ Level2:
 ;     corner step: jump at the far wall and it catches you -------
 Level3:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$70,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$1E,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$EF,$00,$FF
-        .byte 88,40,80,80,72,$FF             ; box tops
-        .byte 96,80,88,88,80,$FF             ; box bottoms
-        .byte 0,68,4,148,40,0                ; box lefts
-        .byte 160,92,12,156,64,0             ; box rights (excl)
+        .byte 88,40,80,80,72,80               ; box tops
+        .byte 96,80,88,88,80,88               ; box bottoms
+        .byte 0,68,4,148,40,116               ; box lefts
+        .byte 160,92,12,156,64,132             ; box rights (excl)
         .byte 2
         .byte 60, 88-STELLA_H
         .byte 30, 88-ALEX_H
@@ -2097,7 +2097,7 @@ Level3:
                                           ; OVER, not a step she walks up.
                                           ; Her old home was the floor at 24.
                                           ; Alex: the far corner step, 80
-        .byte 56,69, 124,85              ; alt: shifted along the shelf
+        .byte 56,69, 120,77              ; alt: shifted along the shelf,
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -2120,12 +2120,12 @@ Level4:
 ;     beneath — both routes through the same obstacle ------------
 Level5:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$80,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$F8,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
-        .byte 88, 56, 72, 72, 80, $FF
-        .byte 96, 80, 80, 80, 88, $FF      ; rc2.1: solid, full band
-        .byte 0,  60, 32, 112,140,0
-        .byte 160,100,48, 128,160,0
+        .byte 88, 56, 72, 72, 80, 80
+        .byte 96, 80, 80, 80, 88, 88      ; rc2.1: solid, full band
+        .byte 0,  60, 32, 112,140,124
+        .byte 160,100,48, 128,160,140
         .byte 2
         .byte 10, 88-STELLA_H
         .byte 20, 88-ALEX_H
@@ -2137,7 +2137,10 @@ Level5:
                                           ; route led nowhere and the second
                                           ; half of "Ascent" was a walk. He
                                           ; rises 10, so the 8du is his own
-        .byte 76, 53, 152,77              ; alt: Alex to the corner
+        .byte 76, 53, 130,77              ; alt: Alex to the corner —
+                                          ; the pad sat at the step's far
+                                          ; edge where Stella cannot stand
+                                          ; beside him to give the boost
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. Under place-and-hold the order is
