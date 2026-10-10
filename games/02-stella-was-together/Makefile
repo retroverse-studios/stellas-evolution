@@ -2,7 +2,7 @@ ROM := build/stella-was-together.bin
 
 all: $(ROM) check
 
-TEXTGEN := src/text0.inc src/text.inc src/storytab.inc
+TEXTGEN := src/text.inc src/storytab.inc
 
 $(ROM): src/main.asm src/vcs.h $(TEXTGEN)
 	@mkdir -p build

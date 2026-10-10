@@ -117,7 +117,61 @@ def load(bin_path, sym_path, asm_path):
     num_chars = int(re.search(r"NUM_CHARS\s*=\s*(\d+)", asm).group(1))
     num_floors = int(re.search(r"NUM_FLOORS\s*=\s*(\d+)", asm).group(1))
 
+    # --- TABLE BOUNDS (the fix for the FloorPortL overrun) ----------
+    # Every per-floor table the solver indexes by FloorSeq must have at
+    # least NUM_FLOORS entries. We can't see a .byte table's length in
+    # the symbol file, so we bound it by the NEXT symbol that starts
+    # above it in the same bank: a table that overruns is a table whose
+    # reading runs into whatever follows, which is how FloorPortL (six
+    # entries, nine floors) silently handed the solver a phantom portal
+    # on three floors. This asserts the property for every such table
+    # at once, so the next one added is checked for free.
+    #
+    # Both banks map at $F000, so symbols are compared within a bank:
+    # a bank-0 symbol at $fabc and a bank-1 symbol at $f010 are 4096
+    # apart, not 0.
+    def span(name):
+        """Bytes available to `name` before the next symbol in its bank."""
+        base = syms[name]
+        bank = base & 0x1000
+        nxt = [a for a in syms.values() if (a & 0x1000) == bank and a > base]
+        return min(nxt) - base if nxt else 0x1000
+
+    def need(name, count, why):
+        have = span(name)
+        if have < count:
+            print("check-levels: TABLE OVERRUN — %s is indexed %d ways "
+                  "(%s) but only %d bytes exist before the next symbol"
+                  % (name, count, why, have))
+            sys.exit(1)
+
+    for tbl, why in (("FloorRecLo", "the floor record pointer"),
+                     ("FloorHomeLo", "the home height table"),
+                     ("FloorWrapTbl", "the edge mode"),
+                     ("FloorSkyTbl", "the sky base"),
+                     ("FloorStoryTbl", "the narration id"),
+                     ("FloorRiftL", "the rift column"),
+                     ("FloorPortL", "portal column A"),
+                     ("FloorPort2L", "portal column B")):
+        need(tbl, num_floors, why)
+    # mouths are interleaved two per floor
+    need("FloorMouX", 2 * num_floors, "portal mouths")
+    need("FloorMouY", 2 * num_floors, "portal mouths")
+    # per-character, per-floor lamp bands
+    need("FloorBandByChar", 3 * num_floors, "home lamp bands")
+
+    # --- PHYSICS TABLES ------------------------------------------
+    # The solver's whole value is that it reads the ROM's tables rather
+    # than restating them. Assert every one it depends on actually
+    # resolves, so a renamed or dropped table is a build failure and
+    # not a silently-stale constant.
+
     def u8n(name, n):     # first n bytes of a table (per-character arrays)
+        if name not in syms:
+            print("check-levels: MISSING SYMBOL %s — the solver reads it "
+                  "from the ROM, so this is a rename, not a bug you can "
+                  "ignore" % name)
+            sys.exit(1)
         base = syms[name] - ROM_BASE
         return list(rom[base:base + n])
 
@@ -127,12 +181,29 @@ def load(bin_path, sym_path, asm_path):
         "h3": u8n("HeightTbl", num_chars), "w3": u8n("WidthTbl", num_chars),
         "spd3": u8n("SpeedTbl", num_chars), "maxx3": u8n("MaxXTbl", num_chars),
         "jhi3": u8n("JumpHiTbl", num_chars), "jlo3": u8n("JumpLoTbl", num_chars),
+        # SpeedHalfTbl: Marcus walks 1.5px/frame (an extra pixel every
+        # other frame). The solver USED to ignore this and model every
+        # character at their whole-pixel SpeedTbl — a silent
+        # under-approximation that happened not to flip any verdict
+        # but meant the proofs were not about the game as built.
+        "half3": u8n("SpeedHalfTbl", num_chars),
     }
+    for name in ("SpeedTbl", "SpeedHalfTbl", "HeightTbl", "WidthTbl",
+                 "MaxXTbl", "JumpHiTbl", "JumpLoTbl"):
+        if name not in syms:
+            print("check-levels: MISSING SYMBOL %s" % name)
+            sys.exit(1)
 
     if num_floors != len(FLOOR_DEFS):
         print("check-levels: NUM_FLOORS=%d but %d FLOOR_DEFS — add the "
               "new floor's proof metadata here" % (num_floors, len(FLOOR_DEFS)))
         sys.exit(1)
+
+    # FloorBandByChar is indexed char*3 + floor (MulThree + FloorSeq,
+    # exactly as PrepSprites does it), so the whole table is read once
+    # here and indexed [ci*3 + floor] below.
+    bb = syms["FloorBandByChar"] - ROM_BASE
+    bands = list(rom[bb:bb + 3 * num_floors])
 
     floors = []
     for f in range(num_floors):
@@ -174,6 +245,7 @@ def load(bin_path, sym_path, asm_path):
                        (rom[rec + 64], rom[rec + 65])],
             "portals": portals,
             "rifts": rifts,
+            "band": bands,
             "boxesB": list(rom[rec + 102:rec + 126]) if dual else None,
             # the record's three art planes and, for portal floors, the
             # OFF copy at record+66 that BlinkPortal swaps in (on dual
@@ -191,7 +263,18 @@ class Char1:
     """One character's physics on a single-world floor, with optional
     helper HEAD surfaces (the stacking beat). A port of Game 1's proven
     per-character solver, adapted to Game 2's three characters, one-way
-    ledges and wrap edges. Vertical is 16-bit 8.8; x is integer."""
+    ledges and wrap edges. Vertical is 16-bit 8.8; x is integer.
+
+    SpeedHalfTbl is honoured. Marcus walks 1.5px/frame — SpeedTbl on
+    even frames, SpeedTbl+1 on odd — which WalkSpeed does with
+    `FrameCtr & SpeedHalfTbl & 1`. The solver used to read SpeedTbl
+    alone and model him at a flat 1.0. That is an under-approximation
+    of a real speed, so every "he can't quite make it" conclusion was
+    being drawn about a character slower than the one in the ROM. The
+    fix carries the frame parity in the state: a state is
+    (x, feet, parity) and the step size follows from the parity, which
+    is exactly what the engine's FrameCtr does.
+    """
 
     def __init__(self, boxes, phys, ci, wrap):
         self.tops = boxes[0:6]
@@ -201,6 +284,7 @@ class Char1:
         self.h = phys["h3"][ci]
         self.w = phys["w3"][ci]
         self.spd = phys["spd3"][ci]
+        self.half = phys["half3"][ci] & 1     # 1 = the odd-frame extra px
         self.maxx = phys["maxx3"][ci]
         j = (phys["jhi3"][ci] << 8) | phys["jlo3"][ci]
         self.jump = j - 0x10000 if j & 0x8000 else j
@@ -212,6 +296,11 @@ class Char1:
         self.wrap_hi = phys["wrap_hi"]
         self.extra = []            # (top, left, right) helper head surfaces
         self.portals = []          # ((l, r), (mouth_x, mouth_feet))
+
+    def fstep(self, par):
+        """This frame's horizontal step: the half-step character gets
+        one extra pixel on odd frames, exactly as WalkSpeed does."""
+        return self.spd + self.half if par else self.spd
 
     def clamp_x(self, x, new_x, y, direction):
         cyh = y + self.h
@@ -255,12 +344,13 @@ class Char1:
                 return top
         return None
 
-    def arc(self, x, feet, jump, direction):
+    def arc(self, x, feet, jump, direction, par=0):
         y256 = (feet - self.h) << 8
         vy = self.jump if jump else 0
+        np = par ^ 1
         for _ in range(600):
             if direction:
-                x = self.clamp_x(x, x + direction * self.spd,
+                x = self.clamp_x(x, x + direction * self.fstep(par),
                                  y256 >> 8, direction)
             prev_feet = (y256 >> 8) + self.h
             vy = min(vy + self.grav, self.maxfall)
@@ -281,45 +371,50 @@ class Char1:
                 top = self.landing(prev_feet, y + self.h, x)
                 if top is not None:
                     return (x, top)
+            par = np
         return None
 
-    def portal_edge(self, x):
+    def portal_edge(self, x, par=0):
         """If x overlaps a column, the standing state the teleport
         delivers: arrive at the mouth with zero velocity and let the
         same gravity everyone lives by seat them (a mouth over open air
         would fall; the shipped floors all mouth onto a surface)."""
         for (l, r), (mx, mfeet) in self.portals:
             if x < r and x + self.w > l:
-                return self.arc(mx, mfeet, False, 0)
+                return self.arc(mx, mfeet, False, 0, par)
         return None
 
     def footing(self, start):
-        """BFS over standing states; returns {feet: set(x)}."""
+        """BFS over standing states; returns {feet: set(x)}. The state
+        carries the frame parity for half-step characters, so both
+        their step sizes are explored — the ROM alternates, so the
+        player can be moving at either rate on any given frame."""
         sx, sy = start
-        seen, stack, foot = set(), [(sx, sy + self.h)], {}
+        seen, stack, foot = set(), [(sx, sy + self.h, 0)], {}
         while stack:
-            x, feet = stack.pop()
-            if (x, feet) in seen:
+            x, feet, par = stack.pop()
+            if (x, feet, par) in seen:
                 continue
-            seen.add((x, feet))
+            seen.add((x, feet, par))
             foot.setdefault(feet, set()).add(x)
+            np = par ^ 1
             if self.portals:       # the Act-2 verb: UP in a column
-                land = self.portal_edge(x)
+                land = self.portal_edge(x, par)
                 if land is not None:
-                    stack.append(land)
+                    stack.append((land[0], land[1], np))
             for d in (-1, 1):      # walk one step
-                nx = self.clamp_x(x, x + d * self.spd, feet - self.h, d)
+                nx = self.clamp_x(x, x + d * self.fstep(par), feet - self.h, d)
                 if nx != x:
                     if self.landing(feet, feet, nx) is not None:
-                        stack.append((nx, feet))
+                        stack.append((nx, feet, np))
                     else:
-                        land = self.arc(x, feet, False, d)
+                        land = self.arc(x, feet, False, d, par)
                         if land is not None:
-                            stack.append(land)
+                            stack.append((land[0], land[1], np))
             for d in (-1, 0, 1):   # jump left / straight / right
-                land = self.arc(x, feet, True, d)
+                land = self.arc(x, feet, True, d, par)
                 if land is not None:
-                    stack.append(land)
+                    stack.append((land[0], land[1], np))
         return foot
 
     def can_home(self, start, home_feet, home_l, home_r):
@@ -419,38 +514,41 @@ class DualSim:
             self.sims.append(s)
 
     def footing(self, start):
-        """BFS: returns set of (x, feet, world) standing states."""
+        """BFS: returns set of (x, feet, world) standing states. The frame
+        parity rides along so half-step characters explore both of the
+        step sizes the ROM alternates between."""
         sx, sy = start
-        seen, stack = set(), [(sx, sy + self.h, self.start_world)]
+        seen, stack = set(), [(sx, sy + self.h, self.start_world, 0)]
         while stack:
-            x, feet, w = stack.pop()
-            if (x, feet, w) in seen:
+            x, feet, w, par = stack.pop()
+            if (x, feet, w, par) in seen:
                 continue
-            seen.add((x, feet, w))
+            seen.add((x, feet, w, par))
             sim = self.sims[w]
+            np = par ^ 1
             for (l, r) in self.rifts:      # the swap edge
                 if x < r and x + self.w > l:
-                    land = self.sims[1 - w].arc(x, feet, False, 0)
+                    land = self.sims[1 - w].arc(x, feet, False, 0, par)
                     if land is not None:
-                        stack.append((land[0], land[1], 1 - w))
+                        stack.append((land[0], land[1], 1 - w, np))
             for d in (-1, 1):              # walk one step
-                nx = sim.clamp_x(x, x + d * sim.spd, feet - sim.h, d)
+                nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
                     if sim.landing(feet, feet, nx) is not None:
-                        stack.append((nx, feet, w))
+                        stack.append((nx, feet, w, np))
                     else:
-                        land = sim.arc(x, feet, False, d)
+                        land = sim.arc(x, feet, False, d, par)
                         if land is not None:
-                            stack.append((land[0], land[1], w))
+                            stack.append((land[0], land[1], w, np))
             for d in (-1, 0, 1):           # jump left / straight / right
-                land = sim.arc(x, feet, True, d)
+                land = sim.arc(x, feet, True, d, par)
                 if land is not None:
-                    stack.append((land[0], land[1], w))
+                    stack.append((land[0], land[1], w, np))
         return seen
 
     def can_home(self, start, hf, hl, hr):
         return any(feet == hf and x < hr and x + self.w > hl
-                   for x, feet, _ in self.footing(start))
+                   for x, feet, _w, _p in self.footing(start))
 
     def entry_moves(self, start, hf, hl, hr):
         """Ways in, dual-world: the single-world count plus swap
@@ -458,27 +556,31 @@ class DualSim:
         def is_home(x, feet):
             return feet == hf and x < hr and x + self.w > hl
         ways = []
-        for x, feet, w in self.footing(start):
+        for x, feet, w, par in self.footing(start):
             if is_home(x, feet):
                 continue
             sim = self.sims[w]
+            if not sim.half:
+                # one parity is enough for a whole-pixel character (and
+                # its mirror world's twin) — see entry_moves
+                par = 0
             for (l, r) in self.rifts:
                 if x < r and x + self.w > l:
-                    land = self.sims[1 - w].arc(x, feet, False, 0)
+                    land = self.sims[1 - w].arc(x, feet, False, 0, par)
                     if land and is_home(land[0], land[1]):
                         ways.append(((x, feet, w), "swap"))
             for d in (-1, 1):
-                nx = sim.clamp_x(x, x + d * sim.spd, feet - sim.h, d)
+                nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
                     if sim.landing(feet, feet, nx) is not None:
                         if is_home(nx, feet):
                             ways.append(((x, feet, w), "walk"))
                     else:
-                        land = sim.arc(x, feet, False, d)
+                        land = sim.arc(x, feet, False, d, par)
                         if land and is_home(land[0], land[1]):
                             ways.append(((x, feet, w), "step off"))
             for d in (-1, 0, 1):
-                land = sim.arc(x, feet, True, d)
+                land = sim.arc(x, feet, True, d, par)
                 if land and is_home(land[0], land[1]):
                     ways.append(((x, feet, w), "jump"))
         return ways
@@ -535,7 +637,7 @@ def check_swap_safety(fl, phys):
         w_ = phys["w3"][ci]
         for w in (0, 1):
             sim = DualSim(fl, phys, ci, fl["wrap"], ())
-            for x, feet, ww in sim.footing(fl["spawns"][ci]):
+            for x, feet, ww, _p in sim.footing(fl["spawns"][ci]):
                 if ww != w:
                     continue
                 if not any(x < r and x + w_ > l for l, r in fl["rifts"]):
@@ -590,28 +692,34 @@ def entry_moves(sim, start, hf, hl, hr):
     def is_home(x, feet):
         return feet == hf and x < hr and x + sim.w > hl
     ways = []
+    # Only a half-step character has two distinct step sizes, so only it
+    # is worth visiting twice — otherwise every (state, action) pair is
+    # counted once per parity, the margins roughly double, and the
+    # calibrated MIN_WAYS_IN threshold stops meaning anything.
+    pars = (0, 1) if sim.half else (0,)
     for feet, xs in sim.footing(start).items():
         for x in xs:
             if is_home(x, feet):
                 continue
-            if sim.portals:      # arriving by door is a way in too
-                land = sim.portal_edge(x)
-                if land and is_home(*land):
-                    ways.append(((x, feet), "portal"))
-            for d in (-1, 1):
-                nx = sim.clamp_x(x, x + d * sim.spd, feet - sim.h, d)
-                if nx != x:
-                    if sim.landing(feet, feet, nx) is not None:
-                        if is_home(nx, feet):
-                            ways.append(((x, feet), "walk"))
-                    else:
-                        land = sim.arc(x, feet, False, d)
-                        if land and is_home(*land):
-                            ways.append(((x, feet), "step off"))
-            for d in (-1, 0, 1):
-                land = sim.arc(x, feet, True, d)
-                if land and is_home(*land):
-                    ways.append(((x, feet), "jump"))
+            for par in pars:
+                if sim.portals:      # arriving by door is a way in too
+                    land = sim.portal_edge(x, par)
+                    if land and is_home(*land):
+                        ways.append(((x, feet), "portal"))
+                for d in (-1, 1):
+                    nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
+                    if nx != x:
+                        if sim.landing(feet, feet, nx) is not None:
+                            if is_home(nx, feet):
+                                ways.append(((x, feet), "walk"))
+                        else:
+                            land = sim.arc(x, feet, False, d, par)
+                            if land and is_home(*land):
+                                ways.append(((x, feet), "step off"))
+                for d in (-1, 0, 1):
+                    land = sim.arc(x, feet, True, d, par)
+                    if land and is_home(*land):
+                        ways.append(((x, feet), "jump"))
     return ways
 
 
@@ -686,6 +794,50 @@ def check_portal_art(fl):
     return fails
 
 
+def check_lamp_bands(fl, phys):
+    """The HOME LAMPS must be painted on the bands that ARE the homes.
+
+    FloorBandByChar[char*3 + floor] picks the 8-du band PrepSprites
+    tints in that character's colour. The table's own comment claims a
+    rule it "keeps honest" — three distinct bands per floor, and a
+    tinted band is a whole home rather than a slice of one — but
+    nothing checked it. Portal and rift art both get audited; the lamp
+    that IS the goal feedback (#27) did not, which meant a wrong entry
+    would paint Stella's lamp on Alex's ledge and the build would stay
+    green. A band is 8 du tall (du = 2 scanlines, bands are 16), so a
+    lamp is correct when its band actually overlaps its owner's home
+    span, vertically and horizontally.
+    """
+    fails = []
+    tb = fl["band"]
+    mine = [tb[ci * 9 + fl["idx"]] for ci in range(3)]
+    if len(set(mine)) != 3:
+        fails.append("lamp bands %s are not three distinct bands — two "
+                     "characters would share (and overwrite) one lamp"
+                     % (mine,))
+    for ci, band in enumerate(mine):
+        if band > 11:
+            fails.append("%s's lamp band %d is off the top of the screen"
+                         % (NAMES[ci], band))
+            continue
+        # A band is a full-width horizontal stripe 8 du tall (96 du of
+        # screen in 12 bands), and it is the DRAWN LEDGE the home sits
+        # on — not the body. The character stands on top of the ledge, so
+        # the band's job is to contain the surface the feet land on:
+        # feet = homeY + height. Testing the body instead would be wrong
+        # by the character's whole height, which is how this audit first
+        # reported every floor in the game as broken.
+        feet = fl["homeY"][ci] + phys["h3"][ci]
+        lo, hi = band * 8, band * 8 + 8
+        if not (lo <= feet < hi):
+            fails.append("%s's lamp band %d (du %d-%d) does not contain "
+                         "its home surface (du %d) — the lamp would be "
+                         "painted at the wrong height, so the one piece "
+                         "of feedback that teaches the goal rule would lie"
+                         % (NAMES[ci], band, lo, hi, feet))
+    return fails
+
+
 def check_floor_dual(fl, phys, name):
     """The Act-3 path: the same three proofs (all-home, home-height
     uniqueness advisory, ways-in margin) over the two-world state
@@ -706,12 +858,13 @@ def check_floor_dual(fl, phys, name):
         hl, hr = fl["home_box"][ci]
         w_ = phys["w3"][ci]
         sim = DualSim(fl, phys, ci, fl["wrap"], ())
-        bad = [(x, f, "AB"[w]) for x, f, w in sim.footing(fl["spawns"][ci])
-               if f == hf and not (x < hr and x + w_ > hl)]
+        bad = sorted({(x, f, "AB"[w]) for x, f, w, _p
+                    in sim.footing(fl["spawns"][ci])
+                    if f == hf and not (x < hr and x + w_ > hl)})
         if bad:
             warns.append("%s can stand at home height off the home box "
                          "(no longer completes — AtHome tests x): %s"
-                         % (NAMES[ci], sorted(bad)[:4]))
+                         % (NAMES[ci], bad[:4]))
 
     # (c) ways-in margin, best helper subset
     for ci in range(3):
@@ -744,6 +897,7 @@ def check_floor_dual(fl, phys, name):
 
     fails.extend(check_swap_safety(fl, phys))
     fails.extend(check_rift_art(fl))
+    fails.extend(check_lamp_bands(fl, phys))
 
     detail = " ; ".join("%s(home=%s,alone=%s)" % (NAMES[ci], res[ci][1],
                                                   res[ci][0])
@@ -784,7 +938,7 @@ def check_floor(fl, phys, name):
         if bad:
             warns.append("%s can stand at home height off the home box "
                          "(no longer completes — AtHome tests x): %s"
-                         % (NAMES[ci], sorted(bad)[:4]))
+                         % (NAMES[ci], bad[:4]))
 
     # (c) PLAYABILITY MARGIN — advisory, and the check that would have
     # caught Floor 1. A floor can be provably solvable and still be
@@ -856,6 +1010,7 @@ def check_floor(fl, phys, name):
                 fails.append("floor solvable with the portal OFF — the "
                              "portal is decorative")
             fails.extend(check_portal_art(fl))
+    fails.extend(check_lamp_bands(fl, phys))
 
     detail = " ; ".join("%s(home=%s,alone=%s)" % (NAMES[ci], homed[ci], solo[ci])
                         for ci in range(3))

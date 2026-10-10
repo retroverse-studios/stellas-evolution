@@ -1242,11 +1242,27 @@ UpdatePhysics:
         rts
 
 ; ---------------------------------------------------------------
-; CheckGoals: PLACE AND HOLD (decision #26). GoalDone,x is simply
-; "is this character STANDING on its own goal right now" — it is
-; recomputed from scratch every frame, so stepping off un-does it
-; and any order can be re-solved. The level completes the frame
-; everyone present holds their goal at once. Nobody exits.
+; CheckGoals: PLACE AND HOLD (decision #26), and now Game 2's EXACT
+; home rule too (the #31 convergence). GoalDone,x is "is this
+; character STANDING on its own goal right now" — recomputed from
+; scratch every frame, so stepping off un-does it and any order can
+; be re-solved. The level completes the frame everyone present
+; holds their goal at once. Nobody exits.
+;
+; ONE RULE FOR THE SERIES, matching Game 2's AtHome: grounded, plus
+; a horizontal overlap, plus the character's top at EXACTLY the home
+; height. The old test was a BOX OVERLAP against the 3du pad, which
+; accepted any standing height inside an 11du window — eleven
+; different surfaces could each count as home, and only the level
+; data kept that honest. That is precisely the fragility AtHome was
+; written to kill, and leaving it here would have kept #26's "one
+; goal mechanic" claim false in the one game a player meets first.
+;
+; The pad is drawn with its BOTTOM on the standing surface, so the
+; one height that counts is GoalY + GOAL_H - height. That keeps every
+; level record byte meaning exactly what it meant before (the pad's
+; top) — no data migration — while the test tightens from a window
+; to a single value. Two compares become one; this SAVES bytes.
 ; ---------------------------------------------------------------
 
 CheckGoals:
@@ -1271,19 +1287,13 @@ CheckGoals:
         cmp GoalX,x
         bcc .gnext
         beq .gnext
-        lda GoalY,x
-        clc
+        lda GoalY,x             ; the one home height: the pad's top
+        clc                     ; plus its depth, less this body
         adc #GOAL_H
-        sta Temp
-        lda CharY,x
-        cmp Temp
-        bcs .gnext
-        lda CharY,x
-        clc
-        adc HeightTbl,x
-        cmp GoalY,x
-        bcc .gnext
-        beq .gnext
+        sec
+        sbc HeightTbl,x
+        cmp CharY,x
+        bne .gnext              ; exact equality — Game 2's AtHome
         lda #1                  ; holding it
         sta GoalDone,x
 .gnext:
@@ -2071,18 +2081,23 @@ Level2:
 ;     corner step: jump at the far wall and it catches you -------
 Level3:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$70,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
-        .byte 88, 40, 80, 80, $FF,$FF
-        .byte 96, 80, 88, 88, $FF,$FF
-        .byte 0,  68, 4,  148,0,  0
-        .byte 160,92, 12, 156,0,  0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$EF,$00,$FF
+        .byte 88,40,80,80,72,$FF             ; box tops
+        .byte 96,80,88,88,80,$FF             ; box bottoms
+        .byte 0,68,4,148,40,0                ; box lefts
+        .byte 160,92,12,156,64,0             ; box rights (excl)
         .byte 2
         .byte 60, 88-STELLA_H
         .byte 30, 88-ALEX_H
-        .byte 24, 85                      ; Stella's goal: her side
-        .byte 146,77                      ; Alex's: the far corner step
-        .byte 16, 85, 124,85              ; alt: near left / past pillar
+        .byte 48,69                      ; Stella: the shelf (72), inside
+        .byte 146,77                     ; the corridor the pillar leaves
+                                          ; her. 16du up, which she clears —
+                                          ; but it is a wall she must arc
+                                          ; OVER, not a step she walks up.
+                                          ; Her old home was the floor at 24.
+                                          ; Alex: the far corner step, 80
+        .byte 56,69, 124,85              ; alt: shifted along the shelf
 
 ; --- Level 4 "Connection": Stella climbs to her perch while
 ;     Alex slips under the pillar to his goal --------------------
@@ -2104,19 +2119,25 @@ Level4:
 ; --- Level 5 "Ascent": Stella climbs the tower Alex slips
 ;     beneath — both routes through the same obstacle ------------
 Level5:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$80,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
-        .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
-        .byte 0,  60, 32, 112,0,  0
-        .byte 160,100,48, 128,0,  0
+        .byte 88, 56, 72, 72, 80, $FF
+        .byte 96, 80, 80, 80, 88, $FF      ; rc2.1: solid, full band
+        .byte 0,  60, 32, 112,140,0
+        .byte 160,100,48, 128,160,0
         .byte 2
         .byte 10, 88-STELLA_H
         .byte 20, 88-ALEX_H
         .byte 76, 53                      ; Stella: top of the tower
-        .byte 130,85                      ; Alex: beyond it
-        .byte 76, 53, 150,85              ; alt: Alex to the corner
+        .byte 144,77                     ; Alex: the far step (80). His
+                                          ; route UNDER the tower was the
+                                          ; point of the level, but his home
+                                          ; sat on the floor at 130 — so the
+                                          ; route led nowhere and the second
+                                          ; half of "Ascent" was a walk. He
+                                          ; rises 10, so the 8du is his own
+        .byte 76, 53, 152,77              ; alt: Alex to the corner
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. Under place-and-hold the order is
@@ -2124,38 +2145,51 @@ Level5:
 ;     there to be jumped from, so she settles onto her own goal last -
 Level6:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$F3,$00,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte 88, 72, 72, $FF,$FF,$FF
-        .byte 96, 80, 80, $FF,$FF,$FF     ; rc2.1: solid, full band
-        .byte 0,  112,40, 0,  0,  0
-        .byte 160,120,48, 0,  0,  0
+        .byte 88, 72, 72, 72, $FF,$FF        ; box tops
+        .byte 96, 80, 80, 80, $FF,$FF        ; box bottoms
+        .byte 0,  112,40, 128,0,  0          ; box lefts
+        .byte 160,120,48, 144,0,  0          ; box rights (excl)
         .byte 2
         .byte 80, 88-STELLA_H
         .byte 60, 88-ALEX_H
-        .byte 20, 85                      ; Stella: ground, far left
-        .byte 110,69                      ; Alex: the high right ledge
-        .byte 140,85, 34,69               ; alt: mirrored
+        .byte 40,69                      ; Stella: ON the du-72 step at 40,
+                                          ; not the floor at 20. She rises
+                                          ; ~21 so this one is hers alone —
+                                          ; she is still the stepstool for
+                                          ; Alex, she just has somewhere to
+                                          ; end up. The step at 128 is the
+                                          ; alternate's mirror of it
+        .byte 110,69                     ; Alex: the high right ledge
+        .byte 132,69, 34,69              ; alt: mirrored
 
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
 ;     needs the extra height from Alex's back, so he is the one who
 ;     goes home last ------------------------------------------------
 Level7:
         .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$78,$FF
         .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte 88, 64, 64, $FF,$FF,$FF
-        .byte 96, 72, 72, $FF,$FF,$FF     ; rc2: perches solid
-        .byte 0,  112,40, 0,  0,  0
-        .byte 160,120,48, 0,  0,  0
+        .byte 88, 64, 64, 80, 80, $FF        ; box tops
+        .byte 96, 72, 72, 88, 88, $FF    ; box bottoms (rc2: perches solid)
+        .byte 0,  112,40, 20, 124,0      ; box lefts
+        .byte 160,120,48, 36, 140,0      ; box rights (excl)
         .byte 2
         .byte 60, 88-STELLA_H
         .byte 80, 88-ALEX_H
-        .byte 112,61                      ; Stella: the high right perch
+        .byte 112,61                     ; Stella: the high right perch
                                           ; (rc2: flush on the perch —
                                           ; no more mid-air solo grab)
-        .byte 20, 85                      ; Alex: ground, far left
-        .byte 40, 61, 140,85              ; alt: mirrored (flush too)
+        .byte 24,77                      ; Alex: ON the new step (80).
+                                          ; His home was the floor at 20,
+                                          ; which made "he is the one who
+                                          ; goes home last" — the level's
+                                          ; own note — mean nothing: last
+                                          ; to a floor you walk to. 8du is
+                                          ; all he rises, so this is his
+                                          ; alone; the puzzle is hers.
+        .byte 40, 61, 128,77             ; alt: mirrored
 
 ; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
 ;     crosses under the tower, then needs Stella (who crossed over
@@ -2178,38 +2212,54 @@ Level8:
 ; --- Level 9 "Patience": Stella's perch needs Alex's back before
 ;     he goes on to his own goal beyond the pillar ---------------
 Level9:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$00,$FF
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$90,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$E0,$FF
         .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
-        .byte 88, 40, 64, 64, $FF,$FF
-        .byte 96, 80, 72, 72, $FF,$FF     ; rc2: perches solid
-        .byte 0,  68, 40, 112,0,  0
-        .byte 160,92, 48, 120,0,  0
+        .byte 88, 40, 64, 64, 80, $FF        ; box tops
+        .byte 96, 80, 72, 72, 88, $FF        ; box bottoms (rc2: perches solid)
+        .byte 0,  68, 40, 112,132,0         ; box lefts
+        .byte 160,92, 48, 120,148,0         ; box rights (excl)
         .byte 2
         .byte 30, 88-STELLA_H
         .byte 50, 88-ALEX_H
         .byte 40, 61                      ; Stella: the left perch, lifted
                                           ; (rc2: flush on the perch)
-        .byte 124,85                      ; Alex: beyond the pillar, after
-        .byte 40, 61, 144,85              ; alt: Alex further along
+        .byte 136,77                     ; Alex: the step beyond the pillar
+                                          ; (80), not the floor at 124. The
+                                          ; level is called Patience because
+                                          ; he waits for her back — but his
+                                          ; home was on the ground, so
+                                          ; there was nothing to be patient
+                                          ; about. He rises 10: this is his.
+        .byte 40, 61, 144,77              ; alt: Alex further along
 
 ; --- Level 10 "The Exit": over the tower and under it, and both
-;     goals waiting side by side beyond ---------------------------
+;     homes waiting one above the other beyond -----------------------
+;     REDESIGNED: both goals used to sit on the ground floor, so the
+;     finale's second half was two characters walking right. Neither
+;     had anything to solve. Now each has a climb, and Alex's climb is
+;     16du — a rise he cannot make alone (his is 10) — so he needs
+;     Stella's head as a stepstool exactly as on levels 6-9. The order
+;     is emergent, not enforced: Alex rides up first, Stella crosses
+;     from the tower top after, both hold at once.
 Level10:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
-        .byte $00,$81,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
-        .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
-        .byte 0,  60, 32, 112,0,  0
-        .byte 160,100,48, 128,0,  0
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$D0,$10,$00,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$07,$F7,$3F,$00,$FF
+        .byte $00,$00,$00,$00,$00,$00,$00,$7F,$7F,$7F,$00,$FF
+        .byte 88, 72, 72, 56, 64, $FF        ; box tops
+        .byte 96, 80, 80, 80, 72, $FF        ; box bottoms
+        .byte 0,  24, 56, 84, 128,0         ; box lefts
+        .byte 160,48,72,124,152,0           ; box rights (excl)
         .byte 2
-        .byte 10, 88-STELLA_H
-        .byte 20, 88-ALEX_H
-        .byte 132,85                      ; side by side, at the exit
-        .byte 144,85                      ; (rc2.1: past the far ledge,
-                                          ; which is a real wall now)
-        .byte 144,85, 132,85              ; alt: swapped
+        .byte 4, 88-STELLA_H               ; clear of the step: a solid
+        .byte 56, 88-ALEX_H                ; du-72 shelf is a WALL to her
+        .byte 32,69                      ; Alex: the left step (72), 16du
+        .byte 136,61                     ; up — his rise is 10 — so he rides
+                                          ; Stella's head, and she can stand
+                                          ; clear of it at x 4-15.
+                                          ; Stella: the high shelf (64),
+                                          ; reached over the tower from 56
+        .byte 40,69, 144,61              ; alt: shifted along each ledge
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py)

@@ -72,8 +72,10 @@ record + a narration string + a proof row.
 with play, so both live in bank 1 now (frame loops, kernels, logic, all
 text) — bank 0 hands over at `MainLoop`'s top and gets the frame back on
 fire. That's what funded Act 3 (and what the F8 skeleton was keeping honest
-for). ROM: exactly 8192 bytes; **bank 0 has 11 bytes free** (Act 4's finale
-will need a small diet first, as usual); bank 1 has ~2.5 KB free.
+for). ROM: exactly 8192 bytes; **bank 0 has 408 bytes free** (the README
+previously said 11, which was stale by ~400 bytes and had been used to
+justify "Act 4 will need a diet first" — it does not); bank 1 has ~2.5 KB
+free.
 
 Build & run: `make` → `build/stella-was-together.bin` (exactly 8192 bytes).
 Note: Stella caches a ROM in memory — after a rebuild, quit and reopen the
@@ -142,6 +144,16 @@ world-swap re-attaches in Act 3.
       each-world-alone negative proofs; the sky reverses as the
       which-world tell. The bank-1 annex (title + story moved out of the
       game bank) funded it
+- [x] **The floor clock** (decision #22 restored): left difficulty A arms
+      a 45-second clock on every floor; at zero the floor starts over, as
+      Game 1's story mode does. The signal is the world going dark, not
+      red — #27 makes hue mean agency, so urgency is spent out of the
+      sky's own luma instead, one step per four seconds over the last
+      sixteen. Costs 77 bytes of bank 0 and 3 of RAM. Game 2 had no
+      clock at all, which made the roomier cartridge strictly *more*
+      forgiving than the 4K one
 - [ ] Act 4 finale (one floor composing wrap + portal + swap)
 - [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio
+      (channel 1 is entirely unused — Game 1 has a level drone and Game 2
+      has silence, which is another axis that shrank rather than grew)
 - [ ] Dual-gravity variation floors where Act 4 wants them (decision #25)

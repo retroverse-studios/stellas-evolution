@@ -200,9 +200,22 @@ class Sim:
         return None, touched
 
     def touch(self, x, y, goal):
+        """Game 2's AtHome rule, verbatim (the #31 convergence): grounded
+        (the caller only ever asks about standing states), a horizontal
+        overlap of the 8px pad, and the body's top at EXACTLY the home
+        height. The home height is the pad's stored top + GOAL_H - this
+        body's height, because the pad is drawn with its bottom on the
+        standing surface — so every record byte keeps its old meaning.
+
+        This was a box overlap against the 3du pad, which accepted any
+        standing height in an 11du window. Eleven surfaces could each
+        count as home and only the level data prevented a false
+        completion. The solver proved the loose rule while the ROM now
+        enforces the tight one, which is the drift this repo exists to
+        prevent."""
         gx, gy = goal
-        return (x < gx + 8 and x + self.w > gx and
-                y < gy + self.p["goal_h"] and y + self.h > gy)
+        home_top = (gy + self.p["goal_h"] - self.h) & 0xFF
+        return (x < gx + 8 and x + self.w > gx and y == home_top)
 
     def reachable(self, start, goal):
         """BFS over standing states. Returns (goal_states, footing):
@@ -280,8 +293,75 @@ def char_can_finish(lvl, phys, ci, goal, helper):
     return len(holds) > 0, len(holds)
 
 
-def check_level(idx, lvl, phys):
+def col_drawn(rec, band, px):
+    """Is playfield pixel px (0-159) set in BAND `band` of this record?
+    The playfield is MIRRORED (CTRLPF=1), so the right half reflects
+    the left; the three planes cover px 0-15 / 16-47 / 48-79, one byte
+    per band each (PF0 at +0, PF1 at +12, PF2 at +24)."""
+    if px >= 80:
+        px = 159 - px
+    if px < 16:
+        return (rec[band] >> (4 + px // 4)) & 1
+    if px < 48:
+        return (rec[12 + band] >> (7 - (px - 16) // 4)) & 1
+    return (rec[24 + band] >> ((px - 48) // 4)) & 1
+
+
+def check_art(rec, lvl, idx):
+    """Decision #17's visual honesty rule, machine-checked at last.
+
+    Every collision box must be FULLY DRAWN over the bands it spans:
+    a slab you can stand on that isn't visible, or a visible slab you
+    fall through, is the exact bug RC2 was written to kill — and for
+    eight years nothing re-checked it. That matters more now than
+    before: redesigning levels to spend the spare boxes means editing
+    the playfield bytes and the collision table in the same breath, and
+    the two drifting apart is the easiest mistake in this file to make.
+
+    A band is 8 du (16 scanlines), so a box spanning du [bot, top] must
+    be drawn in every band from bot//8 up to top//8.
+    """
     problems = []
+    # The 4px side walls are a convention of EVERY level in this game
+    # (PF0 bit 4, the outer 4 columns) and they are not a collision
+    # box, so the box audit below cannot see them. Regenerating a
+    # level's playfield from its geometry drops them silently — which
+    # is exactly what happened to levels 3, 6 and 10 while their
+    # routes were being redesigned. A level with no walls still
+    # collides correctly (MIN_X/MaxXTbl clamp in code, not in the
+    # playfield), so nothing else would ever notice.
+    if (rec[0] & 0x10) == 0:
+        problems.append("PF0 band 0 has no $10 side wall — every other "
+                        "level in the game draws the 4px outer columns "
+                        "there. Nothing collides differently, it just "
+                        "looks like the screen has no frame.")
+    for b in range(NUM_BOXES):
+        if lvl.tops[b] == 0xFF:
+            continue
+        top, bot = lvl.tops[b], lvl.bots[b]
+        left, right = lvl.lefts[b], lvl.rights[b]
+        if top == bot:
+            continue           # a one-way shelf is drawn as an edge
+        lo, hi = top // 8, min(11, (bot - 1) // 8)
+        if hi < lo:              # a box drawn as an edge only
+            continue
+        missing = [(band, px) for band in range(lo, hi + 1)
+                   for px in range(left, min(right, 160))
+                   if not col_drawn(rec, band, px)]
+        if missing:
+            problems.append(
+                "box %d (top %d, bot %d, x %d-%d) is not drawn over its "
+                "own bands %d-%d — %d columns missing, first at %s. You "
+                "could stand on something invisible."
+                % (b, top, bot, left, right, lo, hi, len(missing),
+                   missing[0]))
+    return problems
+
+
+def check_level(idx, lvl, phys, rec=None):
+    problems = []
+    if rec is not None:
+        problems.extend(check_art(rec, lvl, idx))
     for vi, goals in enumerate(lvl.goals):
         tag = "primary" if vi == 0 else "alternate"
         if lvl.cc == 1:
@@ -320,7 +400,7 @@ def main():
     failed = False
     for i, rec in enumerate(levels):
         lvl = Level(rec)
-        problems = check_level(i, lvl, phys)
+        problems = check_level(i, lvl, phys, rec)
         if problems:
             failed = True
             for p in problems:

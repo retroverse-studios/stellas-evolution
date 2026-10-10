@@ -50,8 +50,8 @@ in the same five-zone layout Game 2 uses, so the mark lands in the same
 place on screen in both games. Paid for by deleting the exit-order lock
 byte that had been dead in all ten level records since place-and-hold.
 
-- ROM: exactly 4096 bytes, **19 free — the 4K game is now full**; treat
-  it as closed to new features
+- ROM: exactly 4096 bytes, **29 free** (up from 19: the #31 exact-home
+  convergence replaced a box-overlap test with a single compare)
 - All 10 levels + goal variants re-proven under place-and-hold by
   `tools/check_levels.py`, which now re-runs on every `make` (it used to
   live inside the ROM recipe and silently skip when the ROM was current)

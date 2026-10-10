@@ -283,6 +283,17 @@ StoryId     ds 1        ; the narration screen the annex should show
                         ; (bank 0 sets it at the floor boundary; bank 1
                         ; re-points TPtr from it every frame)
 
+; --- the floor clock (decision #22's UI axis, restored) ------------
+; Game 1 has a per-level clock and a run clock; Game 2 had neither,
+; which made the LATER, roomier cartridge strictly more forgiving than
+; the 4K one — the exact inverse of the series' own thesis. Two bytes
+; buy the clock back, and the stack still has eight bytes of headroom.
+; Two bytes is all it takes: the frame counter is derived from the
+; existing FrameCtr, so only the seconds need storing.
+TimerSec    ds 1        ; seconds left on this floor
+TimerOn     ds 1        ; the difficulty switch, sampled once at load
+TimeDim     ds 1        ; luma the clock has taken out of the sky (0-4)
+
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
 ; ===============================================================
@@ -449,6 +460,7 @@ MainLoop:
         jsr PrepSprites ; draw params + P1 multiplexer + positioning
         jsr BlinkPortal ; portal columns are only ever half-present
         jsr BlinkRifts  ; ...and the rifts, one size thinner
+        jsr ClockTick   ; the floor clock (decision #22 restored)
 .logicDone:
 
         lda State
@@ -769,6 +781,16 @@ LoadFloor:
         lda #0                  ; every floor begins in world A
         sta CurWorld
 
+        lda SWCHB               ; left difficulty A arms the clock (#22:
+        and #$40                ; switch-driven, no menu). Sampled here
+        sta TimerOn             ; so a mid-floor flip doesn't reset it.
+        beq .noClock
+        lda #45                 ; 45 seconds: G1's endless opening,
+        sta TimerSec            ; which is where a player meets a clock
+.noClock:
+        jsr DimFor              ; clear any dim left by the last floor
+        lda #0
+        sta Temp                ; no breath on a fresh floor
         jsr BuildSky            ; world A's sky (CurWorld was just zeroed)
         lda #PFA_COLOR
         sta PFColor
@@ -791,7 +813,9 @@ BuildSky:
         SUBROUTINE
         ldx FloorSeq
         lda FloorSkyTbl,x
-        sta Temp
+        clc
+        adc Temp                ; Temp is the caller's breath: 0 during
+        sta Temp                ; play, +2 on the completion beat
         ldx #11
 .loop:
         lda GradOfs,x
@@ -801,9 +825,101 @@ BuildSky:
 .fwd:
         clc
         adc Temp
+        sec
+        sbc TimeDim             ; the clock's shadow (0 untimed)
+        bcc .black              ; never borrow into the hue nibble
         sta SkyGrad,x
         dex
         bpl .loop
+        rts
+.black:
+        lda #0                  ; the clock can take the sky to black
+        sta SkyGrad,x           ; but not one luma step further
+        dex
+        bpl .loop
+        rts
+
+; ---------------------------------------------------------------
+; THE FLOOR CLOCK (decision #22's UI axis, restored to Game 2).
+;
+; Game 1 clocks each level; Game 2 had no timer at all, which made the
+; later and roomier cartridge strictly MORE forgiving than the 4K one
+; — the exact inverse of the series' own "capability grows with the
+; cartridge" thesis. Two bytes of RAM buy the axis back.
+;
+; The signal is DARKENING, not reddening. Game 1 creeps the background
+; toward red as time runs out, but #27 makes hue mean agency: in this
+; game every hue on screen belongs to something with a will, and the
+; world is the neutral ramp. A red sky would put colour on the one
+; thing that must not have it, and would collide with the ember cue
+; players already know from Game 1's title. So urgency is spent out of
+; the world's own LIGHT instead: the gradient's base luma drops by up
+; to 4 steps over the last sixteen seconds and the whole screen sinks.
+; It is the same information in the same register — a wash becoming a
+; deadline — carried in the vocabulary this game already speaks.
+;
+; Costs: the ramp is 0..8 luma, so a 4-step dim can reach black but
+; never borrows into the hue nibble (the clock is clamped to the ramp
+; for exactly that reason — see .clamp). Nothing else changes: the
+; platforms stay at luma A (#27's "one level no character owns"), so
+; a dimmed floor is still perfectly readable right down to zero.
+;
+; TIMED OFF BY DEFAULT, on the left difficulty switch — the same
+; period-correct, menu-free control Game 1 uses (#22: Game 2 is a
+; proper title screen but still mostly switch-driven). The story
+; floors are untimed so the clock never gates the narrative; a player
+; who wants the pressure flips A and gets it on every floor.
+; ---------------------------------------------------------------
+
+ClockTick:
+        SUBROUTINE
+        lda State               ; a floor that completed THIS frame has
+        cmp #STATE_PLAY         ; already won: don't reload it out from
+        bne .out                ; under the player on the same frame
+        lda TimerOn
+        beq .out                ; untimed floor: nothing to do
+        lda FrameCtr            ; already incremented this frame by
+        and #%00111111          ; MainLoop, so counting its low bits
+        bne .out                ; gives one tick every 64 frames and
+        lda TimerSec            ; stays in phase with no extra state
+        beq .expired
+        dec TimerSec
+        lda TimeDim             ; does this tick actually change the
+        pha                     ; light? only four do over a whole floor
+        jsr DimFor
+        pla
+        cmp TimeDim
+        beq .out
+        lda #0
+        sta Temp                ; no breath during play
+        jsr BuildSky            ; repaint: the sky is only redrawn on
+.out:                          ; load/swap/done otherwise
+        rts
+.expired:
+        jmp LoadFloor           ; out of time: the floor starts over,
+                                ; exactly as Game 1's story mode does
+
+; DimFor: set TimeDim from the seconds left — 0 luma until the last
+; sixteen seconds, then one luma step every four seconds, to four steps
+; (the sky's own black) as the clock hits zero. Dimming must INCREASE
+; as the seconds FALL; the obvious shift-the-seconds-down version does
+; the opposite and brightens the world exactly when the player is
+; running out of it.
+DimFor:
+        SUBROUTINE
+        lda TimerSec
+        cmp #16
+        bcs .none               ; still comfortable: full light
+        lda #16
+        sec
+        sbc TimerSec
+        lsr
+        lsr                     ; seconds gone / 4 = 0..4 luma of dim
+        sta TimeDim
+        rts
+.none:
+        lda #0
+        sta TimeDim
         rts
 
 ; ---------------------------------------------------------------
@@ -903,23 +1019,13 @@ DoneLogic:
         lsr                     ; into the next HUE — dusk violet must
         lsr                     ; stay dusk violet)
         sta Temp
-        ldx FloorSeq
-        lda FloorSkyTbl,x
-        clc
-        adc Temp
-        sta Temp
-        ldx #11
-.grad:
-        lda GradOfs,x
-        ldy CurWorld            ; a floor can complete in world B: the
-        beq .fwd                ; beat must not flip the sky back
-        lda GradOfsR,x
-.fwd:
-        clc
-        adc Temp
-        sta SkyGrad,x
-        dex
-        bpl .grad
+        jsr BuildSky            ; the ONE sky painter: it already knows
+                                ; which world to paint (a floor can
+                                ; complete in world B, and the beat must
+                                ; not flip the sky back) and it also
+                                ; carries the clock's dim, so the world
+                                ; doesn't pop back to full brightness
+                                ; for the beat it just ran out of.
         jsr PrepSprites         ; keep the P1 multiplexer running: if
                                 ; the two inactive characters overlap,
                                 ; a frozen P1 would show only one of
@@ -1834,19 +1940,23 @@ PrepSprites:
         bpl .tan
         ldx #NUM_CHARS-1
 .lamp:
-        lda MulThree,x          ; this character's lamp band here
-        clc
-        adc FloorSeq
-        tay
-        lda FloorBandByChar,y
-        sta Temp
-        jsr AtHome              ; the one home test, shared with
-        bcc .vac                ; CheckGoal — lamp and rule agree
-        lda ColBriTbl,x         ; home: the lamp holds steady
-        bne .put
-.vac:
-        cpx Active              ; vacant: blink — fast for YOUR home
-        beq .fast
+        lda MulNine,x           ; this character's lamp band here —
+        clc                     ; char*NUM_FLOORS + floor. This was
+        adc FloorSeq            ; MulThree (char*3 + floor), correct
+        tay                     ; when there were three floors and
+        lda FloorBandByChar,y   ; wrong the moment there were nine: the
+        sta Temp                ; table is authored a row per character
+        jsr AtHome              ; (Stella's nine, then Alex's, then
+        bcc .vac                ; Marcus's), so char*3+floor walked off
+        lda ColBriTbl,x         ; Stella's row and into Alex's. Stella
+        bne .put                ; read her own values by luck — her row
+.vac:                           ; occupies indices 0-8 — while Alex and
+        cpx Active              ; Marcus were tinted from her bands on
+        beq .fast               ; every floor. The lamp is decision
+                                ; #27's whole colour-blind-safety story,
+                                ; so two of three homes were lighting up
+                                ; at the wrong height, in the wrong
+                                ; colour, on all nine floors.
         lda FrameCtr
         and #$40                ; slow: the to-do list (0.47 Hz)
         jmp .test
@@ -2315,15 +2425,21 @@ FloorRiftL:  .byte 255,255,255
 ; char*3 — indexes both FloorBandByChar (char*3 + floor) and each
 ; floor's Floor?Home table (three bytes per character).
 MulThree:     .byte 0, 3, 6
-; The lamp band for each character on each floor (char*3 + floor);
-; PrepSprites paints these bands as the colour-blind-safe home lamps.
-; RULE the table keeps honest: three distinct bands per floor, and the
-; tinted band's playfield content IS that character's home (a zone can
-; be "the whole shelf" or "either twin ledge", never a slice of either).
+; char*NUM_FLOORS: the stride for the per-character band table, which
+; is laid out a row per character (see .lamp). Distinct from MulThree,
+; which strides the three-byte-per-character Floor?Home tables.
+MulNine:      .byte 0, 9, 18
+; The lamp band for each character on each floor (char*9 + floor,
+; indexed by MulNine); PrepSprites paints these bands as the
+; colour-blind-safe home lamps. A band is a full-width 8du stripe and
+; it is the DRAWN LEDGE a home sits on, so the value must contain the
+; home's surface (homeY + height) — the feet's du, not the body's.
+; check_levels.py audits both of those rules; the table's own comment
+; used to claim them and nothing checked.
 FloorBandByChar:
-        .byte 8, 7, 6, 1, 2, 5, 3, 5, 5   ; Stella
+        .byte 8, 7, 6, 1, 2, 2, 3, 5, 5   ; Stella
         .byte 9, 9, 8, 4, 9, 7, 5, 7, 7   ; Alex
-        .byte 7, 8, 10, 2, 5, 11, 4, 6, 6 ; Marcus
+        .byte 7, 8, 10, 2, 5, 5, 4, 6, 6 ; Marcus
 
 ; ---------------------------------------------------------------
 ; PORTAL TABLES (Act 2). Per floor: two column LEFT edges (columns
@@ -2338,22 +2454,37 @@ FloorBandByChar:
 ; band bytes minus the column mask) sits at record+66. The solver
 ; reads all of this from the ROM and re-proves the columns are where
 ; the art says — tables and art cannot drift apart.
-; ---------------------------------------------------------------
+;
+; BOTH TABLES ARE NUM_FLOORS LONG. They used to be six entries and
+; were indexed by FloorSeq, which is 0..8: floors 7-9 read PAST the
+; end. It happened to be harmless — the bytes that followed were
+; FloorPort2L's own leading 255s, so the ROM bailed out correctly by
+; luck — but the solver read FloorPort2L+6 and found a 0 instead of
+; the 255 sentinel, and invented a portal column at x=[0,8) on three
+; floors that have none. On F8/F9 that phantom edge drops a body at
+; feet 56, which is Alex's home height on both. Correct-by-accident
+; is not correct; nine entries of 255 cost six bytes and bank 0 has
+; 429 to spare.
+; --------------------------------------------------------------
 FloorPortL:  .byte 255,255,255, 32, 76,  40
+        .byte 255,255,255
 FloorPort2L: .byte 255,255,255,120,255, 112
-FloorMouX:   .byte   0,  0,   0,  0,   0,  0
-        .byte 124, 36                 ; F4: L col -> right column's
+        .byte 255,255,255
+FloorMouX:   .byte   0,  0,   0,  0,   0,   0
+        .byte 124,  36                 ; F4: L col -> right column's
                                       ; shelf spot; R col -> left
                                       ; column's ground spot
         .byte  76,  0                 ; F5: the one central column ->
                                       ; the shelf above it
-        .byte 124, 52                 ; F6: the doors CROSS — L col ->
+        .byte 124,  52                 ; F6: the doors CROSS — L col ->
                                       ; Alex's right ledge; R col ->
                                       ; the shelf's left end
-FloorMouY:   .byte   0,  0,   0,  0,   0,  0
+        .byte   0,  0,   0,   0,   0,   0 ; F7-F9: no portals, parked
+FloorMouY:   .byte   0,  0,   0,  0,   0,   0
         .byte  32, 88                 ; F4: shelf top / ground
         .byte  40,  0                 ; F5: shelf top
         .byte  62, 40                 ; F6: ledge top / shelf top
+        .byte   0,  0,   0,   0,   0,   0 ; F7-F9
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
 ; plain-grey bands for the reveal (lamps start with player control)

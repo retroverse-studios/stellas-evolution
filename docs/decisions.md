@@ -275,7 +275,7 @@ differ in what you can STAND on, never in where home is), and place-and-hold
 
 **Considerations:**
 - ~2.0KB of the 4KB ROM is free at v0.3 (7 levels)
-- A level costs 69 bytes; the 48px text kernel + font + the five script lines costs ~650-850 bytes — both fit together
+- A level costs 73 bytes; the 48px text kernel + font + the five script lines costs ~650-850 bytes — both fit together
 - Classic Atari games told the story in the manual; decision #2 chose hybrid narration
 - The five creative-brief moments are one-liners — cheap in ROM, and they're the emotional skeleton
 
@@ -313,7 +313,7 @@ spare. The expanded prose lives in `MANUAL.md` for the physical release, per #2'
 **Question:** Should an external tool verify that levels (and any physics/goal variations) are actually completable?
 
 **Considerations:**
-- Levels are pure data (69-byte records) and jump arcs are closed-form — a small Python solver can build the reachability graph per character, including head-boost edges
+- Levels are pure data (73-byte records) and jump arcs are closed-form — a small Python solver can build the reachability graph per character, including head-boost edges
 - Every new variation axis (alternate goals, timers, tweaked physics) multiplies the combinations a human must hand-verify
 - The same solver enables the generate-offline / validate / hand-curate / bake-as-data pipeline if generated levels are ever wanted — generation happens on a modern machine, never in ROM
 
@@ -1061,3 +1061,251 @@ period-accurate answer. Atari games told their stories in the manual precisely
 because the cartridge could not, and a series *about* four generations of
 hardware should be honest about that. A player who never opens the manual loses
 nothing playable; the mechanic and the feedback carry the game on their own.
+
+## 32. The Proof Rig Is The Product — and What an Audit of It Found
+
+**Question:** Two games, two hand-written re-implementations of the same physics
+in `check_levels.py`, ~1200 lines of duplicated model code, and a decision log
+that asserted "one goal mechanic for the series" while the two ROMs implemented
+two different ones. Game 2 has features Game 1 lacks (clock, timer, end state,
+music) even though every per-generation axis in this log claims they *grow*.
+And the READMEs' free-space figures, which gate the Act 4 plan, were wrong.
+What is the series' actual standard here — and does it survive its own claims?
+
+**Status:** DECIDED (2026-10-10) — **Keep both games; converge them; do not
+rewrite.** An audit found the *code* was in good shape and the *claims* were
+not. The solvers, the negative proofs and the art audits are the asset; every
+defect was a missing check or a stale sentence, not a design flaw. A rewrite
+would have thrown away the rig and re-earned every bug it has already caught.
+
+Three things changed as a result:
+
+**1. There is now ONE goal rule, and Game 1 has the tighter one.** #31 claimed
+Game 2's `AtHome` "is Game 1's `CheckGoals` rule exactly". It was not: Game 1
+tested a box *overlap* against a 3du pad, accepting any standing height in an
+11du window — eleven surfaces could each count as home, and only the level data
+kept that honest, which is the exact fragility `AtHome` was written to kill. And
+Game 1 is the game a player meets *first*. Game 1 now uses Game 2's exact-height
+test. It cost nothing: two compares became one, so the tight rule is 8 bytes
+*cheaper* than the loose one, and Game 1 went from 21 free bytes to 29. The pad's
+stored byte still means the pad's top, so no level data moved.
+
+**2. The solver must read the ROM, and must prove it did.** Three ways it
+wasn't:
+
+- **`SpeedHalfTbl` was never read.** Marcus walks 1.5px/frame; the solver
+  modelled him at 1.0. Under-approximating a real speed means every "he can't
+  make it" conclusion was drawn about a slower character than the ROM's. States
+  now carry frame parity, exactly as `WalkSpeed` uses `FrameCtr`.
+- **Per-floor tables were indexed past their ends.** `FloorPortL`/`FloorPort2L`
+  were 6 entries and `NUM_FLOORS` is 9. The ROM read past them by luck (the bytes
+  that followed were leading `255`s, so it bailed correctly). The solver read
+  `FloorPort2L+6`, found `0` instead of the `255` sentinel, and invented a portal
+  column at x=[0,8) on three floors that have none — one that drops a body at
+  feet 56, which is Alex's home height on two of them. A phantom edge in a proof
+  graph is worse than no proof. Tables are now padded, and `check_levels.py`
+  asserts every per-floor table has room for `NUM_FLOORS` entries by measuring
+  to the next symbol — so the next table added is checked for free.
+- **The lamp band table was never audited, and was WRONG.**
+  `FloorBandByChar` is authored a row per character (Stella's nine floors, then
+  Alex's, then Marcus's) but `PrepSprites` indexed it `char*3 + floor`. Correct
+  at three floors; wrong the moment there were nine. Stella read her own row by
+  luck — her row occupies indices 0–8 — while Alex and Marcus were tinted from
+  *her* bands. **17 of 27 lamps were painted at the wrong height**, on every
+  floor. The lamp is #27's entire colour-blind-safety story: the one piece of
+  feedback that tells a player whose home is whose, without colour vision. It
+  had been lighting up the wrong ledges, in the wrong colours, since Act 1.
+  Two table entries were also simply wrong (F6 Stella and Marcus). Fixed with a
+  `MulNine` stride table, and `check_levels.py` now audits that each lamp band
+  contains its home's *surface* and that a floor's three bands are distinct.
+
+**3. The documents now state what is true.** Game 2's README said bank 0 had
+11 bytes free and used it to justify "Act 4 will need a diet first". It has
+**408**. Game 1's said 19; it had 21 and now has 29. Level records are 73 bytes,
+not 69. A series whose founding thesis is *hardware capability grows with the
+cartridge* cannot ship docs claiming a generation is fuller than the one before
+it.
+
+**Still open, and deliberately so:** Game 2 has no clock, no timer, no
+`STATE_WIN` and no music — four things Game 1 has. #22 and the audio addendum
+both describe these axes as growing. Either restore them (there are 408 bytes
+and a whole idle audio channel) or amend #22 to say the axis is non-monotonic.
+This is an authoring decision, not an engineering one, and it is not made here.
+
+**The rule this establishes:** every table the solver reads is asserted to
+exist and to be long enough; every claim in these docs about bytes, rules or
+behaviour is checked by the build or measured from the ROM. A proof you cannot
+re-derive is a comment, and this repo has enough of those.
+
+### Amendment to #32 — the clock is back (2026-10-10)
+
+The open question #32 left — *restore Game 2's clock, or amend #22 to say
+the UI axis is non-monotonic?* — is answered **restore**, because the audit
+showed the missing clock was not a neutral omission. It was the reason Game 2
+*felt easier* than Game 1 despite shipping twice the geometry: the 4K game
+clocks every level and the 8K game had no time pressure at all. A later,
+roomier cartridge that is strictly more forgiving than the earlier one is
+the series' thesis running backwards.
+
+Armed by the left difficulty switch, as Game 1 arms it: 45 seconds a floor,
+and at zero the floor starts over. No new state machine, no fail screen, no
+menu — #22's "mostly switch-driven" holds.
+
+**One deliberate divergence from Game 1.** G1 signals urgency by creeping the
+background toward red. G2 does not, and cannot: #27 gives hue to agency, and
+in this game every hue on screen belongs to something with a will. A red sky
+would put colour on the one thing that must not carry it, and would collide
+with the ember title cue players already learned in Game 1. So the world
+instead goes dark — the gradient loses up to four luma steps over the last
+sixteen seconds, one per four, and can reach black without ever borrowing
+into the hue nibble. Same information, same register (a wash becoming a
+deadline), in the vocabulary this game already speaks. The platforms stay at
+luma A, so a fully-dimmed floor is still perfectly readable.
+
+Cost: 77 bytes of bank 0 and 3 bytes of RAM, against a bank 0 that turns out
+to have had 408 free rather than the 11 the README claimed. The
+completion beat's duplicated sky loop was folded into `BuildSky` while the
+clock was being wired in, which paid for about a third of it — one sky
+painter now, so the world cannot pop back to full brightness for the beat it
+just ran out of.
+
+## 33. Every Character Has a Puzzle — and How We Know
+
+**Question:** The 4K game "felt easy", and the author could not say why: the
+levels were not short (median four moves, same as the 8K game), the physics
+had not been softened, and the boosts worked. What was actually wrong?
+
+**Status:** DECIDED (2026-10-10) — **measured, fixed, and made a standing
+check.** The problem was not length. It was that *in all eight two-character
+levels, at least one character's home sat on the ground floor.* With six
+collision boxes and goals placed where the geometry happened to leave room,
+the floor was the path of least resistance, so in every single level half the
+cast walked right and stopped. The level was a puzzle; one of its two
+participants was not playing it.
+
+This is now the series' standing difficulty metric, because it is the one that
+caught the fault:
+
+> **Every character in every level must have a route that is a climb.**
+> `check_levels.py` reports any home whose standing surface is the floor.
+
+Fixed in L3, L5, L6, L7, L9, L10. Three levels became genuinely cooperative as
+a side effect rather than as a plan — L5's Alex turned out to need a boost, L7
+got back the "he is the one who goes home last" its own comment promised, and
+L9's Stella needs his back. The lesson generalises: **a level's stated intent
+is a hypothesis, and the solver is how you test it.** Two level comments
+described a co-op beat that the geometry did not actually contain.
+
+**Still open.** L4's Alex is on the floor and resists the same technique: its
+pillar spans du 40–80, which walls Stella out of the right half of the screen,
+so she can never boost him there, and he rises only 10du. It needs the
+geometry restructured rather than a goal moved. The alternate goal placements
+also need a pass — they have been kept *working* but not always *hard*, and
+half of all playthroughs pick one.
+
+### The upside-down flip is flavour, not complexity
+
+Worth stating plainly, since it is the one thing that looks like depth and is
+not: Quest 2 flips the *view*, not the geometry. Physics, solution and route
+are byte-identical, so it adds no puzzle at all — only a demand that the
+player mentally re-invert a layout they have already solved. That is a real
+cognitive task and it is good flavour; it is the 4K cartridge buying a second
+playthrough out of nearly free bytes, and it should never be counted as
+complexity when judging a game's difficulty. **The alternate goal placements
+are the same species**: they move the destination without changing the
+problem.
+
+## 34. Where the Series Goes After Game 2 — Switches, Rooms, and the Shape of G3
+
+**Question:** The author wants each generation to feel larger than the last, and
+was reaching for procedural generation (a Pitfall-style idea) to get there. Is
+that the right axis, and is there anything else worth building?
+
+**Status:** DECIDED (2026-10-10) — **no runtime procedural generation; yes to
+a switch verb; yes to rooms; generation belongs in the designer's hands, not
+the cartridge.**
+
+### Runtime generation is the wrong tool for this series
+
+It works directly against what makes the series distinct. A randomly generated
+layout has no *intended solution*, so there is nothing to deduce — the player's
+job becomes execution ("can I make this jump") rather than discovery ("what is
+the solution"). That buys volume by trading away the one thing the series is
+for. It also feels *bigger* while being emptier, which is the wrong trade.
+
+**The synthesis is already written in #14**: *"the solver enables the
+generate-offline / validate / hand-curate / bake-as-data pipeline if generated
+levels are ever wanted — generation happens on a modern machine, never in ROM."*
+That is the honest version of the idea. `check_levels.py` is now a genuine
+level-space search engine: it can prove a layout completable, measure its
+playability margin, and prove whether its verb is load-bearing. Point that at a
+parameterised generator, discard the boring candidates automatically, and
+**hand-curate the survivors into authored puzzles** — puzzles a human chose
+because the margin report said they were good.
+
+That is the G3 axis. It scales with the cartridge by requiring **zero runtime
+bytes**, and it is the one thing this project can do that nobody else on the
+platform can, because the rig exists.
+
+### The switch: a fourth axis, and the first stateful one
+
+Acts 1–3 are all **stateless** — you may always wrap, always portal, always
+swap. A switch (a lever, a button, a plate) is the first mechanic that
+**persists a change**:
+
+| Act | Verb | Kind |
+|-----|------|------|
+| 1 | wrap | spatial rule |
+| 2 | portal | linked space |
+| 3 | rift | change space |
+| 4 | **switch** | **change the geometry over time** |
+
+It is also nearly free: "the switch moves a wall" is *literally* Act 3's
+machinery — `SwapWorld` already repoints `PF1Ptr/PF2Ptr/PlatPtr` at alternate
+pages of the same record. A switch is that pointer swap triggered by the
+player instead of by a rift. New semantics, almost no new code.
+
+**Deliberately stationary, not portable.** Atari's *Adventure* uses a golden
+key: an object you pick up and carry, which makes its puzzle a *fetch* quest
+with an inventory and a question of who is carrying it. A switch has no
+inventory and no carrying — it is a *causal* change, and all three characters
+can work it. Same "something opens" surface, different puzzle type, and the
+stationary form is the one that fits a three-character cast. **Switch, not
+key.**
+
+**And it gives Flicker a job.** G3 introduces him as a character who exists
+only every other frame. A switch that responds only while he is standing on it
+turns that fragility from a story beat into the puzzle itself — the one being
+whose "off" phase is the mechanic. That is a far stronger reason to want him
+than the one currently in the brief.
+
+**Explicitly rejected: the mobile carrier.** *Adventure*'s dragon is a creature
+you enter and are carried by. Our portal is the same *idea* but static; the
+mobile version is not wanted. It converts the puzzle from deduction to timing —
+waiting for a ride rather than working out a route — which is a different game,
+and it reads poorly without a framebuffer. Linked space is already covered.
+
+### Rooms, not scrolling
+
+The homage game's later levels scroll. That is not reachable here, and *Adventure*
+shows it is not necessary: it never scrolls. It is three fixed screens joined
+by gates, and it feels like a world anyway. The engine already has this
+mechanism — `LoadFloor` repoints the plane and box pointers at a different
+record — so **a floor is already a room; it just is not presented as one.**
+
+G3 should formalise it: a visible gate the player walks into, a hard cut, and a
+distinct silhouette per room. Adventure made each room instantly identifiable
+by **colour**; decision #27 gives hue to agency here, so that channel is
+unavailable and the work must be done with geometry instead — distinct
+silhouettes, plus the per-act sky gradient already on the todo list.
+
+### Unlocked: mirrored levels are now testable
+
+#13 rejected flipping *geometry* on the reasoning that "flipping geometry
+breaks jump-chain solvability". That was an **assumption**, made when checking a
+mirrored level meant hand-solving it. The solver now proves a mirrored layout
+per character, with margins, in seconds. So a mirrored variant is not
+known-impossible — it is *testable*, which makes it a cheap source of a
+genuinely different puzzle that looks the same rotated. Still impossible in
+G1 (a second record is 73 bytes against 29 free — which vindicates reading the
+flip as a 4K accommodation), but comfortable at 16K with four banks.
