@@ -82,10 +82,51 @@ def load(bin_path, sym_path, asm_path):
     }
     lvl_lo = bytes_at("LvlPtrLo", num_levels)
     lvl_hi = bytes_at("LvlPtrHi", num_levels)
+
+    # --- RECORD STRUCTURE ------------------------------------------
+    # A level record is a fixed 73-byte layout with FOUR 6-slot box
+    # tables, and it is corrupted constantly and invisibly: writing 5
+    # values into a 6-slot table, or losing the indentation before the
+    # first .byte after a label (which makes DASM emit a short record),
+    # both leave the source looking fine and shift every table after
+    # it. All three happened while these levels were being redesigned.
+    #
+    # So assert the shape rather than trusting it: every record must be
+    # exactly RECORD bytes (measured to the NEXT record, which is where
+    # a short record shows up as a gap), charCount must be sane, and
+    # the spawn heights must be plausible feet-on-ground values.
+    problems = []
+    addrs = [(hi << 8 | lo) for lo, hi in zip(lvl_lo, lvl_hi)]
+    for i in range(num_levels):
+        rec = list(rom[addrs[i] - ROM_BASE: addrs[i] - ROM_BASE + RECORD])
+        if i + 1 < num_levels:
+            got = addrs[i + 1] - addrs[i]
+            if got != RECORD:
+                problems.append(
+                    "LEVEL %d record is %d bytes, not %d. One of the four "
+                    "box tables almost certainly has the wrong number of "
+                    "values -- they are 6 bytes each and every table "
+                    "after the short one is shifted." % (i + 1, got, RECORD))
+        if rec[60] not in (1, 2):
+            problems.append(
+                "LEVEL %d charCount is %d, not 1 or 2 -- the record is "
+                "misaligned" % (i + 1, rec[60]))
+            continue
+        for ci in range(rec[60]):
+            feet = rec[62 + 2 * ci] + phys["h"][ci]
+            if not 0 <= feet <= 96:
+                problems.append(
+                    "LEVEL %d character %d spawns at feet %d, outside the "
+                    "screen (0-96) -- the record is misaligned"
+                    % (i + 1, ci, feet))
+    if problems:
+        for p in problems:
+            print("check-levels: " + p)
+        sys.exit(1)
+
     levels = []
-    for lo, hi in zip(lvl_lo, lvl_hi):
-        a = (hi << 8 | lo) - ROM_BASE
-        levels.append(list(rom[a:a + RECORD]))
+    for addr in addrs:
+        levels.append(list(rom[addr - ROM_BASE: addr - ROM_BASE + RECORD]))
     return levels, phys
 
 
