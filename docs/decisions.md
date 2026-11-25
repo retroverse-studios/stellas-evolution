@@ -1794,3 +1794,58 @@ to choose.
 - The first part of the manual still says nothing about the secrets. A
   tip points to the back for anyone who is stuck.
 
+## 42. Made the 4K Way: the Era Rules for Game 1, in One Place
+
+**Status:** Accepted (2026-11-25). Collects rules decided across #1,
+#20, #22, #27 and #31, and says them in the manual.
+
+Game 1 keeps to what a 1977-82 4K cartridge could be. The rules were
+decided one at a time; this is the list.
+
+- **4,096 bytes, no bankswitching** (#1, #4). 128 bytes of RAM, 87 used.
+- **No on-screen menu** (#22). The options are the console's switches:
+  SELECT picks the story game or the endless game, the left difficulty
+  switch adds a clock, RESET goes back to the title. Menus grow with
+  the series.
+- **The story lives in the manual** (#31, #2). The cartridge holds five
+  short narration screens; the booklet holds the world.
+- **What the hardware draws:** a mirrored playfield (#20), two player
+  sprites, a grey world with a few colours, and every screen legible on
+  a black-and-white set (#27).
+- **Modern tools are in how it was made, never in the cartridge:** the
+  level checker, the headless harness and the picture tool run at build
+  time and ship nothing (#43).
+
+The manual says this in "About This Cartridge", so a player knows the
+limits are chosen, not missed.
+
+## 43. Transparent Use of AI and Tools
+
+**Status:** Accepted (2026-11-25)
+
+The project is developed with generative AI models and with Python
+tools written for it. Players and readers should be able to know that,
+and nothing in the repository said so.
+
+- **What is said, and where:** the manual's "About This Cartridge" page
+  and the repository README both state that the story, characters and
+  series are Michael Borck's; that code, level designs, test tools and
+  much of the writing are developed with the help of generative AI
+  models under his direction; that he reviews, edits and approves all
+  of it; and which tools check the game, none of which ships in the
+  cartridge.
+- **No vendor is named.** More than one model was used over the life of
+  the project, and the statement is about how the game was made, not
+  whose product helped.
+- **Review is stated, not implied.** A name on the cover says who owns
+  the work. It does not tell a reader that a person checked what the
+  models produced, which is the thing a disclosure is for.
+- **Traceability, as far as it goes:** later commits carry a
+  `Co-Authored-By` trailer naming the model; earlier AI-assisted work
+  is not marked commit by commit, and the README says so rather than
+  claim otherwise.
+- **Responsibility stays human:** the tools did a great deal of the
+  work; the choices, and the responsibility for them, are the author's.
+- **The source is linked from the manual,** so the claims can be
+  checked: the code, the tools and this decision log are public.
+- **Later games** carry the same page, updated for how each was made.

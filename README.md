@@ -51,6 +51,26 @@ games/    One folder per game (source, assets, build)
 - **Hardware validation:** periodic testing on a real Atari 2600 via flash cart
 - **ARM game:** C/C++ on Harmony/Melody-class cartridge hardware, plus DASM for the 2600-side interface
 
+## How This Was Made
+
+The story, the characters and the series are Michael Borck's. The code,
+the level designs, the test tools and much of the documentation are
+developed with the help of generative AI models (more than one, over
+the life of the project), working under his direction. He reviews,
+edits and approves all of it, and decides what goes into the games.
+Later commits carry a `Co-Authored-By` trailer naming the model that
+helped; earlier AI-assisted work is not marked commit by commit.
+
+The games are checked by programs written for this project, in Python,
+on every build: a level checker that replays the engine's physics to
+prove every room can be finished (`tools/check_levels.py`), a headless
+6502 model of the console that plays every screen and times every
+scanline (`tools/headless.py`), and the tool that draws the manual's
+pictures from the ROM (`tools/manual_pictures.py`). None of them ships
+in a cartridge. Why the project says all this is decision #43 in
+[`docs/decisions.md`](docs/decisions.md); what "made the 4K way" means
+is #42.
+
 ## On the Homage
 
 This series is *inspired by* — not a clone of — *Thomas Was Alone*. All characters,

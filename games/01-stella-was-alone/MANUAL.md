@@ -274,6 +274,28 @@ by one step, and so is his light.
 
 ---
 
+## ABOUT THIS CARTRIDGE
+
+### MADE THE 4K WAY
+
+This cartridge keeps to the rules of the first Atari games. It is 4,096 bytes, with no extra memory switched in, and the console it runs on has 128 bytes of RAM. There is no menu: the game's options are the console's own switches, SELECT, RESET and the left difficulty switch, as they were in 1977. Most of the story lives in this booklet, as it did then, because the cartridge has room for only five short screens of text. The world is grey with a few colours in it, and every screen reads on a black-and-white television.
+
+What a game of that time could not have had is not in the cartridge. It is in how the game was made.
+
+### HOW THIS GAME WAS MADE
+
+The story, the characters and the series are Michael Borck's. The code, the level designs, the test tools and much of the writing in this booklet were developed with the help of generative AI models, working under his direction. He reviewed, edited and approved all of it, and decided what went into the game.
+
+Programs written for this project, in Python, check the game on every build. One replays the game's own physics to prove that every room can be finished, both ways up, and its answers are the walkthrough at the back. One runs the cartridge in a software model of the console, to check every screen and the timing of every line the television draws. One draws this booklet's pictures from the cartridge's own bytes. None of them is inside the cartridge.
+
+This page is here because a player should be able to know how a thing they enjoy was made. The tools did a great deal of the work. The choices, and the responsibility for them, are his.
+
+### THE SOURCE
+
+The whole game is open: the source, the tools, the design documents, and a record of every design decision and why it was made, at [github.com/retroverse-studios/stellas-evolution](https://github.com/retroverse-studios/stellas-evolution).
+
+---
+
 ## ⚠ PAST THIS POINT: SPOILERS
 
 Everything after this page gives the game away.
@@ -394,6 +416,8 @@ are drawn from the cartridge's own data, so they are exactly right and
 exactly unglamorous.*
 
 *STELLA'S EVOLUTION continues in* STELLA WAS TOGETHER.
+
+*Source: [github.com/retroverse-studios/stellas-evolution](https://github.com/retroverse-studios/stellas-evolution)*
 
 *Atari® and Video Computer System™ are trademarks of their respective
 owners; this is an unaffiliated homebrew work.*
