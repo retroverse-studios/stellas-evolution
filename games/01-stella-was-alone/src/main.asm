@@ -119,6 +119,9 @@ COL_SKY      = $06       ; the sky: the world's grey two steps dimmer,
                         ; is red, and the checker keeps every body out
                         ; of the bands that use it. One constant: tune
                         ; it by eye ($08 is one step dim, $04 is two).
+COL_GLOW    = $10       ; gold: the glow when every light is held
+DONE_T      = 79        ; frames of glow after a room (luma 9 > 3 = 8)
+TURN_T      = 127       ; and before the world turns over (luma 14)
 COL_TEXT    = $0E       ; narration + the title's word: still WHITE.
                         ; Decision #28 keeps the narrator's voice
                         ; unchanged in all four games — it is the one
@@ -221,6 +224,10 @@ SqCol       ds 1        ; the epilogue square's breathing color
 PFn0        ds 1        ; rc3: next band's PF bytes, prefetched one
 PFn1        ds 1        ; line early so the boundary line's writes
 PFn2        ds 1        ; land inside hblank (no more ground tear)
+AloneFade   ds 1        ; the title's word: 0 = ALONE, 1-14 fading
+                        ; out once the stranger has been met, 15 =
+                        ; gone. Survives console RESET (Restart);
+                        ; only power-on brings the word back
 TuneStep    ds 1        ; the tune's step counter (src/tune.inc)
 
 ; ---------------------------------------------------------------
@@ -231,7 +238,9 @@ TuneStep    ds 1        ; the tune's step counter (src/tune.inc)
         ORG $F000
 
 Reset:
-        SUBROUTINE
+        ldy #0                  ; power-on: she has met no one yet
+Restart:                        ; console RESET arrives here with Y =
+        SUBROUTINE              ; AloneFade, which the clear spares
         sei
         cld
         ldx #0
@@ -252,6 +261,7 @@ Reset:
                         ; fire reached the title. Game 2 sets State
                         ; outright for the same reason.
 
+        sty AloneFade           ; X and A cleared RAM; Y never moved
         lda #$80
         sta FirePrev
         ; State = STATE_TITLE (0) from the RAM clear; NUSIZ, VDEL
@@ -278,7 +288,8 @@ MainLoop:
         lda SWCHB       ; console RESET switch restarts
         lsr
         bcs .noReset
-        jmp Reset
+        ldy AloneFade           ; RESET forgets everything but this
+        jmp Restart
 .noReset:
 
         lda State
@@ -387,6 +398,15 @@ Overscan:
 
 TitleLogic:
         SUBROUTINE
+        lda AloneFade           ; once she has met someone, ALONE
+        beq .alone              ; fades: a step every 16 frames, about
+        cmp #15                 ; four seconds, and then it is gone
+        bcs .alone
+        lda FrameCtr
+        and #15
+        bne .alone
+        inc AloneFade
+.alone:
         lda #0
         sta AUDV0              ; RESET during a jump, a landing or the
         sta AUDV1              ; fanfare used to leave channel 0 sounding
@@ -514,16 +534,20 @@ StoryLogic:
         beq .playNext
         cmp #2
         beq .quest2
-        jsr EnterWin            ; 1: the stranger is waiting
+        ora AloneFade           ; 1: the stranger is waiting. A is 1:
+        sta AloneFade           ; start ALONE fading, or leave it gone
+        jsr EnterWin
         rts
-.quest2:
-        lda #1                  ; 2: the world turns over —
-        sta Quest               ;    same levels, upside-down,
-        lda #0                  ;    the clock keeps counting
-        sta Level
-        jsr LoadLevel
-        lda #STATE_PLAY
+.quest2:                        ; 2: the world turns over. First the
+        lda #0                  ; first room once more, the right way
+        sta Level               ; up and still, in a glow that fades;
+        jsr LoadLevel           ; then DoneLogic's advance takes Level
+        inc Quest               ; $FF to 0 and loads it again upside
+        dec Level               ; down, with its remix lights. The
+        lda #STATE_DONE         ; run clock does not run in the pause
         sta State
+        lda #TURN_T
+        sta StateTimer
         rts
 .playNext:
         jsr LoadLevel
@@ -642,9 +666,13 @@ DoneLogic:
         jsr UpdateSound
         lda #0                  ; the tune stops for the beat, so the
         sta AUDV1               ; fanfare has the floor to itself
-        lda StateTimer
-        and #$08
-        sta COLUBK              ; gentle pulse
+        lda StateTimer          ; a warm glow that fades, where a grey
+        lsr                     ; strobe used to blink: gold, its luma
+        lsr                     ; StateTimer / 8. A room's 79 frames
+        lsr                     ; start at $18, under the platforms'
+        and #$0E                ; $0A so a black-and-white set keeps
+        ora #COL_GLOW           ; them; the turn's 127 start at $1E
+        sta COLUBK
         dec StateTimer
         beq .advance
         rts
@@ -730,61 +758,55 @@ LoadLevel:
         lda #0
         sta VDELP0
         sta VDELP1
-        ldy Quest               ; quest 2: the world turned over
-        beq .upright
-        lda #11
-        sta Band0
-        lda #$FF
-        sta BandStep
-        bne .oriented
+        sta SoundId
+        sta SoundT
+        ldx #Active-CharYLo     ; CharYLo through Active, in RAM order:
+.zero:                          ; motion, OnGround, the goals, GoalDone,
+        sta CharYLo,x           ; Active. The goals are read below, and
+        dex                     ; OnGround is 1 the line after
+        bpl .zero
+        ldy #1
+        sty OnGround
+        sty OnGround+1
+        ldx Quest               ; quest 2: the world turned over.
+        beq .upright            ; A = 0, Y = 1 already: band 0, down
+        lda #11                 ; or band 11, up
+        ldy #$FF
 .upright:
-        lda #0
         sta Band0
-        lda #1
-        sta BandStep
-.oriented:
-        ldx Level
-        lda LvlPtrLo,x
-        sta PF0Ptr
-        lda LvlPtrHi,x
-        sta PF0Ptr+1
-        lda PF0Ptr
+        sty BandStep
+
+        ldx Level               ; the four record pointers, 12 bytes
+        lda LvlPtrLo,x          ; apart: PF0, PF1, PF2, then the boxes
+        ldy LvlPtrHi,x          ; (PF0Ptr..PlatPtr are adjacent in RAM)
+        ldx #0
+.ptr:
+        sta PF0Ptr,x
+        sty PF0Ptr+1,x
         clc
         adc #12
-        sta PF1Ptr
-        lda PF0Ptr+1
-        adc #0
-        sta PF1Ptr+1
-        lda PF0Ptr
-        clc
-        adc #24
-        sta PF2Ptr
-        lda PF0Ptr+1
-        adc #0
-        sta PF2Ptr+1
-        lda PF0Ptr
-        clc
-        adc #36
-        sta PlatPtr
-        lda PF0Ptr+1
-        adc #0
-        sta PlatPtr+1
+        bcc .samePage
+        iny
+.samePage:
+        inx
+        inx
+        cpx #8
+        bcc .ptr
 
         ldy #60
         lda (PF0Ptr),y          ; charCount
         sta CharCount
+        ldx #0                  ; then each shape's x and y (61-64)
+.chars:
         iny
         lda (PF0Ptr),y
-        sta CharX
+        sta CharX,x
         iny
         lda (PF0Ptr),y
-        sta CharY
-        iny
-        lda (PF0Ptr),y
-        sta CharX+1
-        iny
-        lda (PF0Ptr),y
-        sta CharY+1
+        sta CharY,x
+        inx
+        cpx #2
+        bcc .chars
 
         lda Quest               ; the remix lights once the story's
         lsr                     ; world turns over (Quest = 1). The
@@ -792,26 +814,21 @@ LoadLevel:
                                 ; ($40, see NextRandom), so its carry is
                                 ; always clear: the remixes are too
                                 ; long for its clock
-        ldy #69
-        bne .readGoals
-.primary:
-        ldy #65
-.readGoals:
-        lda (PF0Ptr),y
-        sta GoalX
+        ldy #68                 ; remix at 69-72; primary straight on
+.primary:                       ; from the shapes, at 65-68
+        ldx #0
+.goals:
         iny
         lda (PF0Ptr),y
-        sta GoalY
-        jsr FlipG
-        sta GoalDY
+        sta GoalX,x
         iny
         lda (PF0Ptr),y
-        sta GoalX+1
-        iny
-        lda (PF0Ptr),y
-        sta GoalY+1
-        jsr FlipG
-        sta GoalDY+1
+        sta GoalY,x
+        jsr FlipG               ; leaves X and Y alone
+        sta GoalDY,x
+        inx
+        cpx #2
+        bcc .goals
 
         lda #60
         sta TimerFrm
@@ -829,22 +846,6 @@ LoadLevel:
         lda #60
 .setTime:
         sta TimerSec
-
-        lda #0
-        sta CharYLo
-        sta CharYLo+1
-        sta CharVYHi
-        sta CharVYHi+1
-        sta CharVYLo
-        sta CharVYLo+1
-        sta GoalDone
-        sta GoalDone+1
-        sta Active
-        sta SoundId
-        sta SoundT
-        lda #1
-        sta OnGround
-        sta OnGround+1
 
         lda CharCount
         cmp #2
@@ -1363,7 +1364,7 @@ CheckGoals:
         sta SoundT
         lda #STATE_DONE
         sta State
-        lda #90
+        lda #DONE_T
         sta StateTimer
 .out:
         rts
@@ -1857,8 +1858,12 @@ TitleKernel:
         ldx #8                  ; a beat between the mark and the word
         jsr BlankLines
         ; --- the game's word, small and white: 12 scanlines ---------
-        lda #COL_TEXT           ; white — the narration voice's colour,
-        sta COLUPF              ; because this is the narrator naming it
+        lda #COL_TEXT|1         ; white — the narration voice's colour,
+        sec                     ; because this is the narrator naming it
+        sbc AloneFade           ; — dimming once the stranger is met
+        and #$0E
+        beq .noWord
+        sta COLUPF
         ldy #0                  ; rows 0-5 of story screen 5
 .sub:
         ldx #2                  ; each row is a double-line, and an
@@ -1885,6 +1890,9 @@ TitleKernel:
         ldx #20                 ; row 5 of a one-row screen is the
         jsr BlankLines          ; blank separator, so the playfield is
         rts                     ; already clear — no clear needed here
+.noWord:
+        ldx #12+20              ; the word's twelve lines, then the same
+        jmp BlankLines          ; twenty: a frame the same height
 
 ; ---------------------------------------------------------------
 ; WinKernel: the epilogue. A void, the run time in the classic

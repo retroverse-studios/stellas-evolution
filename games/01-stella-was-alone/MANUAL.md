@@ -117,6 +117,7 @@ Guide each shape into the small marker of its **own light** and stay
 there. Alex's light is always the **brighter** one; Stella's the deeper.
 The world moves on only when every shape is standing on its own light
 **at the same time**. Nobody goes on ahead, and nobody is left behind.
+When they are, the room glows gold for a moment, and the next one comes.
 
 **A blinking light is an empty one.** The light blinking **fastest** is
 the one that belongs to the shape you're controlling now. When a light
@@ -161,13 +162,14 @@ have read her thoughts.
 | <img src="manual/pictures/room-06-boost.png" width="288" alt="Room 6, Boost"> | **6. Boost.** Four ledges, each one jump up. His light is on one of them. None of them is within his jump. |
 | <img src="manual/pictures/room-07-lift.png" width="288" alt="Room 7, Lift"> | **7. Lift.** Her light is on a perch one Alex higher than she can jump. His light is on a step he can reach on his own. |
 | <img src="manual/pictures/room-08-patience.png" width="288" alt="Room 8, Patience"> | **8. Patience.** Her light is on a high perch that wants his back first. His is on a far corner step, the other side of the pillar. Lift her, then let him go on. |
-| <img src="manual/pictures/room-09-steps.png" width="288" alt="Room 9, Steps"> | **9. Steps.** A beam across the room and two perches above it. His light is at the end of the beam. Hers is on a perch, one Alex higher than she can jump from the beam. He has to be standing home before she can climb on him. |
+| <img src="manual/pictures/room-09-steps.png" width="288" alt="Room 9, Steps"> | **9. Steps.** A beam across the room and two perches above it. His light is at the end of the beam. Hers is on a perch, one Alex higher than she can jump from the beam. Each needs the other: she lifts him onto the beam, and he lifts her to the perch. |
 | <img src="manual/pictures/room-10-the-exit.png" width="288" alt="Room 10, The Exit"> | **10. The Exit.** A tower, a cap above it, and two steps. His light is on the tower top, two lifts up. Hers is on the cap, one more Alex up than she can jump from there. The longest of the first ten: seven moves, three lifts. |
 
 ### The world turns
 
-After the tenth room Stella feels it: the world shifts. Then the same
-ten rooms come back upside down. The rooms have not moved. The floor is
+After the tenth room Stella feels it: the world shifts. The first room
+comes back once more, the right way up and glowing, and then it turns
+over. The same ten rooms come back upside down. The rooms have not moved. The floor is
 still the floor, and the joystick works exactly as before. The lights
 have moved. Every room keeps a second place for each light, and the
 second time round the lights are there. What you worked out the first
@@ -259,6 +261,7 @@ by one step, and so is his light.
 ## TIPS FROM THE PROGRAMMER
 
 - Stuck? Look at which light is blinking fast. That one is yours.
+  Still stuck? Every answer is at the back, behind a warning.
 - A light higher than its owner can jump wants a friend under it. Think
   about who has to stand still and be a step, and for how long.
 - Upside down, your instincts are wrong in exactly one direction.
@@ -268,6 +271,117 @@ by one step, and so is his light.
   jump. The wall will catch you — sometimes that is the trick.
 - You can change shape in mid-air. DOWN + Fire does not make the new
   shape jump, so press fire again for that.
+
+---
+
+## ⚠ PAST THIS POINT: SPOILERS
+
+Everything after this page gives the game away.
+
+Behind the Design explains what the cartridge does that it never tells you: what changes when the world turns over, what happens on the title screen after the ending, and why. The Walkthrough is every room's answer, both ways up.
+
+Play first if you would like to find these things yourself. Read on if you would rather know. Both are good ways to meet a game, and the second is not cheating. Some of the best moments here are easy to miss, and a moment you never found is one you never had.
+
+<details>
+<summary><strong>Behind the Design</strong> (open to read)</summary>
+
+<img src="manual/pictures/room-05-ascent-remix.png" width="288" alt="Room 5 upside down, with its remix lights: Alex's on the top slab, Stella's on the one below"> <img src="manual/pictures/room-07-lift-remix.png" width="288" alt="Room 7 upside down, with its remix lights: Stella's on a corner step, Alex's on the far perch">
+
+*Rooms 5 and 7 the second time round, as the game shows them.*
+
+### Twenty rooms, ten records
+
+A room takes 73 bytes of the cartridge's 4,096: its picture, its six solid blocks, where the shapes wake and where the lights are. Twenty rooms would not fit beside everything else. Ten do.
+
+So every room holds its lights in two places. The right way up you meet the first. When the world turns over you get the second: the remix. The floor, the walls and the blocks are where they were. Only the lights have moved, and moving a light is enough to make a different puzzle. A shape that was the step now needs one (rooms 4 and 8). Room 5's stair is climbed by both of them, each lifting the other in turn. Room 7's corner steps cannot be reached from the floor, because the perches above them stop Stella's jump. Room 10 asks Alex to come back down after he has lifted her.
+
+### The turn
+
+After the tenth room, the first room comes back once more the right way up and still, glowing, before the world turns over. Nothing about the room has changed yet. It is there so you can see the world you are about to lose before it goes, and so the turn happens on the screen rather than between two screens.
+
+### The glow
+
+When every light is held, the room glows gold and fades out. The gold is always darker than the platforms, so it never hides them, even on a black-and-white set.
+
+### ALONE
+
+The word under the title is ALONE. After you have met the stranger, go back to the title and wait. The word fades over about four seconds and does not come back, not even if you press RESET. Only switching the console off brings it back.
+
+The manual's first part never mentions this. Stella was alone; by the end of the game she is not, and the title has noticed.
+
+### The stranger
+
+The small blue square on the closing screen is eight pixels on each side. It brightens and dims slowly, like breathing. It has no name in this game. Stella and Alex have not met it yet, and its name belongs to the next game, which opens on this same screen.
+
+### The sky
+
+The darker grey at the top of each room is scenery: windows and arches, a different skyline in every room, so that you can recognise a room when it is upside down. It is never solid. A program checks every room to make sure no shape can ever reach it, so anything up there is out of reach for certain.
+
+### Every room is solved before it ships
+
+Before the cartridge is built, a program replays the game's own physics and plays every room both ways up. It must find a way to hold every light, or the build fails. The walkthrough on the next page is that program's answer, written out in words. If you are stuck, the room is not broken: there is a way through, and it is on the next page.
+
+### The endless game
+
+The endless game always uses the first set of lights. Its clock falls to twelve seconds, and the longest remix takes twelve moves. Its rooms come at random, and any of them can come either way up.
+
+### Four kilobytes
+
+“Four kilobytes of existence, though she did not have words for that yet” is literally true. The cartridge is 4,096 bytes and there is no extra memory to switch in. All of this fits, with 29 bytes to spare.
+
+</details>
+
+<details>
+<summary><strong>Walkthrough: the first ten</strong></summary>
+
+**1. Awakening.** Walk right and jump onto the low step. Stand in the light.
+
+**2. Exploration.** Jump onto the left ledge, then jump left from it towards the wall. The perch in the corner is closer than it looks, and the wall catches you.
+
+**3. Discovery.** DOWN + Fire to Alex. Run right under the pillar and jump onto the corner step by the far wall. Change back; Stella jumps onto the left shelf.
+
+**4. Connection.** Stella jumps onto the left corner step, then up to the high ledge above it. Alex runs under the pillar to the right corner step.
+
+**5. Ascent.** Alex goes first. Stella stands beside the bottom slab; Alex jumps onto her head and from there onto the slab, where his light is. Then Stella climbs the stair alone, a slab at a time, to the top.
+
+**6. Boost.** Alex jumps onto Stella's head and from there onto the high ledge on the right. Stella then jumps onto her step on the left.
+
+**7. Lift.** Alex stands still. Stella jumps onto his back and from there onto the right perch. Then Alex jumps onto the left corner step.
+
+**8. Patience.** Alex waits under the left perch, and Stella climbs his back onto it. Then Alex runs under the pillar to the far corner step.
+
+**9. Steps.** Stella stands by the left end of the beam and Alex jumps from her head onto it. Stella jumps onto Alex's head and from there, a long jump to the right, onto the right perch. Alex walks along the beam to his light at the end.
+
+**10. The Exit.** Alex jumps from Stella's head onto the left step, and Stella jumps up beside him. Alex jumps from her head onto the tower top, his light. Stella jumps onto his head and from there onto the cap above.
+
+</details>
+
+<details>
+<summary><strong>Walkthrough: upside down</strong></summary>
+
+*Upside down, “up” in these answers means up in the room, away from its floor: on the screen, that is down. Left and right do not change.*
+
+**1. Awakening.** The light is on top of the column now. Onto the step, then up onto the column.
+
+**2. Exploration.** The light is on the right perch. The same climb as before, the other way.
+
+**3. Discovery.** Alex goes under the pillar to the corner step as before, then on up from the step onto the right shelf. Stella's light is on the left shelf.
+
+**4. Connection.** The roles swap. Stella's light is the left corner step and Alex's is the high ledge above it. Both jump onto the corner step, and Alex jumps from Stella's head up onto the ledge.
+
+**5. Ascent.** Alex's light is on the top slab and Stella's on the one below it. They leapfrog. Alex rides Stella's head onto the bottom slab, and she jumps up after him. Again for the second slab. On the third, Alex jumps from her head onto it, and Stella follows using his head as a step. Last, Alex jumps from her head onto the top. Twelve moves: the longest room in the game.
+
+**6. Boost.** The outer ledges. Alex jumps from Stella's head onto the far left ledge. Stella jumps onto the inner right ledge, then across to the outer one.
+
+**7. Lift.** The perches overhead stop Stella jumping into the corners: from the floor she cannot reach her corner step. Climb Alex onto the right perch, then step off its far side onto the corner step; that is the only way in. Alex's light is on the far left perch. Get him onto the right corner step, onto Stella's head, and up onto the right perch. Stella jumps back up beside him, and Alex takes a running jump from her head right across the room to the left perch (steer in the air; the perch alone is not high enough). Stella steps off again onto her corner step.
+
+**8. Patience.** The roles swap. Both jump onto the left corner step, and Alex jumps from Stella's head up onto the left perch. Her light is the corner step.
+
+**9. Steps.** Alex's light is the left end of the beam. Play it as before, but Alex is already home when Stella crosses.
+
+**10. The Exit.** As before, and then one more move. Alex's light is now the step on the right. Once Stella is on the cap, Alex jumps from the tower top down onto that step. Not to the floor: from the floor he cannot get back up.
+
+</details>
 
 ---
 

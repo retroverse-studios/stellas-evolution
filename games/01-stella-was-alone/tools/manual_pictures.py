@@ -237,6 +237,10 @@ def main():
     s = room_picture(cart, cart.rooms[2], remix=True)   # Discovery, the world turned over
     s.upside_down()
     write(s, slug(2) + "-upside-down.png")
+    for i in (4, 6):                            # the two big remixes, as the game shows them
+        s = room_picture(cart, cart.rooms[i], remix=True)
+        s.upside_down()
+        write(s, slug(i) + "-remix.png")
     write(title_picture(cart), "title.png")
     write(title_picture(cart, ember=True), "title-ember.png")
     write(cast_picture(cart), "the-cast.png")

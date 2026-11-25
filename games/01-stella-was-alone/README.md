@@ -26,6 +26,38 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
+## Status: v1.0-rc3-dev — polish: a glow, the turn, and ALONE (2026-11-25)
+
+Three pieces of polish (decision #40), paid for by a byte hunt.
+
+- **The byte hunt.** `LoadLevel` set its four record pointers, read
+  the shapes and the lights, and zeroed the motion state, all
+  open-coded. They are loops now. 13 bytes free became 69, and the A/B
+  harness ran the new ROM against the old on the same random input:
+  8 runs of 6,000 frames, identical frame by frame in memory and audio.
+- **The glow.** When every light is held, the background used to
+  strobe grey every 8 frames. Now it glows gold and fades out, with its
+  luma at StateTimer / 8. The pause is 79 frames, not 90, so it starts
+  at `$18`, under the platforms' `$0A`, and a black-and-white set keeps
+  the platforms visible.
+- **The turn.** After "THE WORLD SHIFTED" the first room comes back the
+  right way up and still, in a brighter glow (127 frames, from `$1E`),
+  and then it loads upside down with its remix lights. It reuses the
+  completion pause: Level is set to $FF and the pause's own advance
+  brings it to 0. The run clock does not run during it.
+- **ALONE.** Once the stranger has been met, the word under the title
+  fades out over about four seconds and does not come back until the
+  power is turned off. The console RESET switch keeps it gone (`Restart`
+  spares one byte, `AloneFade`). The manual does not mention it.
+- **Room:** 29 bytes free. RAM 87 of 128.
+- **Checked by `make headless`:** the turn shows room 1 upright for
+  TURN_T frames and then turns over; ALONE starts fading at the
+  stranger and is gone in about four seconds; the title is the same
+  197 scanlines tall without the word; the word's white is the only
+  colour write that goes; RESET does not bring it back.
+- **Not yet seen or heard on a screen.** The colours are chosen by luma
+  arithmetic, not by eye.
+
 ## Status: v1.0-rc3-dev — the upside-down remixes (2026-11-25)
 
 The second run used to be the first ten rooms with the picture turned

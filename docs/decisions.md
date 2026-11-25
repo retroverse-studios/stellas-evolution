@@ -1738,3 +1738,59 @@ of each record that held a second set of lights.
 - **Cost: none.** 13 bytes free before and after.
 - **Not decided here:** whether 7's remix is fun. It needs a person.
 
+## 40. Polish for Game 1: a Glow, the Turn, and ALONE
+
+**Status:** Accepted (2026-11-25)
+
+Game 1 opens the series, so its polish goes into moments that make the
+world feel bigger than the room, not into menus or more text. A
+two-line narration screen costs about 78 bytes, which is more than
+this whole decision spends.
+
+- **Bytes come from code, not content.** `LoadLevel` was open-coded:
+  three copies of a 16-bit add for the record pointers, unrolled reads,
+  eleven `sta`s of zero. As loops, 13 bytes free became 69, with no
+  room cut. The A/B harness proved the new code identical frame by
+  frame.
+- **The completion glow** replaces the grey strobe with gold that
+  fades (luma = StateTimer / 8). The pause is 79 frames so the glow
+  starts at luma 8, below the platforms' 10.
+- **The turn** holds the first room upright and glowing for 127 frames
+  before it loads upside down. It is the completion pause again, with
+  Level at $FF so its advance lands on 0: 4 bytes. A rolling animation
+  was weighed and left out. The kernel draws bands from Band0 by
+  BandStep, and no cheap state in between looks like a turn.
+- **ALONE fades** from the title once the stranger has been met, over
+  about four seconds, and stays gone until power-off. `AloneFade` is
+  the one byte the console RESET switch spares. Its value is 0 at
+  power-on (`Reset` loads Y with 0, `Restart` stores Y after clearing
+  RAM). The manual keeps it secret: it is the player's to notice.
+- **Not done:** a hint of the stranger during play. The closing screen
+  carries it, and the game kernel has four cycles to spare.
+- **29 bytes free** after all of it.
+
+## 41. The Manual Explains Itself, Behind a Warning
+
+**Status:** Accepted (2026-11-25)
+
+Hoping for an "aha" is a risk: a player who never finds the remixes or
+the fading title never gets the payoff. So the manual now says these
+things plainly, at the back, behind a warning page that asks the reader
+to choose.
+
+- **Behind the Design:** twenty rooms from ten records and the remix,
+  the turn, the glow, ALONE fading from the title, the stranger, the
+  unreachable sky, the program that solves every room, why the endless
+  game keeps the first lights, and the 4,096 bytes. Rooms 5 and 7 are
+  pictured upside down with their remix lights (`make pictures`).
+- **Walkthrough:** all twenty rooms, written from `check_levels.py
+  --joint`'s plans, so every answer is a solution the engine's physics
+  accepts. The illustrated manual prints it upside down, with a button
+  that turns it over; `MANUAL.md` folds each half into a `<details>`.
+- **A correction found on the way:** room 9 (Steps) said Alex must be
+  standing home before Stella climbs on him. The planner shows she
+  climbs him anywhere on the beam and he walks home afterwards. It now
+  says each needs the other.
+- The first part of the manual still says nothing about the secrets. A
+  tip points to the back for anyone who is stuck.
+

@@ -643,7 +643,14 @@ def walkthrough(rom, sym, quiet=False):
         r.step_frame()
     r.step_frame(fire=True)
     r.step_frame()
-    c.that("fire turns the world over: Quest 2, level 1, no narration",
+    c.that("fire shows the first room once more, the right way up, held",
+           r.r("State") == D and r.r("BandStep") == 1 and r.r("Level") == 0xFF
+           and r.r("Quest") == 1 and r.r("CharCount") == 1)
+    held = 1
+    while r.step_frame() == D:
+        held += 1
+    c.that(f"the turn holds for TURN_T frames ({held})", abs(held - sym["TURN_T"]) <= 2)
+    c.that("then it turns over: Quest 2, level 1, no narration",
            r.r("State") == P and r.r("Quest") == 1 and r.r("Level") == 0 and r.r("CharCount") == 1
            and r.r("BandStep") == 255)
     c.that("the run clock carried over into the upside-down replay",
@@ -684,6 +691,26 @@ def walkthrough(rom, sym, quiet=False):
     r.step_frame(fire=True)
     r.step_frame()
     c.that("then fire returns to the title", r.r("State") == T and r.r("Quest") == 0)
+    c.that("meeting the stranger has started ALONE fading", r.r("AloneFade") == 1)
+
+    def title_lines():
+        k, i = len(r.m.wsyncs), len(r.m.colupf)
+        r.step_frame()
+        title_lines.colours = [v for _, v in r.m.colupf[i:]]
+        return len(r.m.wsyncs) - k
+    with_word = title_lines()
+    word_colours = title_lines.colours
+    for _ in range(300):
+        r.step_frame()
+    c.that("in about four seconds the word is gone", r.r("AloneFade") == 15)
+    c.that(f"and the title frame is just as tall without it ({title_lines()} WSYNCs, "
+           f"{with_word} with it)", title_lines() == with_word)
+    c.that("the word's colour is the one write missing",
+           word_colours == title_lines.colours + [sym["COL_TEXT"]],
+           f"{word_colours} -> {title_lines.colours}")
+    r.step_frame(reset=True)
+    r.step_frame()
+    c.that("console RESET does not bring it back", r.r("AloneFade") == 15 and r.r("State") == T)
 
     # ---- endless ------------------------------------------------------
     r.step_frame(select=True)
