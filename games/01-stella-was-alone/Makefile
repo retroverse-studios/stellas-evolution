@@ -29,25 +29,8 @@ check: $(ROM)
 run: $(ROM)
 	stella $(ROM)
 
-# The tune (src/tune.inc). TUNE there picks what the normal ROM holds;
-# `make tunes` additionally builds one ROM per draft beside it, and
-# `make preview` renders each to WAV for listening without a console.
-# TUNE 0 is the old drone, kept for A/B.
-TUNES = 0 1 2 3
-
-tunes: $(TUNES:%=build/stella-was-alone-tune%.bin)
-
-build/stella-was-alone-tune%.bin: src/main.asm src/vcs.h src/text.inc src/tune.inc
-	@mkdir -p build
-	cd src && dasm main.asm -f3 -v0 -DTUNE=$* -o../$@ -l../build/tune$*.lst -s../build/tune$*.sym
-	@size=$$(wc -c < $@); \
-	if [ $$size -ne 4096 ]; then \
-		echo "ERROR: tune $* ROM is $$size bytes, expected 4096"; \
-		rm -f $@; \
-		exit 1; \
-	fi
-	python3 tools/check_levels.py $@ build/tune$*.sym src/main.asm | tail -1
-
+# The tune (src/tune.inc), rendered to WAV for listening without a console:
+# at tempo, and as it plays while the clock is low.
 preview:
 	@mkdir -p build/tune-previews
 	python3 tools/tune_preview.py build/tune-previews --fast
@@ -64,4 +47,4 @@ headless: $(ROM)
 clean:
 	rm -rf build
 
-.PHONY: all check run clean tunes preview headless
+.PHONY: all check run clean preview headless

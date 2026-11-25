@@ -494,38 +494,26 @@ def walkthrough(rom, sym, quiet=False):
     c.that("left walks her back to the wall", r.r("CharX") == 4, f"x -> {r.r('CharX')}")
 
     # ---- the tune, as the ROM plays it -------------------------------
-    tune, tempo, strike, hurry = (sym.get("TUNE", 1), sym.get("TEMPO", 5),
-                                  sym.get("STRIKE", 4), sym.get("HURRY", 1))
-    if tune == 0 or "Tune" not in sym:
-        start = r.frame                 # the drone has no strike to find the grid by
-        r.record_audio = True
-        for _ in range(200):
-            r.step_frame()
-        rec, r.audio = r.audio, []
-        r.record_audio = False
-        drone = [(p, v, cc) for f, cc, p, v, st in rec if st == 1]
-        c.that("the drone plays on channel 1: buzzy, quiet, four notes",
-               bool(drone) and all(cc == 1 and v == 2 for p, v, cc in drone)
-               and len({p for p, v, cc in drone}) == 4)
-    else:
-        table = [None if b & 0x80 else b for b in rom[sym["Tune"] - 0xF000:sym["Tune"] - 0xF000 + 32]]
-        step = 1 << tempo
-        per = heard(r, 1100, step)
-        c.that(f"the tune keeps a {step}-frame grid for 1,100 frames ({len(per)} steps)",
-               struck_right(per, step, strike))
-        c.that("the notes are the table in the ROM, in order",
+    # ---- the tune, as the ROM plays it -------------------------------
+    tempo, strike, hurry = sym.get("TEMPO", 4), sym.get("STRIKE", 2), sym.get("HURRY", 1)
+    table = [None if b & 0x80 else b for b in rom[sym["Tune"] - 0xF000:sym["Tune"] - 0xF000 + 32]]
+    step = 1 << tempo
+    per = heard(r, 1100, step)
+    c.that(f"the tune keeps a {step}-frame grid for 1,100 frames ({len(per)} steps)",
+           struck_right(per, step, strike))
+    c.that("the notes are the table in the ROM, in order",
+           rotation_of(table, [p for p, _, _ in per]), f"first {[p for p, _, _ in per][:12]}")
+    c.that("it is a pure tone (AUDC 12)", all(cc == 12 for _, _, cc in per))
+    if hurry:
+        per = heard(r, 300, step // 2, timed=True)
+        c.that("timed mode with the clock still high: the tune does not hurry yet",
+               not (rotation_of(table, [p for p, _, _ in per]) and struck_right(per, step // 2, max(strike // 2, 1))))
+        r.w("TimerSec", 10)
+        per = heard(r, 400, step // 2, timed=True)
+        c.that("under time pressure the tune runs twice as fast",
                rotation_of(table, [p for p, _, _ in per]), f"first {[p for p, _, _ in per][:12]}")
-        c.that(f"it is a pure tone (AUDC 12)", all(cc == 12 for _, _, cc in per))
-        if hurry:
-            per = heard(r, 300, step // 2, timed=True)
-            c.that("timed mode with the clock still high: the tune does not hurry yet",
-                   not (rotation_of(table, [p for p, _, _ in per]) and struck_right(per, step // 2, max(strike // 2, 1))))
-            r.w("TimerSec", 10)
-            per = heard(r, 400, step // 2, timed=True)
-            c.that("under time pressure the tune runs twice as fast",
-                   rotation_of(table, [p for p, _, _ in per]), f"first {[p for p, _, _ in per][:12]}")
-            c.that("struck shorter there", struck_right(per, step // 2, max(strike // 2, 1)))
-            r.w("TimerSec", 60)
+        c.that("struck shorter there", struck_right(per, step // 2, max(strike // 2, 1)))
+        r.w("TimerSec", 60)
 
     jumps, was = 0, True
     for _ in range(100):

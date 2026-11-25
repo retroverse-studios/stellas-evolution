@@ -4,9 +4,8 @@ goes near a console.
 
 This is an approximation of channel 1, not an emulation. It is the
 same notes, the same steps, the same two-volume strike and the same
-speed the ROM uses, on a plain square wave (pure tone, AUDC 12); the
-old drone (TUNE 0) is drawn from the 4-bit polynomial AUDC 1 really
-plays. What it leaves out is everything else the machine does: the
+speed the ROM uses, on a plain square wave (pure tone, AUDC 12). What
+it leaves out is everything else the machine does: the
 sound effects on channel 0, the TV speaker, and the buzz a real TIA
 adds. Trust it for the notes and the rhythm; confirm the rest in
 Stella, and on hardware. (tools/headless.py checks that the ROM really
@@ -14,9 +13,9 @@ plays the table this reads, on the grid this assumes.)
 
 Usage: python3 tools/tune_preview.py [outdir] [--loops N] [--fast]
 
-Writes tune<N>-<name>.wav for each tune, two loops by default, and
-with --fast tune<N>-<name>-fast.wav as well: the tune as it plays
-while the clock is low, when HURRY doubles the tempo.
+Writes lament.wav (two loops by default) and, with --fast,
+lament-fast.wav as well: the tune as it plays while the clock is low,
+when HURRY doubles the tempo.
 """
 import os
 import re
@@ -27,7 +26,7 @@ from array import array
 RATE = 48000                    # samples per second
 FRAME = 262 * 76 * 3 / 3579545  # one NTSC frame, in seconds
 CLOCK = 30123.0                 # the TIA audio clock
-NAMES = {0: "drone", 1: "lament", 2: "walk", 3: "hope"}
+NAMES = {1: "lament"}
 
 
 def value(b):
@@ -37,17 +36,20 @@ def value(b):
 
 
 def parse(path):
-    """tune number -> {"tempo", "strike", "hurry", "table"}, from the
-    IF TUNE blocks of tune.inc (read top to bottom, never nested)."""
+    """tune number -> {"tempo", "strike", "hurry", "table"}, from tune.inc
+    (read top to bottom; IF TUNE blocks, if there ever are any again,
+    are understood and must not nest)."""
+    text = open(path).read()
     tunes = {}
-    cur = None                  # the tunes the open IF block covers
+    cur = None if "IF TUNE" in text else [1]    # the tunes the open IF block covers
     filling = None              # the tunes whose table is being read
     hurry = 1
-    for raw in open(path):
+    for raw in text.splitlines():
         line = raw.split(";", 1)[0].strip()
         if not line:
             continue
-        m = re.match(r"IF TUNE\s*(=|>)\s*(\d+)$", line)
+        m = re.match(r"IF TUNE\s*(=|>)\s*(\d+)$", line)   # the switch is gone;
+                                                              # still understood
         if m:
             n = int(m.group(2))
             cur = [n] if m.group(1) == "=" else list(range(n + 1, max(NAMES) + 1))
@@ -87,14 +89,6 @@ def step_seconds(spec, fast):
     return (1 << spec["tempo"]) * FRAME / (2 if fast else 1)
 
 
-def drone_pitch(n):
-    """AUDC 1: the 4-bit polynomial, clocked at CLOCK / (n + 1)."""
-    s = [1, 0, 0, 0]            # x^4 + x^3 + 1, period 15
-    for _ in range(11):
-        s.append(s[-4] ^ s[-3])
-    return s
-
-
 def render(tune, spec, loops, fast):
     table = spec["table"]
     step = step_seconds(spec, fast)
@@ -102,10 +96,7 @@ def render(tune, spec, loops, fast):
     out = array("h")
     for _ in range(loops):
         for b in table:
-            if tune == 0:       # the drone: its own figure, on level 0
-                n = 23 + b
-                pat, hz, vol = drone_pitch(n), CLOCK / (n + 1), 2
-            elif b & 0x80:
+            if b & 0x80:
                 pat, hz, vol = None, 0, 0
             else:
                 pat, hz, vol = None, CLOCK / 2 / (b + 1), None
@@ -145,9 +136,9 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     for tune in sorted(tunes):
         spec = tunes[tune]
-        if len(spec["table"]) != (4 if tune == 0 else 32):
+        if len(spec["table"]) != 32:
             sys.exit(f"tune {tune}: expected 32 steps, found {len(spec['table'])}")
-        name = f"tune{tune}-{NAMES[tune]}"
+        name = NAMES[tune]
         data = render(tune, spec, loops, False)
         write(os.path.join(outdir, name + ".wav"), data)
         print(f"{outdir}/{name}.wav: {len(spec['table'])} steps at "

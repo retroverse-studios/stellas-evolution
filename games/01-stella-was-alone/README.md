@@ -88,8 +88,7 @@ It has been heard only as a preview render and checked only by running
 the ROM headlessly — **not yet in Stella, not on a console.**
 
 ```sh
-make preview    # every tune rendered to build/tune-previews/*.wav, normal tempo and under pressure
-make tunes      # one ROM per tune: build/stella-was-alone-tune{0..3}.bin
+make preview    # the tune rendered to build/tune-previews/, at tempo and under pressure
 make headless   # run the ROM itself through every screen and check it
 ```
 
@@ -112,13 +111,12 @@ transpose in tune.
 
 - **A TIA pure tone cannot play every note in tune.** F5 and C6 are the
   weak ones; the tune leans on C minor, where the thirds come out truest.
-- **Room:** 21 bytes free with the lament in (the drone leaves 53). RAM
-  is at 86 of 128 bytes. The four inline fire-button edge detectors
-  became one routine (`FireEdge`) to pay for the tune.
-- **The other drafts are still in `tune.inc`** — walk, hope, and the
-  old drone as TUNE 0 — and cost nothing in the ROM. `TUNE = n` at the
-  top picks what the normal ROM holds; `HURRY = 0` would stop the tune
-  from doubling under pressure.
+- **Room:** see the status block above for the current count. RAM is at
+  86 of 128 bytes. The four inline fire-button edge detectors became one
+  routine (`FireEdge`) to pay for the tune.
+- **The losing drafts and the old drone are gone** from `tune.inc`
+  (they are in the history of commit `c3aa78a`). `HURRY = 0` there
+  would stop the tune from doubling under pressure.
 - **The reset routine now really clears RAM.** Its comment always said
   it did; the loop it used only ever cleared the stack page, so the
   title depended on RAM happening to be zero at power-on. Game 2 sets

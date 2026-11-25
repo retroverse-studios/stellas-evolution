@@ -402,9 +402,10 @@ effects), and nothing that needs a second channel to be heard.
 
 Three drafts were rendered as WAV previews and the author chose **the lament — at
 the quicker of the two speeds it was heard at**, having been drafted at half that.
-(`src/tune.inc`: TEMPO 4, STRIKE 2. The other two drafts and the old drone stay
-there as TUNE 0–3 and cost nothing in the ROM.) It has not been heard in Stella or
-on hardware yet. Three things were learned building it and are now rules:
+(`src/tune.inc`: TEMPO 4, STRIKE 2.) The two losing drafts and the old drone,
+kept for A/B until the choice was made, were deleted afterwards; they are in the
+history of commit `c3aa78a`. The tune has not been heard in Stella or on hardware
+yet. Three things were learned building it and are now rules:
 
 - **A pure TIA tone cannot transpose in tune.** The drone's "a little higher each
   level" is gone; it cannot be done with a melody, so the tune is the same on every

@@ -39,10 +39,8 @@
 ; finish. None of this has been playtested yet.
 ;
 ; Also 2026-11-25: channel 1 plays a TUNE (src/tune.inc) in place of
-; the four-note drone: the lament, chosen from three drafts (the other
-; two and the drone are still in tune.inc, one TUNE in the ROM at a
-; time). It is struck, not held, and it runs twice as fast when the
-; clock is close. The four inline fire-button edge detectors became
+; the four-note drone: the lament, chosen from three drafts. It is
+; struck, not held, and it runs twice as fast when the clock is close. The four inline fire-button edge detectors became
 ; one routine to pay for it. tools/headless.py runs this ROM through
 ; every screen (`make headless`).
 ;
@@ -1439,45 +1437,17 @@ PlayExtras:
 .setT:
         sta Temp
 
-        ; THE TUNE, channel 1 (decision #16, amended 2026-11-25).
-        ; TUNE = 0 is the old four-note drone, kept for A/B.
-        IF TUNE = 0
-        lda #1
-        sta AUDC1
-        lda FrameCtr
-        ldx Temp
-        beq .calm
-        ldy TimerSec
-        cpy #16
-        bcs .calm
-        asl
-.calm:
-        lsr
-        lsr
-        lsr
-        lsr
-        lsr
-        and #3
-        tay
-        lda #23                 ; drone base = 23 - 2*level
-        sec
-        sbc Level
-        sbc Level
-        clc
-        adc ArpOff,y
-        sta AUDF1
-        lda #2
-        sta AUDV1
-        ELSE
-        ; One struck note per step from the table in tune.inc: TEMPO
-        ; and STRIKE there say how long a step is and how many frames
-        ; of it a note is loud. A byte with its top bit set is a rest.
-        ; TuneStep counts steps (an 8-bit frame counter shifted right
-        ; five times can only count to seven, which was all the old
-        ; four-note figure ever needed). HURRY doubles the frame
-        ; counter while the clock is low, so the tune plays twice as
-        ; fast: the same signal the drone gave. When the music runs,
-        ; run with it. DoneLogic releases channel 1 for the beat.
+        ; THE TUNE, channel 1 (decision #16, amended 2026-11-25). One
+        ; struck note per step from the table in tune.inc: TEMPO and
+        ; STRIKE there say how long a step is and how many frames of it
+        ; a note is loud. A byte with its top bit set is a rest.
+        ; TuneStep counts steps: an 8-bit frame counter shifted right
+        ; five times only counts to seven, which was all the old
+        ; four-note drone ever needed, and the tune has 32. HURRY
+        ; doubles the frame counter while the clock is low, so the tune
+        ; plays twice as fast: the signal the drone used to give. When
+        ; the music runs, run with it. DoneLogic releases channel 1 for
+        ; the completion beat.
         lda #12
         sta AUDC1
         lda FrameCtr
@@ -1490,11 +1460,7 @@ PlayExtras:
         asl
         ENDIF
 .calm:
-        IF TEMPO = 5
-        and #31                 ; 0 on the first frame of a step
-        ELSE
-        and #15
-        ENDIF
+        and #15                 ; 0 on the first frame of a step
         tax                     ; X = frames into the step
         bne .same
         inc TuneStep
@@ -1514,7 +1480,6 @@ PlayExtras:
         lda #2
 .setv:
         sta AUDV1
-        ENDIF
 
         lda #0
         sta COLUBK
