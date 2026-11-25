@@ -1664,3 +1664,43 @@ up. Its A/B compares every frame's memory. Until today it compared each
 frame's state and audio registers and the **last** frame's memory, so
 the `FireEdge` proof in #35 was weaker than it said; it is as stated
 now.
+
+## 38. The Manual for Game 1: Drawn Pictures, a Cast, and the Stranger
+
+**Question:** The manual still described RC1: exit markers a shape left
+by, a rainbow title, "red doors", and two modes numbered as if they were
+the series' games. Its screenshots show rooms that no longer exist. What
+should the manual be for the game as it is, and where do its pictures
+come from when nobody can take new ones?
+
+**Status:** DECIDED and done (2026-11-25).
+
+- **Both manuals, same content.** `MANUAL.md` is the text the website
+  links to; `manual/manual.html` is the illustrated, printable one. They
+  say the same things in the same order.
+- **Pictures are drawn from the cartridge.** `make pictures`
+  (`tools/manual_pictures.py`) turns the level records and the text
+  tables into pixels: each room with both shapes where they wake and each
+  light in both its places, one room upside down, the title in both
+  skies, the five narration screens, the cast to scale, the closing
+  screen, a room with the clock low. The geometry is the game's. A room
+  cannot change without its picture changing, and no picture can show a
+  room that was not shipped. The RC1 screenshots are retired, all ten
+  (`manual/SCREENSHOTS-TODO.md` says what to shoot again, for the day
+  there is a television in the loop).
+- **One story, three characters.** A background for the world as the
+  creative brief has it (a constrained world, lights nobody explains,
+  the shift, the turning over), a page each for Stella and Alex taken
+  from the brief and from what the engine lets them do, and the stranger
+  on the closing screen as a teaser: what it looks like, that it
+  breathes, that it is not named here. Nothing is said that #15 and #21
+  rely on, and its name is left for Game 2.
+- **Two modes, not two games.** The story game and the endless game. In
+  a four-game series, "Game 1" and "Game 2" on one cartridge read as the
+  series' numbers.
+- **Everything the cartridge does is written down:** the lights and
+  their blinking, standing on a friend, the sky, the two placements of
+  the lights, what SELECT does mid-room (the lights may come back in
+  their other places, which is what the cartridge does today), the run
+  clock and when it runs, the one-minute clock, and every switch,
+  including the two that do nothing.

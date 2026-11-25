@@ -1,5 +1,19 @@
 # TODO: Screenshots for the manual
 
+> **Status 2026-11-25 (third pass):** shots 01 and 03 to 09 show RC1 and
+> are no longer used in the manual: white platforms, the rainbow title,
+> rooms with no sky, the exit-era markers, and a red sky that stayed. The
+> manual now draws all of its pictures from the cartridge (`make
+> pictures`, into `pictures/` beside this folder): the rooms, the title,
+> the narration screens, the cast and the closing screen. None of the
+> captures below is shown any more. They are kept for whoever re-shoots
+> them on the current ROM (F12, as below) and swaps them in over the
+> drawn ones, which will always be exactly right and never look like a
+> television. The epilogue is shown now, as a drawn
+> picture with a blank number: the author asked for the stranger to be in
+> the manual, as a teaser. The two "deliberately not screenshotted" rules
+> below are kept as history.
+
 > **Status 2026-07-14 (second pass):** ten shots curated and embedded in
 > `manual.html` (curated copies `01-…` to `10-…` are half-res NEAREST
 > downscales; raw captures kept alongside). Only the optional timed-HUD shot

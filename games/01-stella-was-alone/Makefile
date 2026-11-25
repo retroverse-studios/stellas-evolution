@@ -44,7 +44,15 @@ preview:
 headless: $(ROM)
 	python3 tools/headless.py $(ROM) build/main.sym
 
+# The manual's pictures (manual/pictures), drawn from the cartridge's own
+# bytes by tools/manual_pictures.py: the ten rooms with both shapes and
+# both placements of the lights, the title, the cast, the closing screen.
+# Needs Pillow. Not part of `make`: a picture is documentation, and it
+# only needs drawing again when a room or a screen changes.
+pictures: $(ROM)
+	python3 tools/manual_pictures.py $(ROM) build/main.sym src/main.asm manual/pictures
+
 clean:
 	rm -rf build
 
-.PHONY: all check run clean preview headless
+.PHONY: all check run clean preview headless pictures

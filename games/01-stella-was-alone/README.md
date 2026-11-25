@@ -26,6 +26,29 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
+## Status: v1.0-rc3-dev — the manual (2026-11-25)
+
+[`MANUAL.md`](MANUAL.md) and the illustrated
+[`manual/manual.html`](manual/manual.html) were rewritten for the game as
+it is: the world and its backstory, a page each for Stella, Alex and the
+stranger on the closing screen, how a room works, all ten rooms pictured
+with a note on what each one asks, the upside-down run, the ending, the
+endless game, the clock and every switch.
+
+- **The pictures are drawn, not photographed.** `make pictures` turns the
+  level records and the text tables into `manual/pictures/`: each room
+  with both shapes where they wake and each light in both its places,
+  the title in both skies, the five narration screens, the cast to
+  scale, the closing screen. Geometry exact, colours near enough. So a
+  picture cannot fall behind the game. The RC1 screenshots are no longer
+  shown.
+- **Two modes, not two games.** They are called the story game and the
+  endless game now. "Game 1" and "Game 2" inside this cartridge were
+  read as the series' numbers.
+- **The stranger is in the manual**, as a teaser: what it looks like,
+  what it does, and nothing more. `manual/SCREENSHOTS-TODO.md` had kept
+  it out as a spoiler; the author asked for it.
+
 ## Status: v1.0-rc3-dev — the dim sky, and an audit (2026-11-25)
 
 The whole of `src/main.asm` was read end to end and the ROM was run
@@ -135,6 +158,7 @@ the ROM headlessly — **not yet in Stella, not on a console.**
 ```sh
 make preview    # the tune rendered to build/tune-previews/, at tempo and under pressure
 make headless   # run the ROM itself through every screen and check it
+make pictures   # the manual's pictures, drawn from the ROM (needs Pillow)
 ```
 
 What it is: each note struck twice, then a breath; up a minor third, up
