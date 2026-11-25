@@ -11,7 +11,7 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-26): two players, every play frame 262 lines
+## Status (2026-11-26): two players, every frame 262 lines
 
 - **One or two players** (decisions #44, #47). SELECT on the title
   toggles the count, shown as the cast: Stella alone, or Stella with
@@ -23,8 +23,10 @@ puzzles, and a spatial toolkit that grows across the game.
   two-player play frames in the soak). When all three stand level, the
   frame alternates the two that share P1, as one-player mode always
   does.
-- **Every play frame is 262 lines**, in both modes. Physics and what
-  follows it now run in overscan, which was idle.
+- **Every frame is 262 lines**: play in both modes (physics and what
+  follows it now run in overscan, which was idle; #47), and the title,
+  narration and every screen change (#48). The harness now fails the
+  build on any frame that isn't.
 - **`make headless`** (decision #45) plays all nine floors, soaks one-
   and two-player play in random input, checks the stack against the
   variables (4 bytes spare) and checks the two-player rules.
@@ -35,17 +37,17 @@ puzzles, and a spatial toolkit that grows across the game.
   the variables and blacked out the sky at the end of every floor
   (very likely the flashing), and the untimed sky was four luma steps
   too dark.
-- **Still measured** (WARN): wrong-length frames at screen changes
-  (50, 276 and 287-292 lines), and title and narration frames at a
-  steady 263.
-- **Bank 0 has 70 bytes free** (bank 1 has 2.4K).
+- **Bank 0 has 90 bytes free** (bank 1 has 2.4K).
+- **Not yet fixed:** with two players, the free character draws solid
+  in its dim colour, and dim Marcus ($82) is hard to see on dark
+  ground. One-player mode hides this with the flicker's brightness
+  boost.
 
 **Next:**
 1. ~~Reclaim RAM~~ done (decision #46).
 2. ~~Two players~~ done (decision #47). Not yet tried on hardware
    or in an emulator with two people.
-3. Make the rest of the frames 262 lines: screen changes, the title
-   and narration (play frames are done).
+3. ~~Every frame 262 lines~~ done (decisions #47, #48).
 4. Then Act 4, per-act skies and the second sound voice.
 
 Also noted, not yet looked at: floors 8 and 9 print identical solver

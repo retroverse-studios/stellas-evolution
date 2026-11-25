@@ -88,6 +88,10 @@ STATE_PLAY  = 1         ; a floor is being played
 STATE_STORY = 2         ; a between-floor narration screen
 STATE_WAKE  = 3         ; the waking-Marcus opening (game kernel)
 STATE_DONE  = 4         ; floor complete: the beat before the narration
+STATE_LOAD  = 5         ; one frame: load floor FloorSeq, then PLAY
+STATE_OPEN  = 6         ; one frame: set up the opening, then WAKE
+                        ; (both do their setup inside a frame's vblank,
+                        ; so a screen change is a 262-line frame too)
                         ; (game kernel — decision #26's closing image is
                         ; all three standing home together, so the game
                         ; holds on it instead of cutting to text)
@@ -413,26 +417,10 @@ Bank0Init:
 ; ---------------------------------------------------------------
 
 ; Bank0Entry: the bank-1 annex (title + story) hands the frame back
-; here on fire. Entering PLAY means a floor boundary was crossed while
-; we were away: load it, and rebuild the lamps NOW (PFColRam still
-; holds the narration pointers). Entering WAKE means the title's fire:
-; the opening runs on the game kernel, in this bank.
+; here, with State = STATE_OPEN (the title's fire) or STATE_LOAD (the
+; next floor). Both are set up by the frame below, inside its vblank:
+; doing it here, between frames, made those frames 276-292 lines.
 Bank0Entry:
-        SUBROUTINE
-        lda State
-        cmp #STATE_PLAY
-        beq .enterPlay
-        cmp #STATE_WAKE
-        beq .enterWake
-        jmp MainLoop
-.enterPlay:
-        jsr LoadFloor
-        jsr PrepSprites
-        jmp MainLoop
-.enterWake:
-        jsr WakeInit
-        jmp MainLoop
-
 MainLoop:
         SUBROUTINE
         lda State               ; title and narration run entirely in
@@ -472,8 +460,18 @@ MainLoop:
         beq .doWake
         cmp #STATE_DONE
         beq .doDone
-        jmp .logicDone        ; (the title's frame never reaches here —
-.doDone:                        ;  the annex dispatch above caught it)
+        cmp #STATE_LOAD
+        beq .doLoad
+        jsr WakeInit            ; STATE_OPEN (the title's frame never
+        jsr PrepSprites         ; reaches here: the annex caught it)
+        jmp .logicDone
+.doLoad:
+        jsr LoadFloor           ; a floor boundary (or the clock ran
+        lda #STATE_PLAY         ; out): load it, and rebuild the lamps
+        sta State               ; NOW (PFColRam may still hold the
+        jsr PrepSprites         ; narration pointers)
+        jmp .logicDone
+.doDone:
         jsr DoneLogic
         jmp .logicDone
 .doWake:
@@ -500,15 +498,10 @@ MainLoop:
                         ; there)
 .logicDone:
 
-        lda State
-        cmp #STATE_PLAY
-        beq .kPlay
-        cmp #STATE_WAKE
-        beq .kPlay              ; the opening runs on the game kernel
-        cmp #STATE_DONE
-        beq .kPlay              ; ...and so does the completion beat
-        jmp Overscan            ; (title/story never reach here — the
-.kPlay:                         ;  annex owns them)
+                        ; every bank-0 frame draws the game
+                        ; kernel: play, the opening, the beat, and the
+                        ; beat's last frame (State already STORY: it
+                        ; used to skip the kernel, a 50-line frame)
         lda #1
         sta CTRLPF      ; mirrored playfield
         lda PFColor     ; per-floor platform color (kernel steps it)
@@ -966,8 +959,10 @@ ClockTick:
 .out:                          ; load/swap/done otherwise
         rts
 .expired:
-        jmp LoadFloor           ; out of time: the floor starts over,
-                                ; exactly as Game 1's story mode does
+        lda #STATE_LOAD         ; out of time: the floor starts over,
+        sta State               ; exactly as Game 1's story mode does.
+        rts                     ; Next frame's vblank reloads it: here,
+                                ; after physics in overscan, it can't fit
 
 ; ---------------------------------------------------------------
 ; AtHome: X = character. Carry SET if that character is standing on
@@ -3416,7 +3411,7 @@ TitleFrame:
         lda #0
         sta FirePrev
         sta FloorSeq            ; start at the first floor
-        lda #STATE_WAKE
+        lda #STATE_OPEN         ; bank 0 sets the opening up next frame
         sta State
         jmp .inputDone
 .release:
@@ -3478,7 +3473,7 @@ StoryFrame:
         lda FloorSeq            ; the last narration leads to the title
         cmp #NUM_FLOORS
         bcs .toTitle
-        lda #STATE_PLAY
+        lda #STATE_LOAD         ; bank 0 loads the floor next frame
         sta State
         jmp .inputDone
 .toTitle:
@@ -3499,9 +3494,11 @@ StoryFrame:
         lda #COL_TEXT
         sta COLUPF
         jsr StoryKernel
-        jsr AnnexOverscan
-        lda State
-        cmp #STATE_STORY
+        jsr AnnexOverscanNow    ; the text's last line ends at ~cycle 70;
+        lda State               ; rts + jsr carry us into the next line,
+        cmp #STATE_STORY        ; so a WSYNC there would land late and
+                                ; cost a line (every narration frame
+                                ; was 263)
         beq StoryFrame
         jmp GoBank0
 
@@ -3512,7 +3509,8 @@ StoryFrame:
 AnnexOverscan:
         SUBROUTINE
         sta WSYNC               ; finish the last visible line cleanly
-        lda #2
+AnnexOverscanNow:               ; (or already into the next: blanking
+        lda #2                  ; @~11 is still before the first pixel)
         sta VBLANK
         lda #0
         sta GRP0
@@ -3661,16 +3659,16 @@ TitleKernel:
 .lhold:
         dex
         bne .lloop
-        lda #0                  ; clear the playfield below the logo
+        ; --- gap sky: 8 scanlines --------------------------------
+        ldx #8                  ; the logo's last line ends at ~cycle 66,
+.gap:                           ; so the clear waits for the next line:
+        sta WSYNC               ; before it, it ran that line's WSYNC
+        lda #0                  ; late, and every title frame was 263
         sta PF0
         sta PF1
         sta PF2
-        ; --- gap sky: 8 scanlines --------------------------------
         lda SkyGrad+9
-        sta COLUBK
-        ldx #8
-.gap:
-        sta WSYNC
+        sta COLUBK              ; @17, before the first visible pixel
         dex
         bne .gap
         ; --- the game's word, small and white: 12 scanlines ------

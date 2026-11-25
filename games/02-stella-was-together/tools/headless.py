@@ -678,7 +678,7 @@ class Checks:
 # ---------------------------------------------------------------------
 # What must be true.
 # ---------------------------------------------------------------------
-STATES = ("TITLE", "PLAY", "STORY", "WAKE", "DONE")
+STATES = ("TITLE", "PLAY", "STORY", "WAKE", "DONE", "LOAD", "OPEN")
 
 
 def ram_top(asm_path):
@@ -788,6 +788,32 @@ def two_players(r, sym, c):
     press(r, stick0="D", fire0=True)
     c.that("joystick 1's DOWN+Fire takes Alex, now the free one",
            (r.r("Active"), r.r("Active2")) == (1, 2))
+
+
+def clock_runs_out(r, sym, c):
+    """A timed floor whose clock reaches zero starts over: through
+    STATE_LOAD, so the reload runs in the next frame's vblank."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    for _ in range(200):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    spawn = r.r("CharX", 0)
+    for _ in range(10):
+        r.step_frame(stick0="R")
+    moved = r.r("CharX", 0)
+    r.w("TimerOn", 0x40)
+    r.w("TimerSec", 0)
+    seen = set()
+    for _ in range(70):                         # the clock ticks every 64 frames
+        r.step_frame(timed=True)
+        seen.add(r.r("State"))
+        if r.r("TimerSec") == 45:
+            break
+    c.that("when the clock runs out the floor starts over, through STATE_LOAD",
+           S["LOAD"] in seen and r.r("State") == S["PLAY"] and r.r("TimerSec") == 45
+           and r.r("CharX", 0) != moved,
+           f"Stella walked {spawn}->{moved}, back to {r.r('CharX', 0)}")
 
 
 def soak(r, frames, seed, sym, each=None):
@@ -965,6 +991,7 @@ def main():
     c.that("one player: P1 never hops (the other two always flicker)", seen["solo_hop"] == 0,
            f"{seen['solo_hop']} frames")
     two_players(r, sym, c)
+    clock_runs_out(r, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")
@@ -985,19 +1012,19 @@ def main():
     play = [n for a, n in steady if names.get(a) in ("PLAY", "DONE", "WAKE")]
     annex = [n for a, n in steady if names.get(a) in ("TITLE", "STORY")]
     long_play = sum(1 for n in play if n != 262)
-    c.warn("every play frame is 262 lines", long_play == 0,
+    c.that("every play frame is 262 lines", long_play == 0,
            f"{long_play} of {len(play)} ({100 * long_play / max(1, len(play)):.1f}%) are "
            + ", ".join(f"{n} x{k}" for n, k in sorted(Counter(n for n in play if n != 262).items())))
-    c.warn("every title and narration frame is 262 lines", all(n == 262 for n in annex),
+    c.that("every title and narration frame is 262 lines", all(n == 262 for n in annex),
            ", ".join(f"{n} lines x{k}" for n, k in sorted(Counter(annex).items())))
     bad_turns = Counter((names.get(a), names.get(b), n) for a, b, n in turns if n != 262)
-    c.warn("the frame where one screen gives way to another is 262 lines", not bad_turns,
+    c.that("the frame where one screen gives way to another is 262 lines", not bad_turns,
            "; ".join(f"{a} -> {b}: {n} lines x{k}" for (a, b, n), k in sorted(bad_turns.items())))
     late = Counter((at(st, pc, bk), idx) for st, pc, idx, bk in r.late_at)
-    c.warn("no kernel line runs past its scanline", not late,
+    c.that("no kernel line runs past its scanline", not late,
            "; ".join(f"{w} (cycle {i}) x{k}" for (w, i), k in sorted(late.items())))
     over = Counter(at(st, pc, bk) for st, pc, bk in m.overrun_at)
-    c.warn("logic always fits its blank", not over,
+    c.that("logic always fits its blank", not over,
            "; ".join(f"{w} x{k}" for w, k in sorted(over.items())))
     used = 0xFF - m.min_sp
     free = m.min_sp + 1 - top

@@ -2062,3 +2062,40 @@ either stick; and in a two-player soak the two never hold the same
 character. The harness's late-line report now lists only lines inside
 the kernel. It used to sweep in vertical-blank WSYNCs from any frame
 with a late line.
+
+## 48. Game 2: Every Frame 262 Lines
+
+**Status:** Accepted (2026-11-26). Closes the frame-length faults #45
+measured; #47 already fixed play.
+
+**What was wrong, and the fix:**
+- **Title and narration ran 263 lines, every frame.** In both, one WSYNC
+  landed after its line had ended, which costs a whole extra line. On
+  the title it was the first line of the gap under the logo: the
+  playfield clear ran before that WSYNC, behind the logo's last line.
+  It now runs after it, still before the first visible pixel. In
+  narration it was overscan's opening WSYNC: the text's last line plus
+  the return and call already reach the next line. Narration now skips
+  that WSYNC (`AnnexOverscanNow`); the title, whose last line ends
+  early, keeps it.
+- **Screen changes ran 276-292 lines.** Leaving the title or a
+  narration, bank 0 set up the opening or loaded the floor between
+  frames, outside any timer. Two one-frame states now do it inside a
+  frame's vertical blank: `STATE_OPEN` (the title's fire) and
+  `STATE_LOAD` (the next floor). `Bank0Entry` is now just `MainLoop`.
+- **The end-of-floor pause's last frame was 50 lines.** When the pause
+  handed over to narration, the frame skipped the kernel. Every bank-0
+  frame now draws the game kernel, that one included.
+- **The clock running out** reloaded the floor inline. Since #47 that
+  happens in overscan, after physics, where both don't fit. It now
+  sets `STATE_LOAD` and the next frame reloads.
+
+**Checked:** `make headless` reports no warnings. The frame-length,
+late-line and logic-budget checks were warnings while the faults were
+known; they are now hard checks, so a regression fails the build. A new
+check runs a timed floor's clock to zero and sees it start over through
+`STATE_LOAD`. Console RESET frames are still excluded: RESET restarts
+the machine mid-frame by design.
+
+**Cost:** none. Bank 0 gained 20 bytes (90 free), because the kernel
+choice and `Bank0Entry` got simpler.
