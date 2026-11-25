@@ -11,34 +11,41 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-26): two players decided, a harness, and a bug it found
+## Status (2026-11-26): two players, every play frame 262 lines
 
-- **Two players** (decision #44): each player holds one character and
-  DOWN+Fire swaps to the free one; one player alone plays as now. SELECT
-  on the title will choose. It relaxes the always-flicker rule: the
-  mid-frame hop comes back, so everyone held draws solid unless all
-  three stand level.
-- **`make headless`** (decision #45): boots in either bank, plays all
-  nine floors in order, soaks the game in random input on both
-  joysticks, and checks the stack against the variables. **`make ram`**
-  adds a table of which screens touch each RAM variable.
-- **It found the stack one byte into the variables,** which painted the
-  whole sky black for about 1.5 seconds at the end of every floor (very
-  likely the flashing). **Fixed** (decision #46), along with a second
-  bug it led to: the untimed sky had been four luma steps too dark on
-  every floor. Four bytes of RAM were then freed with no change in
-  behaviour, proved by `headless.py --compare`: **5 bytes spare** now,
-  enough for two players.
-- **Also measured** (WARN, not yet fixed): wrong-length frames at
-  every screen change (50, 276 and 287-289 lines), about 2% of play
-  frames running 263-265 lines, and title and narration frames at a
+- **One or two players** (decisions #44, #47). SELECT on the title
+  toggles the count, shown as the cast: Stella alone, or Stella with
+  Alex beside her. Power-on is one player and RESET keeps the count.
+  Two players start on Stella and Alex, one per joystick, and
+  DOWN+Fire takes the character nobody holds. One player is unchanged.
+- **Two-player sprites:** the mid-frame hop is back, so whichever pair
+  separates vertically shares P1 and everyone draws solid (70% of
+  two-player play frames in the soak). When all three stand level, the
+  frame alternates the two that share P1, as one-player mode always
+  does.
+- **Every play frame is 262 lines**, in both modes. Physics and what
+  follows it now run in overscan, which was idle.
+- **`make headless`** (decision #45) plays all nine floors, soaks one-
+  and two-player play in random input, checks the stack against the
+  variables (4 bytes spare) and checks the two-player rules.
+  **`make ram`** adds which screens touch each RAM variable.
+  **`make picture`** renders the title and play frames from the ROM's
+  own TIA writes into `build/pictures/`.
+- **Fixed earlier today** (decision #46): the stack ran one byte into
+  the variables and blacked out the sky at the end of every floor
+  (very likely the flashing), and the untimed sky was four luma steps
+  too dark.
+- **Still measured** (WARN): wrong-length frames at screen changes
+  (50, 276 and 287-292 lines), and title and narration frames at a
   steady 263.
+- **Bank 0 has 70 bytes free** (bank 1 has 2.4K).
 
 **Next:**
 1. ~~Reclaim RAM~~ done (decision #46).
-2. Two players: SELECT on the title, a second held character, the hop
-   back on.
-3. Make every frame 262 lines, transitions included.
+2. ~~Two players~~ done (decision #47). Not yet tried on hardware
+   or in an emulator with two people.
+3. Make the rest of the frames 262 lines: screen changes, the title
+   and narration (play frames are done).
 4. Then Act 4, per-act skies and the second sound voice.
 
 Also noted, not yet looked at: floors 8 and 9 print identical solver

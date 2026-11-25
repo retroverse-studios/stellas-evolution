@@ -2004,3 +2004,61 @@ the two fixes: six runs of about 4,000 frames through every screen,
 identical, skipping only the shared byte (`WakeT`/`StateTimer`), the
 scratch bytes `LV` and `Temp`, the pointers, and the removed variables.
 
+
+## 47. Game 2 Plays Two: SELECT, Two Joysticks, the Hop Back
+
+**Status:** Accepted (2026-11-26). Builds #44 on the RAM #46 freed.
+
+**What a player sees.**
+- **The title** shows the player count as the cast. Stella stands
+  alone on the bottom sky for one player; for two, Alex stands beside
+  her. SELECT toggles it, one change per press. No text, no menu.
+- **Power-on is one player.** Console RESET keeps the count, as a
+  period game variation does.
+- **Two players** start with joystick 1 on Stella and joystick 2 on
+  Alex. Each moves, jumps and uses portals and rifts with their own
+  stick. DOWN+Fire takes the one character nobody holds (0+1+2 = 3, so
+  it is 3 minus the two held). Both held characters have wide eyes,
+  full colour and a fast-blinking home lamp.
+- **One player** is unchanged: DOWN+Fire cycles all three, and the two
+  you don't hold always alternate at 30Hz (the rule from `82133b8`).
+
+**Sprites in two-player mode.** #19's partition comes back, for two
+players only. Of the three pairs, the first that separates vertically
+shares P1 (hopping mid-frame) and the odd one out gets P0. Pairs are
+tried so the odd one out is joystick 1's character, then joystick 2's,
+then the free one. When no pair separates (all three level), the frame
+falls back to the one-player look. In the harness soak, 70% of
+two-player play frames draw everyone solid. `tools/picture.py`
+renders frames from the ROM's own TIA writes, and shows Stella, Marcus
+and Alex all solid in consecutive frames.
+
+**RAM: one byte.** `Active2` is joystick 2's character, `$FF` for one
+player, so the player count costs nothing extra. Fire and UP
+edge-detection share `FirePrev` and `UpPrev`: bit 7 for joystick 1,
+bit 6 for joystick 2. `Pad`, the joystick being read, is an alias of
+the hop byte `P1Nu2`, because input finishes before `PrepSprites`
+refills it. 118 bytes declared, 4 spare.
+
+**The frame budget moved, and every play frame is now 262 lines.**
+Reading two joysticks plus the sprite prep needed about 35 of
+vertical blank's 41 lines, while overscan's 23 sat idle. Even one-player
+play ran 263-280 lines on a quarter of frames once the input loop went
+in. So vertical blank now reads the sticks and preps the sprites, and
+overscan, after the kernel, runs physics, the goal check, sound, the
+portal and rift blinks and the clock. Each frame still shows input and
+physics one step old. The old fault (about 2% of play frames at
+263-265 lines) went with it: 0 of 6,400 play frames are off in the
+harness, in either mode.
+
+**Cost:** bank 0 is down from 371 free bytes to 70. Act 4 will need
+bank 0 room found, or code moved to bank 1 (2.4K free).
+
+**Checked by `make headless`:** one player, joystick 2 never takes a
+character and P1 never hops; SELECT toggles once per press and back;
+the count survives RESET; two players start on Stella and Alex; each
+stick moves only its own character; DOWN+Fire takes the free one, from
+either stick; and in a two-player soak the two never hold the same
+character. The harness's late-line report now lists only lines inside
+the kernel. It used to sweep in vertical-blank WSYNCs from any frame
+with a late line.

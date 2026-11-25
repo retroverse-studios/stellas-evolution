@@ -45,10 +45,16 @@ headless: $(ROM)
 ram: $(ROM)
 	python3 tools/headless.py $(ROM) build/main.sym --ram --frames 2500
 
+# Screenshots drawn from the ROM's own TIA writes (tools/picture.py):
+# the title in one- and two-player mode, and play in both, so the
+# two-player sprite hop can be looked at, not just measured.
+picture: $(ROM)
+	python3 tools/picture.py $(ROM) build/main.sym build/pictures
+
 run: $(ROM)
 	stella $(ROM)
 
 clean:
 	rm -rf build
 
-.PHONY: headless ram all check run clean
+.PHONY: headless ram picture all check run clean

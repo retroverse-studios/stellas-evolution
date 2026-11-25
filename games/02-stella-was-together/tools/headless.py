@@ -213,6 +213,7 @@ class Machine:
                 cyc += 2
             if name in ("STA", "STX", "STY") and mode in ("abx", "aby", "izy"):
                 cyc += 1
+        self.cur_cyc = cyc               # a store lands on the last of these
         a = self.a
         m = a if mode == "acc" else (self.read(e) if e is not None and mode != "rel" else 0)
         if name in ("LDA", "LDX", "LDY"):
@@ -329,8 +330,9 @@ class Machine:
         self.linepos += cyc
         if self._wsync is not None:       # the write is the instruction's last cycle
             idx = self.linepos - 1
-            self.wsyncs.append((self._wsync, idx, self.waited, getattr(self, "bank", 0)))
-            if getattr(self, "in_kernel", False) and not self.waited:
+            inside = getattr(self, "in_kernel", False) and not self.waited
+            self.wsyncs.append((self._wsync, idx, not inside, getattr(self, "bank", 0)))
+            if inside:
                 self.kernel_late = max(self.kernel_late, idx)
             self._wsync = None
             self.linepos = 0
@@ -339,6 +341,8 @@ class Machine:
             cyc += sleep
             self.cycles += sleep         # (Game 1's copy leaves this out: it never
                                          # measured a frame's length)
+            if getattr(self, "tia_log", None) is not None:
+                self.tia_log.append((self.cycles, -1, 0))   # a new line starts here
         self.frac += cyc
         while self.frac >= self.interval:
             self.frac -= self.interval
@@ -384,6 +388,8 @@ class VCS(Machine):
         self.overrun_polls = 0                 # a timer wait whose flag was already up
         self.overrun_at = []                   # (State, pc) of each
         self.colubk = []
+        self.tia_log = None                    # [(cycle, register, value)] when set
+        self.cur_cyc = 0
         self.in_kernel = False                 # between a blank's end and the next timer set
         self.kernel_late = 0                   # latest WSYNC write inside a kernel
 
@@ -435,6 +441,8 @@ class VCS(Machine):
             return
         if not a & 0x80:                       # TIA
             t = a & 0x3F
+            if self.tia_log is not None:       # for tools/picture.py
+                self.tia_log.append((self.cycles + self.cur_cyc - 1, t, v))
             if t == 0x00:
                 rising = bool(v & 2) and not self.vsync_on
                 self.vsync_on = bool(v & 2)
@@ -736,9 +744,56 @@ def walkthrough(r, sym, c):
     c.that("after the last narration, the title", r.r("State") == S["TITLE"])
 
 
-def soak(r, frames, seed, sym):
+def two_players(r, sym, c):
+    """SELECT on the title, the count surviving RESET, each joystick
+    moving its own character, and DOWN+Fire taking the free one."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    press(r, reset=True)
+    settle(r, 10)
+    c.that("the title starts at one player", r.r("State") == S["TITLE"] and r.r("Active2") == 0xFF,
+           f"State {r.r('State')}, Active2 {r.r('Active2'):02X}")
+    press(r, select=True)
+    c.that("SELECT on the title chooses two players", r.r("Active2") < 3)
+    press(r, select=True)
+    c.that("SELECT again goes back to one", r.r("Active2") == 0xFF)
+    for _ in range(30):
+        r.step_frame(select=True)
+    settle(r)
+    c.that("holding SELECT toggles once", r.r("Active2") < 3)
+    press(r, reset=True)
+    settle(r, 10)
+    c.that("the player count survives console RESET", r.r("State") == S["TITLE"] and r.r("Active2") < 3)
+    press(r, fire0=True)
+    for _ in range(600):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    settle(r, 30)
+    c.that("two players start on Stella and Alex",
+           r.r("State") == S["PLAY"] and (r.r("Active"), r.r("Active2")) == (0, 1),
+           f"State {r.r('State')}, Active {r.r('Active')}, Active2 {r.r('Active2')}")
+    x0, x1 = r.r("CharX", 0), r.r("CharX", 1)
+    for _ in range(12):
+        r.step_frame(stick1="L")
+    c.that("joystick 2 moves Alex, not Stella", r.r("CharX", 1) != x1 and r.r("CharX", 0) == x0,
+           f"Stella {x0}->{r.r('CharX', 0)}, Alex {x1}->{r.r('CharX', 1)}")
+    x0, x1 = r.r("CharX", 0), r.r("CharX", 1)
+    for _ in range(12):
+        r.step_frame(stick0="R")
+    c.that("joystick 1 moves Stella, not Alex", r.r("CharX", 0) != x0 and r.r("CharX", 1) == x1,
+           f"Stella {x0}->{r.r('CharX', 0)}, Alex {x1}->{r.r('CharX', 1)}")
+    press(r, stick1="D", fire1=True)
+    c.that("joystick 2's DOWN+Fire takes Marcus, the free one",
+           (r.r("Active"), r.r("Active2")) == (0, 2))
+    press(r, stick0="D", fire0=True)
+    c.that("joystick 1's DOWN+Fire takes Alex, now the free one",
+           (r.r("Active"), r.r("Active2")) == (1, 2))
+
+
+def soak(r, frames, seed, sym, each=None):
     """Random input on both joysticks, random jumps between floors and
-    the odd RESET: as many paths through the code as cheaply as possible."""
+    the odd RESET: as many paths through the code as cheaply as possible.
+    `each` (optional) is called after every frame."""
     q = random.Random(seed)
     nf = sym["NUM_FLOORS"]
     stick = ["", "L", "R", "U", "D", "LU", "RU", "LD", "RD"]
@@ -750,6 +805,8 @@ def soak(r, frames, seed, sym):
         timed = q.random() < 0.3
         for _ in range(n):
             r.step_frame(s0, b0 and q.random() < 0.5, s1, b1 and q.random() < 0.5, timed=timed)
+            if each:
+                each()
         f += n
         k = q.random()
         if k < 0.04:
@@ -883,7 +940,37 @@ def main():
     if args.ram:
         r.m.ram_log = {}                        # slow: every RAM access, by State
     walkthrough(r, sym, c)
-    soak(r, args.frames, 1, sym)
+    play = sym["STATE_PLAY"]
+    seen = {"two": 0, "hop": 0, "solo_hop": 0, "solo_bad": 0, "clash": 0}
+
+    def solo():
+        if r.r("Active2") != 0xFF:
+            seen["solo_bad"] += 1
+        if r.r("State") == play and r.r("RepoDU") != 0xFF:
+            seen["solo_hop"] += 1
+
+    def duo():
+        a, b = r.r("Active"), r.r("Active2")
+        if r.r("State") != play:
+            return
+        seen["two"] += 1
+        if a == b or a > 2 or b > 2:
+            seen["clash"] += 1
+        if r.r("RepoDU") != 0xFF:
+            seen["hop"] += 1
+
+    soak(r, args.frames // 2, 1, sym, solo)
+    c.that("one player: joystick 2 never takes a character", seen["solo_bad"] == 0,
+           f"{seen['solo_bad']} frames")
+    c.that("one player: P1 never hops (the other two always flicker)", seen["solo_hop"] == 0,
+           f"{seen['solo_hop']} frames")
+    two_players(r, sym, c)
+    soak(r, args.frames - args.frames // 2, 2, sym, duo)
+    c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
+           f"{seen['clash']} of {seen['two']} play frames")
+    c.that("two players: P1 hops when a pair separates", seen["hop"] > 0,
+           f"{seen['hop']} of {seen['two']} play frames hop")
+    print(f"  (two players: {seen['hop']} of {seen['two']} play frames draw everyone solid)")
     m = r.m
 
     from collections import Counter

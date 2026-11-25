@@ -123,6 +123,10 @@ FLOOR1_SKY  = $00       ; Act 1 sky base; +GradOfs -> luma 0..8
 TITLE_SKY   = $00       ; the title shares Act 1's sky
 PFA_COLOR   = $0A       ; platforms: the one luma no character owns
 COL_TEXT    = $0E       ; narration text: white
+COL_STELLA  = $38       ; == ColBriTbl (the annex can't read bank 0)
+COL_ALEX    = $CE
+TITLE_X1    = 66        ; the title's figures: Stella, a 4px gap, Alex
+TITLE_X2    = 78
 
 SCREEN_DU   = 96
 NUM_CHARS   = 3         ; index 0 = Stella, 1 = Alex, 2 = Marcus
@@ -178,8 +182,13 @@ OnGround    ds 3
 CharFace    ds 3        ; 0 = facing left, 1 = facing right
 SquashT     ds 3        ; frames of landing squash left
 
-Active      ds 1
-FirePrev    ds 1
+Active      ds 1        ; joystick 1's character
+Active2     ds 1        ; joystick 2's character; $FF = one player
+                        ; (SELECT on the title, decision #47). Never
+                        ; equal to Active: DOWN+Fire in two-player
+                        ; mode takes the one character nobody holds
+FirePrev    ds 1        ; fire armed (released): bit 7 joystick 1,
+                        ; bit 6 joystick 2
 FrameCtr    ds 1
 SoundId     ds 1        ; 1=jump 2=land 3=floor fanfare
 SoundT      ds 1
@@ -204,6 +213,11 @@ P1Eye2      ds 1
 P1X2        ds 1
 P1Col2      ds 1
 P1Nu2       ds 1
+Pad         = P1Nu2     ; the joystick being read this pass (GetPad):
+                        ; bits 7-4 R/L/D/U, bit 3 fire, bit 0 which
+                        ; joystick, all active low but bit 0. Input
+                        ; runs before PrepSprites refills P1Nu2, and
+                        ; the kernel reads P1Nu2 only on a hop.
 RepoDU      ds 1        ; du of the mid-frame P1 hop ($FF = never)
 SkyGrad     ds 12       ; per-band sky colors (base + gradient)
 
@@ -271,7 +285,8 @@ StateTimer  = WakeT      ; STATE_DONE: frames left in the completion
                         ; beat. Shares WakeT's byte: the opening and the
                         ; beat never run together, and each sets its own
                         ; before reading it (decision #46)
-UpPrev      ds 1        ; UP edge-detect for the portal/rift verbs
+UpPrev      ds 1        ; UP edge-detect for the portal/rift verbs,
+                        ; bits as FirePrev; SELECT's on the title
 
 ; --- Act 3 (world-swap) -------------------------------------------
 CurWorld    ds 1        ; 0 = world A, 1 = world B (decision #9's two
@@ -332,8 +347,10 @@ GoCopyB:                ; jsr here from bank 0 to pull world B art:
 GoBackBank0:            ; jmp here from bank 1 to return to the caller
         lda BANK0HOT    ; map bank 0; the rts is fetched from bank 0's
         rts             ; identical stub and pops GoCopyB's return
-ColdStart:              ; RESET vector target in both banks
-        sei
+ColdStart:              ; RESET vector target in both banks:
+        ldy #$FF        ; power-on is one player (RAM is noise)
+WarmStart:              ; console RESET: jmp here with Y = Active2,
+        sei             ; so the player count survives it
         cld
         lda BANK0HOT    ; force bank 0 before touching anything
         jmp Bank0Init
@@ -346,13 +363,17 @@ STUB_SIZE = * - GoBank1
 
 Bank0Init:
         SUBROUTINE
-        ldx #0
-        txa
-.clear:
+        ldx #0          ; Y = the player count to keep: $FF from
+        txa             ; power-on, Active2 from console RESET (a
+.clear:                 ; period game variation survives RESET)
         dex
         txs
         pha
         bne .clear      ; clears TIA + RAM, leaves SP=$FF
+        tya
+        bmi .solo       ; one player stays $FF; two restart with
+        lda #1          ; joystick 2 on Alex
+.solo:  sta Active2
 
         lda #$80
         sta FirePrev
@@ -441,7 +462,8 @@ MainLoop:
         lda SWCHB       ; console RESET returns to the title
         lsr
         bcs .noReset
-        jmp ColdStart
+        ldy Active2
+        jmp WarmStart
 .noReset:
         lda State
         cmp #STATE_PLAY
@@ -458,16 +480,24 @@ MainLoop:
         jsr WakeLogic
         jmp .logicDone
 .doPlay:
+        ldy #0          ; joystick 1, then joystick 2 (decision #47)
+.player:
+        jsr GetPad      ; Pad = this joystick; carry = nobody on it
+        bcs .nextPad
         jsr ReadInput
         jsr ReadPortal  ; UP in a portal column -> teleport (Act 2)
         jsr ReadRift    ; UP grounded in a rift -> swap worlds (Act 3)
-        jsr UpdatePhysics
-        jsr CheckGoal   ; all three home -> narration, then next floor
-        jsr UpdateSound
+.nextPad:
+        lda Pad
+        lsr             ; bit 0: that was joystick 2
+        bcs .padsDone
+        ldy #1
+        bne .player
+.padsDone:
         jsr PrepSprites ; draw params + P1 multiplexer + positioning
-        jsr BlinkPortal ; portal columns are only ever half-present
-        jsr BlinkRifts  ; ...and the rifts, one size thinner
-        jsr ClockTick   ; the floor clock (decision #22 restored)
+                        ; (physics, the goal, sound, the blinks and the
+                        ; clock run in OVERSCAN, after the kernel: see
+                        ; there)
 .logicDone:
 
         lda State
@@ -512,6 +542,23 @@ Overscan:
                         ; exited up to 64 cycles earlier (INTIM reads 0
                         ; for the last tick before it underflows), so
                         ; the robust wait cost the frame a line.
+
+        ; Half of play's logic runs HERE (decision #47). Two joysticks
+        ; made input plus sprite prep alone ~35 of vblank's ~41 lines,
+        ; while overscan's ~23 sat idle. So vblank reads the sticks and
+        ; preps the sprites; overscan, after the kernel, steps physics
+        ; and everything that follows it. The frame still draws input
+        ; and physics both one step old: physics ran at the end of the
+        ; last frame, input at the top of this one.
+        lda State
+        cmp #STATE_PLAY
+        bne .waitOS
+        jsr UpdatePhysics
+        jsr CheckGoal   ; all three home -> the beat, then narration
+        jsr UpdateSound
+        jsr BlinkPortal ; portal columns are only ever half-present
+        jsr BlinkRifts  ; ...and the rifts, one size thinner
+        jsr ClockTick   ; the floor clock (decision #22 restored)
 .waitOS:
         bit TIMINT
         bpl .waitOS
@@ -771,6 +818,11 @@ LoadFloor:
         sta CharFace,x          ; everyone wakes facing right
         dex
         bpl .zero
+        lda Active2             ; two players: joystick 2 starts on
+        bmi .solo               ; Alex, joystick 1 on Stella
+        lda #1
+        sta Active2
+.solo:
         lda #0
         sta Active
         sta SoundId
@@ -1038,19 +1090,77 @@ DoneLogic:
         rts
 
 ; ---------------------------------------------------------------
-; ReadInput: move the active character (with solid-box blocking and
-; the always-on wrap edges), fire jumps, down+fire cycles Stella ->
-; Alex -> Marcus.
+; GetPad: Y = joystick (0 or 1). Copies it into Pad in one layout so
+; the verbs below read either stick the same way: SWCHA's nibble for
+; this stick in bits 7-4, its fire button in bit 3, Y in bit 0.
+; Carry set: joystick 2 in one-player mode, nobody to move (Pad still
+; gets bit 0, so the caller's loop ends).
+; ---------------------------------------------------------------
+
+GetPad:
+        SUBROUTINE
+        lda SWCHA
+        cpy #0
+        beq .stick
+        ldx Active2
+        bpl .two
+        sty Pad
+        sec
+        rts
+.two:
+        asl                     ; joystick 2 is the low nibble
+        asl
+        asl
+        asl
+.stick:
+        and #$F0
+        sta Pad
+        lda INPT4,y             ; INPT4 / INPT5: fire in bit 7
+        and #$80
+        lsr
+        lsr
+        lsr
+        lsr
+        ora Pad
+        sta Pad
+        tya
+        ora Pad
+        sta Pad
+        clc
+        rts
+
+; PadChar: X = the character this Pad's joystick holds.
+PadChar:
+        ldx Active
+        lda Pad
+        lsr
+        bcc .p1
+        ldx Active2
+.p1:    rts
+
+; PadBit: A = this Pad's bit in FirePrev / UpPrev, Y = the joystick.
+PadBit:
+        lda Pad
+        and #1
+        tay
+        lda PadBitTbl,y
+        rts
+
+; ---------------------------------------------------------------
+; ReadInput: move this Pad's character (with solid-box blocking and
+; the always-on wrap edges), fire jumps, down+fire switches: one
+; player cycles Stella -> Alex -> Marcus; two players take the one
+; character nobody holds.
 ; ---------------------------------------------------------------
 
 ReadInput:
         SUBROUTINE
-        ldx Active
+        jsr PadChar
         lda CharX,x
         sta NewX
         lda #$FF
         sta MoveDir
-        lda SWCHA
+        lda Pad
         and #%01000000          ; left (active low)
         bne .noLeft
         lda #0
@@ -1063,7 +1173,7 @@ ReadInput:
         sbc Temp
         sta NewX
 .noLeft:
-        lda SWCHA
+        lda Pad
         and #%10000000          ; right
         bne .noRight
         lda #1
@@ -1108,12 +1218,13 @@ ReadInput:
         sta CharX,x
 .noMove:
 
-        lda INPT4
-        and #$80
+        lda Pad
+        and #%00001000          ; fire (active low)
         bne .release
-        bit FirePrev
-        bpl .done
-        lda SWCHA
+        jsr PadBit
+        and FirePrev
+        beq .done               ; still held from the last press
+        lda Pad
         and #%00100000          ; holding down?
         beq .switch
         lda OnGround,x          ; fire alone: jump if grounded
@@ -1130,6 +1241,8 @@ ReadInput:
         sta SoundT
         jmp .pressed
 .switch:
+        lda Active2
+        bpl .takeFree
         lda Active              ; the game 1 switch verb, extended to
         clc                     ; three: Stella -> Alex -> Marcus -> ...
         adc #1
@@ -1138,12 +1251,30 @@ ReadInput:
         lda #0
 .setA:
         sta Active
+        jmp .pressed
+.takeFree:                      ; two players: 0+1+2 = 3, so the one
+        lda #3                  ; nobody holds is 3 - Active - Active2
+        sec
+        sbc Active
+        sec
+        sbc Active2
+        tay
+        lda Pad
+        lsr
+        bcs .setB
+        sty Active
+        bcc .pressed
+.setB:
+        sty Active2
 .pressed:
-        lda #0
+        jsr PadBit              ; disarm until this button is released
+        eor #$FF
+        and FirePrev
         sta FirePrev
         rts
 .release:
-        lda #$80
+        jsr PadBit
+        ora FirePrev
         sta FirePrev
 .done:
         rts
@@ -1193,21 +1324,25 @@ ReadPortal:
         ldy FloorSeq
         lda FloorPortL,y
         bmi .done               ; 255: no portal on this floor
-        lda SWCHA
+        lda Pad
         and #%00010000          ; UP (active low)
         bne .release
-        bit UpPrev
-        bpl .done               ; held: already handled this press
-        ldx Active
+        jsr PadBit
+        and UpPrev
+        beq .done               ; held: already handled this press
+        jsr PadChar
         jsr InPortal            ; carry set + Y = column index
         bcc .clear
         jsr DoTeleport
 .clear:
-        lda #0
+        jsr PadBit
+        eor #$FF
+        and UpPrev
         sta UpPrev
         rts
 .release:
-        lda #$80
+        jsr PadBit
+        ora UpPrev
         sta UpPrev
 .done:
         rts
@@ -1376,23 +1511,27 @@ ReadRift:
         ldy FloorSeq
         lda FloorRiftL,y
         bmi .done
-        lda SWCHA
+        lda Pad
         and #%00010000          ; UP (active low)
         bne .release
-        bit UpPrev
-        bpl .done
-        ldx Active
+        jsr PadBit
+        and UpPrev
+        beq .done
+        jsr PadChar
         lda OnGround,x          ; grounded only — see the grammar above
         beq .clear
         jsr InRift
         bcc .clear
         jsr SwapWorld
 .clear:
-        lda #0
+        jsr PadBit
+        eor #$FF
+        and UpPrev
         sta UpPrev
         rts
 .release:
-        lda #$80
+        jsr PadBit
+        ora UpPrev
         sta UpPrev
 .done:
         rts
@@ -1937,6 +2076,8 @@ PrepSprites:
 .vac:                           ; occupies indices 0-8 — while Alex and
         cpx Active              ; Marcus were tinted from her bands on
         beq .fast               ; every floor. The lamp is decision
+        cpx Active2             ; (either player's own home blinks fast)
+        beq .fast
                                 ; #27's whole colour-blind-safety story,
                                 ; so two of three homes were lighting up
                                 ; at the wrong height, in the wrong
@@ -1995,22 +2136,15 @@ PrepSprites:
         and #$7F                ; every 128 (~every 2 seconds)
         cmp #4
         bcc .blink
-        lda CharFace,x
-        bne .faceR
-        cpx Active              ; awake eyes for the active
-        beq .wideL              ; character, narrowed for idle
-        lda #EYES_LSQ
-        bne .setEye
-.wideL:
-        lda #EYES_L
-        bne .setEye
-.faceR:
-        cpx Active
-        beq .wideR
-        lda #EYES_RSQ
-        bne .setEye
-.wideR:
-        lda #EYES_R
+        ldy CharFace,x          ; 0 left, 1 right
+        cpx Active              ; awake eyes for a held character,
+        beq .wide               ; narrowed for the free ones
+        cpx Active2
+        beq .wide
+        iny
+        iny
+.wide:
+        lda EyeTbl,y
         bne .setEye
 .blink:
         lda #$FF                ; eyes shut: solid body
@@ -2019,34 +2153,46 @@ PrepSprites:
         dex
         bpl .each
 
-        ; ---- P0 = the ACTIVE character. P1 = the other two,
-        ; ALWAYS alternating at 30Hz. ----
+        ; ---- Who shares a sprite. ----
         ;
-        ; #19 hopped P1 mid-frame whenever the two inactive characters
-        ; separated vertically, so they drew solid and only flickered
-        ; when the geometry forced it. That made the look CONDITIONAL —
-        ; solid here, flickering there, switching as characters moved —
-        ; and no amount of level design removes the flickering case, so
-        ; the player just gets an inconsistent picture.
+        ; ONE PLAYER: P0 = the active character, solid; the other two
+        ; share P1, ALWAYS alternating at 30Hz. #19 hopped P1 mid-frame
+        ; when they separated, so the look was conditional (solid here,
+        ; flickering there); 82133b8 leaned into the flicker instead, so
+        ; that over two games the player learns THE CHARACTER YOU
+        ; CONTROL IS SOLID, THE OTHERS FLICKER, and Game 3's Flicker has
+        ; a rule to break (#29).
         ;
-        ; The author's call: LEAN IN. The flicker is this machine's
-        ; signature artifact and the series' whole method is to let a
-        ; limitation wear the mask of emergence (#3, #23). Uniform beats
-        ; occasionally-better.
-        ;
-        ; And it sets up Game 3. Over two games the player learns one
-        ; rule without being told it: THE CHARACTER YOU CONTROL IS
-        ; SOLID, THE OTHERS FLICKER. Then they meet Flicker, who
-        ; flickers even while you control it (#29) — the only character
-        ; that breaks a rule two games long in the teaching. Making the
-        ; rule absolute here is what gives Flicker something to violate.
-        ;
-        ; The kernel's .repo hop is left intact and simply unreachable
-        ; while RepoDU is $FF, so Acts 2-3 can reconsider by deleting
-        ; two instructions.
+        ; TWO PLAYERS (decision #47, relaxing that rule as #44 decided):
+        ; two characters are held and the TIA has two sprites, so the
+        ; free one must share. #19's hop comes back: whichever pair
+        ; separates vertically shares P1, hopping mid-frame, and the
+        ; odd one out has P0. Pairs are tried so that the odd one out
+        ; is joystick 1's character, then joystick 2's, then the free
+        ; one, so a held character keeps a sprite to itself when it
+        ; can (a hop tenant is solid too; it can just clip a du at the
+        ; hop). Only when no pair separates (all three level) does the
+        ; one-player look take over for the frame.
+        lda Active2
+        bmi .flicker
+        lda Active
+        jsr TryPair
+        bcs .paired
+        lda Active2
+        jsr TryPair
+        bcs .paired
+        lda #3                  ; the free one: 3 - Active - Active2
+        sec
+        sbc Active
+        sec
+        sbc Active2
+        jsr TryPair
+        bcs .paired
+.flicker:
         lda #$FF
         sta RepoDU              ; never hop
         ldy Active
+        sty CYH                 ; P0's character
         ldx OtherATbl,y         ; the two characters that are NOT active
         lda OtherBTbl,y
         tay
@@ -2057,9 +2203,36 @@ PrepSprites:
         tax
 .fill:
         jsr FillP1              ; P1 = tonight's tenant, whole frame
+        jmp .p0
+.paired:                        ; CYH = odd one out, Temp = upper,
+        lda RepoDU              ; NewX = lower. Never hop on a band
+        and #7                  ; boundary OR the prefetch line before
+        beq .bump1              ; it: both line 1s are busy
+        cmp #7
+        bne .noShift
+        inc RepoDU              ; du==7 mod 8: +2, landing on ==1
+.bump1:
+        inc RepoDU              ; (the 2-du gap margin absorbs +1;
+.noShift:                       ; the rare +2 case can clip the lower
+                                ; sprite's first line: cosmetic)
+        ldx Temp
+        jsr FillP1              ; P1 opens as the upper character...
+        ldx NewX                ; ...and hops to the lower at RepoDU
+        lda CharX,x
+        sta P1X2
+        lda DrawY,x
+        sta P1Y2
+        lda DrawH,x
+        sta P1H2
+        lda EyeByte,x
+        sta P1Eye2
+        lda NusizTbl,x
+        sta P1Nu2
+        jsr CharColor
+        sta P1Col2
 
-.p0:                            ; P0 = the active character, solid
-        ldx Active
+.p0:                            ; P0 = the odd one out, solid
+        ldx CYH
         lda DrawY,x
         sta P0Top
         lda DrawH,x
@@ -2068,10 +2241,10 @@ PrepSprites:
         sta P0Eye
         lda NusizTbl,x
         sta NUSIZ0              ; may be Alex (double width)
-        jsr CharColor           ; active = bright luma
+        jsr CharColor           ; held = bright luma
         sta COLUP0
 .position:
-        ldx Active
+        ldx CYH
         lda CharX,x
         ldx #0
         jsr SetHorizPos
@@ -2085,6 +2258,44 @@ PrepSprites:
         dex
         bne .wait
         sta HMCLR
+        rts
+
+; TryPair: A = a character to leave on P0. Carry SET if the other two
+; separate vertically enough for P1 to hop between them: then CYH = A,
+; Temp = the upper of the two, NewX = the lower, RepoDU = the first du
+; past the upper one (before PrepSprites nudges it off band lines).
+TryPair:
+        SUBROUTINE
+        sta CYH
+        tay
+        ldx OtherATbl,y
+        lda OtherBTbl,y
+        tay                     ; X, Y = the pair
+        lda DrawY,x             ; order them by drawn top
+        cmp DrawY,y
+        bcc .order              ; X already the upper one
+        stx Temp
+        tya
+        tax
+        ldy Temp
+.order:
+        stx Temp
+        sty NewX
+        lda DrawY,x
+        clc
+        adc DrawH,x
+        sta RepoDU
+        cmp #SCREEN_DU-3        ; the nudge adds up to 2 and the hop
+        bcs .no                 ; must land before the last du
+        adc #2                  ; (carry clear) 1 du hop + 1 du margin
+        cmp DrawY,y
+        bcc .yes
+        beq .yes
+.no:
+        clc
+        rts
+.yes:
+        sec
         rts
 
 ; FillP1: X = char. Loads P1's draw slot, color, size and vblank
@@ -2101,13 +2312,13 @@ FillP1:
         sta P1XA
         lda NusizTbl,x
         sta NUSIZ1              ; Alex doubled, Marcus single
-        lda ColDimTbl,x         ; CharColor, inlined: as a call it was
+        lda ColBriTbl,x         ; CharColor, inlined: as a call it was
         cpx Active              ; the fourth level of the deepest chain
-        bne .dim                ; (WakeLogic/DoneLogic -> PrepSprites ->
-        lda ColBriTbl,x         ; FillP1 -> CharColor), 8 bytes of stack
-.dim:                           ; with 7 free: it wrote $32 into TimeDim
-                                ; and the completion beat's sky went
-                                ; black. 6 bytes deep now (decision #45)
+        beq .lit                ; (WakeLogic/DoneLogic -> PrepSprites ->
+        cpx Active2             ; FillP1 -> CharColor), 8 bytes of stack
+        beq .lit                ; with 7 free: it wrote $32 into TimeDim
+        lda ColDimTbl,x         ; and the completion beat's sky went
+.lit:                           ; black. 6 bytes deep now (decision #46)
         ldy RepoDU              ; 30Hz flicker dims the pair; lift
         iny                     ; time-shared tenants ($FF -> 0) a
         bne .noBoost            ; gentle 2 luma. More would whiten
@@ -2117,15 +2328,16 @@ FillP1:
         sta COLUP1
         rts
 
-; CharColor: X = char. A = its color, brighter luma when active.
+; CharColor: X = char. A = its color, brighter luma when held.
 CharColor:
         SUBROUTINE
+        lda ColBriTbl,x
         cpx Active
         beq .bright
+        cpx Active2
+        beq .bright
         lda ColDimTbl,x
-        rts
 .bright:
-        lda ColBriTbl,x
         rts
 
 ; A = x pixel (0-159), X = object (0=P0 1=P1)
@@ -2363,6 +2575,8 @@ ColDimTbl:  .byte $36, $CC, $82     ; Stella mid, Alex brightest — in
                                     ; fast lamp blink, so the active cue
                                     ; can afford to be the subtle one.
 NusizTbl:   .byte $00, $05, $00     ; Alex is double-width on P1
+EyeTbl:     .byte EYES_L, EYES_R, EYES_LSQ, EYES_RSQ ; held, then free
+PadBitTbl:  .byte $80, $40       ; FirePrev / UpPrev bit per joystick
 OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character
 
@@ -3079,7 +3293,8 @@ Bank1Top:
         jmp CopyBWorker
         lda BANK0HOT            ; GoBackBank0
         rts
-        sei                     ; ColdStart
+        ldy #$FF                ; ColdStart
+        sei                     ; WarmStart
         cld
         lda BANK0HOT
         jmp Bank0Init
@@ -3136,7 +3351,8 @@ TitleFrame:
         lda SWCHB               ; console RESET (cold start, as bank 0)
         lsr
         bcs .noReset
-        jmp ColdStart
+        ldy Active2
+        jmp WarmStart
 .noReset:
         lda #TITLE_SKY          ; the dusk gradient, banded (the annex
         sta Temp                ; has its own copy of GradOfs — the
@@ -3150,6 +3366,48 @@ TitleFrame:
         bpl .grad
         lda #0                  ; screen 0 = the logo + the game's word
         jsr LoadStory1
+        lda SWCHB               ; SELECT: one player or two (#47) —
+        and #2                  ; a period game variation, shown in the
+        bne .selUp              ; game's own picture, not a menu
+        bit UpPrev
+        bpl .selDone            ; held: one toggle per press
+        lda #0
+        sta UpPrev
+        lda Active2
+        bmi .toTwo
+        lda #$FF
+        bne .setCount
+.toTwo:
+        lda #1
+.setCount:
+        sta Active2
+        jmp .selDone
+.selUp:
+        lda #$80
+        sta UpPrev
+.selDone:
+        lda #$FF                ; Temp = joystick 2's figure: shown
+        ldx Active2             ; only in two-player mode
+        bpl .shown
+        lda #0
+.shown:
+        sta Temp
+        lda #COL_STELLA         ; the count, drawn as who is playing:
+        sta COLUP0              ; Stella alone, or Stella and Alex
+        lda #COL_ALEX           ; side by side on the bottom sky
+        sta COLUP1
+        lda #0
+        sta NUSIZ0
+        lda #5                  ; Alex is double-width, as in play
+        sta NUSIZ1
+        lda #TITLE_X1
+        ldx #0
+        jsr SetHorizPos1
+        lda #TITLE_X2
+        ldx #1
+        jsr SetHorizPos1
+        sta WSYNC
+        sta HMOVE
         lda INPT4               ; fire: begin (at the waking opening)
         and #$80
         bne .release
@@ -3176,7 +3434,9 @@ TitleFrame:
         jsr AnnexOverscan
         lda State
         cmp #STATE_TITLE
-        beq TitleFrame
+        bne .toWake
+        jmp TitleFrame
+.toWake:
         jmp GoBank0             ; fire was pressed: to bank 0's wake
 
 ; ---------------------------------------------------------------
@@ -3202,7 +3462,8 @@ StoryFrame:
         lda SWCHB               ; console RESET returns to the title
         lsr
         bcs .noReset
-        jmp ColdStart           ; this bank's own copy: maps bank 0
+        ldy Active2
+        jmp WarmStart           ; this bank's own copy: maps bank 0
 .noReset:
         lda FloorSeq            ; after floor n, screen n (bank 0 has
         jsr LoadStory1          ; already counted it); re-point TPtr
@@ -3452,21 +3713,28 @@ TitleKernel:
         sta PF0
         sta PF1
         sta PF2
-        ; --- bottom sky: 20 scanlines, gradient resumes ----------
+        ; --- bottom sky: 20 scanlines, gradient resumes, and the ---
+        ; --- player count stands on it (TitleFrame placed them) ---
         ldx #0
+        lda SkyGrad+10          ; line 172's band (172 >> 4)
 .sky2:
         sta WSYNC
-        txa                     ; absolute line = 172 + X
-        clc
-        adc #172
+        sta COLUBK              ; @3
+        lda TitleG0,x
+        sta GRP0                ; @10: well before either figure
+        lda TitleG1,x
+        and Temp                ; joystick 2's figure, or nobody
+        sta GRP1                ; @20
+        inx
+        txa                     ; the NEXT line's colour, ready for
+        clc                     ; its first cycles (absolute line =
+        adc #172                ; 172 + X)
         lsr
         lsr
         lsr
         lsr
         tay
         lda SkyGrad,y
-        sta COLUBK
-        inx
         cpx #20
         bne .sky2
         rts
@@ -3563,6 +3831,32 @@ LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 
 GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; == GradOfs (bank 0's copy
                                             ; lives beside BuildSky)
+
+; The title's player count: Stella (tall, facing right) and, with two
+; players, Alex (flat, facing left), feet on the same line, so the
+; second player reads as a second character arriving beside the first.
+; One row per bottom-sky scanline.
+TitleG0:    .byte 0,0,0,0,$FF,EYES_R,$FF,$FF,$FF,$FF,$FF,$FF
+            .byte $FF,$FF,$FF,$FF,0,0,0,0
+TitleG1:    .byte 0,0,0,0,0,0,0,0,0,0,0,0
+            .byte $FF,EYES_L,$FF,$FF,0,0,0,0
+
+; SetHorizPos1: the annex's copy of SetHorizPos (A = x, X = object).
+SetHorizPos1:
+        SUBROUTINE
+        sta WSYNC
+        sec
+.div:
+        sbc #15
+        bcs .div
+        eor #7
+        asl
+        asl
+        asl
+        asl
+        sta HMP0,x
+        sta RESP0,x
+        rts
 
         include "text.inc"      ; every screen, including the title's
         include "storytab.inc"  ; LoadStory1's pointer tables
