@@ -48,7 +48,15 @@
 ; windows and arches drawn above the highest point any body can reach,
 ; where the checker fails the build if they could ever be reached - and
 ; two rooms climb into the top half: 5 Ascent, a floating stair to
-; du 24, and 10 The Exit, a relay to a cap at du 32.
+; du 24, and 10 The Exit, a relay to a cap at du 32. The sky is also
+; DIM now: GameKernel colours each band from BandColr, so scenery
+; reads as distance and not as a platform you cannot reach.
+;
+; Also 2026-11-25, after an audit of the whole file: the title
+; silences channel 0 too (RESET during a sound left it sounding
+; until play began), and a SELECT restart is the whole of its frame
+; (with the rest of the logic on top, the reload ran past the
+; vertical blank in level 3).
 ;
 ; Engine code: MIT (see repository LICENSE).
 ; Story/characters: CC BY-NC-SA 4.0 (see repository LICENSE-DOCS).
@@ -78,7 +86,10 @@ MAXFALL     = 3         ; terminal fall speed, du/frame
 MIN_X       = 4         ; outer walls are 4px, handled by clamping
 NUM_PLATS   = 6         ; collision boxes per level (pad with $FF)
 NUM_LEVELS  = 10
-HIDE_Y      = $70       ; a du the kernel can never match: hides things
+HIDE_Y      = $70       ; a du the kernel can never match: hides things.
+                        ; GameKernel's X runs 160 ahead and the bodies'
+                        ; draw heights are stored 160 high to match; this
+                        ; one hides either way (see PlayExtras)
 
 STATE_TITLE = 0
 STATE_PLAY  = 1
@@ -102,6 +113,12 @@ COL_PF      = $0A       ; platforms: the one luma no character owns.
                         ; one you controlled. Same bug the Game 2
                         ; repaint found between tan ground and idle
                         ; Alex; the luma budget catches both.
+COL_SKY      = $06       ; the sky: the world's grey two steps dimmer,
+                        ; so what nothing can reach reads as distance.
+                        ; It is idle Stella's luma, but grey where she
+                        ; is red, and the checker keeps every body out
+                        ; of the bands that use it. One constant: tune
+                        ; it by eye ($08 is one step dim, $04 is two).
 COL_TEXT    = $0E       ; narration + the title's word: still WHITE.
                         ; Decision #28 keeps the narrator's voice
                         ; unchanged in all four games — it is the one
@@ -149,7 +166,8 @@ CharVYLo    ds 2
 OnGround    ds 2
 GoalX       ds 2        ; goal boxes (8px wide, GOAL_H du tall)
 GoalY       ds 2
-GoalDY      ds 2        ; y used by the kernel; $FF hides a marker
+GoalDY      ds 2        ; y used by the kernel, stored 160 high (FlipG);
+                        ; HIDE_Y hides a marker
 GoalDone    ds 2        ; rc3: recomputed every frame — 1 while the
                         ; character is STANDING on its goal (held)
 Active      ds 1
@@ -165,7 +183,8 @@ PF0Ptr      ds 2        ; -> level record base (PF0 bands)
 PF1Ptr      ds 2
 PF2Ptr      ds 2
 PlatPtr     ds 2        ; -> collision boxes
-BandLine    ds 1        ; kernel band countdown / title row counter
+BandLine    ds 1        ; title row counter (the game kernel keeps its
+                        ; place in X instead)
 PrevFeet    ds 1        ; physics scratch
 NewFeet     ds 1
 PrevTop     ds 1
@@ -190,7 +209,8 @@ SelPrev     ds 1
 Rand        ds 1        ; endless mode's level shuffler
 EndCnt      ds 1        ; endless levels survived (binary, capped)
 Quest       ds 1        ; 0 first run; 1 = the world turned over
-CharDrawY   ds 2        ; kernel y for each character (flipped in Q2)
+CharDrawY   ds 2        ; kernel y for each character: flipped in Q2,
+                        ; and stored 160 high, to match GameKernel's X
 Band0       ds 1        ; kernel: first playfield band (0 or 11)
 BandStep    ds 1        ; kernel: band direction (+1 or -1)
 TFrm        ds 1        ; run clock: frames, then seconds in digits
@@ -281,11 +301,13 @@ MainLoop:
         lda SWCHB               ; console SELECT restarts the level
         and #2
         bne .noSel
-        jsr LoadLevel
-.noSel:
-        jsr ReadInput
+        jsr LoadLevel           ; a reload is the whole of its frame.
+        jmp .noInput            ; With the rest of the logic on top of it
+.noSel:                         ; the frame took 2,843 cycles of the
+        jsr ReadInput           ; 2,816 the blank allows, in level 3
         jsr UpdatePhysics
         jsr CheckGoals
+.noInput:
         jsr UpdateSound
         jsr PositionSprites
         jsr PlayExtras
@@ -319,8 +341,9 @@ MainLoop:
 .gameK:
         lda #1
         sta CTRLPF      ; mirrored playfield in-game
-        lda #COL_PF
-        sta COLUPF      ; back to platform grey (the title dyes it)
+        lda #COL_SKY
+        sta COLUPF      ; band 0's colour, for the scanline the kernel
+                        ; is entered on; every band writes its own
         jsr GameKernel
         jmp Overscan
 .storyK:
@@ -365,7 +388,11 @@ Overscan:
 TitleLogic:
         SUBROUTINE
         lda #0
-        sta AUDV1
+        sta AUDV0              ; RESET during a jump, a landing or the
+        sta AUDV1              ; fanfare used to leave channel 0 sounding
+                               ; through the title: nothing here wrote it,
+                               ; and a console does not promise silence
+                               ; at power-on either
         lda #5                  ; point the text kernel at this game's
         jsr LoadStory           ; one word: ALONE, set small beneath the
                                 ; mark (decision #28). TPtr is free on
@@ -820,11 +847,7 @@ LoadLevel:
         sta GoalDY+1            ; hide Alex's goal marker
         sta CharY+1             ; park Alex offscreen
 .twoChars:
-        lda CharY               ; seed the kernel draw positions
-        sta CharDrawY
-        lda CharY+1
-        sta CharDrawY+1
-        rts
+        jmp DrawPos             ; which the kernel draws this very frame
 
 ; IncDigits: bump the three-digit number (run seconds, or levels
 ; survived in endless mode), pegged at 999.
@@ -872,7 +895,8 @@ FetchLR:
         rts
 
 ; FlipG: A = a goal's y — returns the y the kernel should draw it
-; at, which in quest 2 is mirrored top-for-bottom.
+; at, which in quest 2 is mirrored top-for-bottom, and always 160
+; high, because GameKernel compares it with an X that runs 160 ahead.
 ; MUST preserve X and Y: LoadLevel calls it mid-way through walking
 ; the level record with Y (that clobber put every Alex goal at the
 ; playfield-data bytes — the floating-marker bug).
@@ -881,12 +905,14 @@ FlipG:
         sta Temp
         lda Quest
         beq .out
-        lda #96-GOAL_H
+        lda #160+96-GOAL_H
         sec
         sbc Temp
         rts
 .out:
         lda Temp
+        clc
+        adc #160
         rts
 
 ; FireEdge: one fire-button edge detector for the title, the story
@@ -1396,6 +1422,34 @@ UpdateSound:
 ; creeping red near the end).
 ; ---------------------------------------------------------------
 
+; DrawPos: the kernel draw position of each shape, from where it
+; stands. Flipped in quest 2 (the view, not the world) and 160 high,
+; to match GameKernel's X. The bias goes on first, so the flip is
+; written against it: 160 less the biased top is 96 less the top.
+; LoadLevel ends in it, so the frame a level loads in - the first of
+; a quest-2 level, say - already draws it the right way up.
+
+DrawPos:
+        SUBROUTINE
+        ldx #1
+.dy:
+        lda CharY,x
+        clc
+        adc #160
+        ldy Quest
+        beq .keepY
+        sta Temp
+        lda #160
+        sec
+        sbc Temp
+        sec
+        sbc HeightTbl,x
+.keepY:
+        sta CharDrawY,x
+        dex
+        bpl .dy
+        rts
+
 PlayExtras:
         SUBROUTINE
         lda TimedFlag           ; endless: the digits count levels,
@@ -1409,21 +1463,7 @@ PlayExtras:
         jsr IncDigits
 .clock:
 
-        ldx #1                  ; kernel draw positions (flipped in
-.dy:                            ; quest 2 — the view, not the world)
-        lda CharY,x
-        ldy Quest
-        beq .keepY
-        sta Temp
-        lda #96
-        sec
-        sbc Temp
-        sec
-        sbc HeightTbl,x
-.keepY:
-        sta CharDrawY,x
-        dex
-        bpl .dy
+        jsr DrawPos            ; kernel draw positions, for this frame
 
         lda SWCHB               ; timed if left difficulty A, or
         and #$40                ; playing the endless game
@@ -1605,78 +1645,65 @@ SetHorizPos:
 ; GameKernel: 96 double-lines. Line 1 of each pair handles the
 ; playfield band switch (inside hblank) and goal marker 0; line 2
 ; draws both characters and goal marker 1.
+;
+; X RUNS 160 AHEAD. It counts 160 to 255 and wraps to 0 on the 96th
+; du, which is how the loop ends, and its low three bits say where a
+; du sits in its band. Line 2's tail adds one and branches on them:
+; 0, the next du opens a band; 7, this is a band's last du. The plain
+; line reads what the tail left in A. So X can be compared against
+; them, CharDrawY and GoalDY are stored 160 high too (PlayExtras and
+; FlipG add it). HIDE_Y needs no bias: it is out of range either way.
+;
+; THE SKY IS DIM (decision #36). A band line writes its colour from
+; BandColr before its bytes, in the hblank the band countdown used
+; to spend, so colour and pattern change on the same scanline.
+;
+; THE BUDGET is 73 cycles of code from one WSYNC to the next. The
+; lines use 70 (line 2 with everything visible, 71 at a band edge),
+; 70 (a band's last du), 64 (a band's first), 39 (any other).
+; `make headless` measures every line of every screen.
 ; ---------------------------------------------------------------
 
 GameKernel:
         SUBROUTINE
-        ldx #0
+        ldx #160                ; 160 + du: 0 again after du 95
         ldy Band0               ; quest 2 walks the bands backwards
-        lda #9
-        sta BandLine
-        lda (PF0Ptr),y
-        sta PF0
-        lda (PF1Ptr),y
-        sta PF1
+        lda (PF0Ptr),y          ; band 0 goes into the prefetch bytes:
+        sta PFn0                ; du 0 opens a band like any other,
+        lda (PF1Ptr),y          ; and the band line below draws it
+        sta PFn1
         lda (PF2Ptr),y
-        sta PF2
-        ; NO pre-loop prefetch. Y stays on band 0, and the loop does
-        ; every fetch: the prefetch at du 7 pulls band 1, the swap at
-        ; du 8 stores it. Priming PFn* with band 1 here as well looked
-        ; harmless but was not — du 7's prefetch OVERWROTE it with band
-        ; 2 before du 8's swap could consume it, so band 1 was never
-        ; drawn and every band after it appeared 8 du early. The last
-        ; 8 du then fell off the end of the 12-byte arrays and drew
-        ; band "12": PF2Ptr[12] is the record's first collision-box
-        ; TOP (88 = $58), so the bottom of every screen wore four
-        ; ghost blocks in the shape of a number. The leftovers also
-        ; bled into the next frame's first line (see Overscan).
-.kloop:
-        sta WSYNC               ; ---- line 1
-        dec BandLine
-        beq .swap               ; boundary: store prefetched bytes
-        lda BandLine
-        cmp #1
-        beq .prefetch           ; the line before it: prefetch
-.m0:
-        txa                     ; goal marker 0 (missile 0)
-        sec
-        sbc GoalDY
-        cmp #GOAL_H
-        bcs .nm0
-        lda #2
-        bne .sm0
-.nm0:
-        lda #0
-.sm0:
-        sta ENAM0
-        jmp .line2
-.swap:
+        sta PFn2
+        ; NO pre-loop prefetch of band 1. Y stays on band 0, and the
+        ; loop does every fetch: the prefetch at du 7 pulls band 1,
+        ; the band line at du 8 stores it. Priming PFn* with band 1
+        ; here as well looked harmless but was not — du 7's prefetch
+        ; OVERWROTE it with band 2 before du 8's line could consume
+        ; it, so band 1 was never drawn and every band after it
+        ; appeared 8 du early. The last 8 du then fell off the end of
+        ; the 12-byte arrays and drew band "12": PF2Ptr[12] is the
+        ; record's first collision-box TOP (88 = $58), so the bottom
+        ; of every screen wore four ghost blocks in the shape of a
+        ; number. The leftovers also bled into the next frame's first
+        ; line (see Overscan).
+.band:                          ; ---- line 1 of a band's first du
+        sta WSYNC
+        lda BandColr,y          ; @4, in hblank
+        sta COLUPF
         lda PFn0                ; the fix for the ground tear: these
-        sta PF0                 ; stores land @14/@20/@26, all before
+        sta PF0                 ; stores land @15/@22/@29, all before
         lda PFn1                ; their register's display window —
         sta PF1                 ; the old indexed loads landed mid-
         lda PFn2                ; line and drew one ragged scanline
         sta PF2                 ; per band edge
-        lda #8
-        sta BandLine
-        jmp .m0                 ; (M0 late on boundary lines, as the
-                                ; old band-switch line always was)
-.prefetch:
-        txa                     ; M0 first — at its usual cycle —
-        sec
-        sbc GoalDY
-        cmp #GOAL_H
-        bcs .pn0
-        lda #2
-        bne .ps0
-.pn0:
-        lda #0
-.ps0:
-        sta ENAM0
-        tya                     ; ...then pull the next band's bytes
-        clc                     ; into RAM (Y rests on the next band;
-        adc BandStep            ; the boundary line only stores).
-        tay                     ; Line total ~67 of 76 cycles.
+        jsr .marker0
+        jmp .line2
+.prefetch:                      ; ---- line 1 of a band's last du
+        jsr .marker0            ; M0 at its usual cycle, then pull the
+        tya                     ; next band's bytes into RAM (Y rests
+        clc                     ; on the next band; the band line
+        adc BandStep            ; only stores)
+        tay
         lda (PF0Ptr),y
         sta PFn0
         lda (PF1Ptr),y
@@ -1719,10 +1746,32 @@ GameKernel:
 .sm1:
         sta ENAM1
         inx
-        cpx #SCREEN_DU
-        beq .kdone
-        jmp .kloop              ; (line 1 grew past branch range)
+        beq .kdone              ; X wrapped: 96 dus are drawn
+        txa
+        and #7
+        beq .band               ; the next du opens a band; anything
+                                ; else falls into its line 1
+.plain:                         ; ---- line 1 of any other du
+        sta WSYNC
+        cmp #7                  ; A = du and 7, from the tail above
+        beq .prefetch
+        jsr .marker0
+        jmp .line2
 .kdone:
+        rts
+
+.marker0:
+        txa                     ; goal marker 0 (missile 0)
+        sec
+        sbc GoalDY
+        cmp #GOAL_H
+        bcs .nm0
+        lda #2
+        bne .sm0
+.nm0:
+        lda #0
+.sm0:
+        sta ENAM0
         rts
 
 ; ---------------------------------------------------------------
@@ -1979,8 +2028,9 @@ StoryKernel:
         inx
         cpx TextTop
         bne .noStart
-        ldy #$FF                ; so the iny below lands on row 0
-.noStart:
+        ldy #$FF                ; so the iny below lands on row 0.
+        bne .hold               ; This line was the one line in the ROM
+.noStart:                       ; at its full 76 cycles; the branch
         cpy TextEnd
         beq .hold               ; stay on the blank row
         iny
@@ -1988,6 +2038,13 @@ StoryKernel:
         cpx #SCREEN_DU
         bne .sloop
         rts
+
+; Per-band playfield colour, in record order (band 0 at the top), so
+; it reads the same forwards and backwards. The top three bands are
+; the sky, dim; the rest are the world. check_levels.py fails the
+; build if a body could ever stand in a band this table dims.
+BandColr:   .byte COL_SKY,COL_SKY,COL_SKY
+            .byte COL_PF,COL_PF,COL_PF,COL_PF,COL_PF,COL_PF,COL_PF,COL_PF,COL_PF
 
 ; ---------------------------------------------------------------
 ; Character data (index 0 = Stella, 1 = Alex)

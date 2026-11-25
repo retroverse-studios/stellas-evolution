@@ -26,6 +26,51 @@ is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
 
+## Status: v1.0-rc3-dev — the dim sky, and an audit (2026-11-25)
+
+The whole of `src/main.asm` was read end to end and the ROM was run
+through a cycle-counting harness. **The author has played it in Stella
+and it plays; the dim grey below has not been seen in Stella or on a
+console yet.**
+
+- **The sky is dim now.** The top three bands of every room are drawn
+  two luma steps darker than the world (`COL_SKY = $06` against
+  `$0A`), so the scenery reads as distance and not as a platform you
+  cannot reach. `GameKernel` was restructured to make room for one
+  colour write per band; it is three bytes smaller than before, table
+  included. To tune the grey by eye, change that one constant.
+- **Two faults fixed.** RESET during a jump, a landing or the fanfare
+  left channel 0 sounding through the title and the story screens; the
+  title silences it now. And SELECT held with the stick and fire down
+  made the reload run past the vertical blank in level 3 (2,843 cycles
+  of the 2,816 it allows); a reload is now the whole of its frame,
+  1,185.
+- **One found by the A/B, not by reading:** for one frame at the start
+  of every upside-down level, both shapes were drawn the right way up.
+  The draw-position loop is a routine now (`DrawPos`) and `LoadLevel`
+  ends in it.
+- **Measured, and left alone:** title and epilogue frames are one
+  scanline longer than the rest (263, not 262), because the logo's and
+  the digits' last lines run long. The vertical blank is 89% full in
+  the worst of 36,000 random frames, and the overscan is unused. The
+  story kernel's text-start line sat at its full 76 cycles; it has
+  three to spare now.
+- **The kernel is proved unchanged.** Old ROM against new, the same
+  random input for 36,141 frames: memory and audio identical, and
+  scanline by scanline the same writes to the playfield, both shapes
+  and both lamps, except the nine upside-down first frames, where the
+  old ROM was the one that was wrong.
+- **`tools/headless.py` counts cycles now.** A WSYNC sleeps to the end
+  of its scanline, so a kernel line that runs long shows, and so does
+  logic that outlasts the blank. Three checks came with it: the game
+  kernel always reaches its next WSYNC in time (latest write 72 of
+  76), the blank holds every frame with SELECT held and the stick
+  down, and the band colours come out in order both ways up. Its A/B
+  also compares every frame's memory now. Until today it compared each
+  frame's state and audio but only the last frame's memory, so the
+  `FireEdge` proof further down was weaker than it said.
+- **Room:** 13 bytes free. RAM unchanged at 86 of 128.
+
 ## Status: v1.0-rc3-dev — the sky, and two levels that climb (2026-11-25)
 
 The rooms were top-heavy: seven of the ten kept everything in the
@@ -134,19 +179,11 @@ transpose in tune.
   of them in the new tune code and one, the RAM clear, in the game since
   v0.1.
 
-- **A TIA pure tone cannot play every note in tune.** F5 and C6 are the
-  weak ones; the drafts lean on C minor and Bb major, where the thirds
-  come out truest.
-- **Room:** with the lament in, 21 bytes free (walk and hope the same;
-  the drone 53). RAM is at 86 of 128 bytes. The four inline fire-button
-  edge detectors became one routine (`FireEdge`) to pay for it.
-- **The reset routine now really clears RAM.** Its comment always said
-  it did; the loop it used only ever cleared the stack page, so the
-  title depended on RAM happening to be zero at power-on. Game 2 sets
-  `State` outright for the same reason.
 - **How this was checked:** the refactor A/B'd by `headless.py` against
   the old inline code over eight random 6,000-frame runs with identical
-  results, and every tune ROM walked through every screen. What is
+  results (state and audio every frame; memory only on the last, see
+  the block at the top), and every tune ROM walked through every
+  screen. What is
   still to be judged by ear, in Stella and on a console: the sound, the
   volume against the effects, and the feel.
 

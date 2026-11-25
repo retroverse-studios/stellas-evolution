@@ -97,14 +97,14 @@ you get.
 
 | Switch | Effect |
 |---|---|
-| SELECT (title screen) | Choose Game 1 (rainbow) or Game 2 (ember) |
+| SELECT (title screen) | Choose the story game (a black sky) or the endless game (an ember sky) |
 | SELECT (during play) | Restart the current level |
 | RESET | Return to the title screen |
 | LEFT DIFFICULTY → A | Adds a one-minute level timer to Game 1 |
 
 ## TIPS FROM THE PROGRAMMER
 
-- Watch the marker colors before you move: red doors only open for red.
+- Stuck? The light blinking fastest is yours. DOWN + fire changes shape.
 - In the boost levels, think about **who must leave last**.
 - Upside down, your instincts are wrong in exactly one direction.
   Trust the joystick; doubt your eyes.

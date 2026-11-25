@@ -1487,7 +1487,8 @@ the tune on its grid, the completion beat, two shapes, the ending, the upside-do
 replay, the epilogue, endless, reset — and check what must be true of each; and
 with `--compare OTHER.bin OTHER.sym` it feeds two ROMs the same random input and
 reports the first frame on which their memory differs, which is how the `FireEdge`
-refactor was proved to change nothing (eight runs of 6,000 frames, identical).
+refactor was proved to change nothing (eight runs of 6,000 frames, identical —
+state and audio every frame; its memory only on the last frame, as #37 found).
 
 It earned its keep on its first outing: three faults in the new tune code were
 invisible in the source and obvious in the trace — a rest written as
@@ -1557,11 +1558,10 @@ and 9; one in 8; none in 5 and 10.
 Consequence: those two rooms have no sky — a shape can get into every
 band of them. That is right: they are the top of the world.
 
-**Not done, and the next question:** the sky is the same grey as the
-world. A dimmer grey for it would make "far away" legible at a glance, but
-the kernel writes the playfield colour once per frame, and changing it per
-band means touching a cycle-counted kernel; that wants Stella and a
-console in the loop, not a source edit.
+**The grey, done the same day (#37):** the sky was the same grey as the
+world. It is two luma steps dimmer now, which needed the kernel
+restructured; that is written up with the audit, along with how the
+rewrite was proved to draw the same picture.
 
 ### A rule for level art, learned the hard way (continued from #35)
 
@@ -1570,3 +1570,97 @@ console in the loop, not a source edit.
   pillars reached du 40, exactly one of Alex's-head boosts from their
   du-64 ledges; they reach 32 now, and their tops are out of reach.
 
+## 37. The 4K Game Audited: Two Faults, a Kernel Rewritten for a Dim Sky
+
+**Question:** Close Game 1. Before that, read all of it once, end to end,
+and measure what cannot be seen in the source: does every line of every
+kernel fit its scanline, does every frame's logic fit its blank.
+
+**Status:** DECIDED and done (2026-11-25). Room after it: **13 bytes**.
+
+### What reading found
+
+- **RESET during a sound left channel 0 sounding** through the title
+  and every story screen after it: the title silenced channel 1 and
+  nothing ever wrote channel 0 until play began. The title writes it
+  now (three bytes), which also covers a console at power-on, where
+  the TIA is not promised silent.
+- **A SELECT held with the stick and fire down ran past the blank** in
+  level 3: 2,843 cycles of logic against the 2,816 the timer allows,
+  so those frames began a line late. The reload was followed by the
+  whole of the frame's logic on top of it. A reload is now the whole
+  of its frame (three bytes): 1,185 cycles.
+- **Reported, then withdrawn:** the audit first said the ember title
+  was black over its bottom third. It is not; the logo is 112 lines,
+  not 56, and the title draws all 192. Kept here because a finding
+  that is wrong for an ordinary reason is worth as much as one that is
+  right.
+
+### What the A/B found, and reading had not
+
+For one frame at the start of every upside-down level, both shapes were
+drawn the right way up: `LoadLevel` seeded the kernel's draw heights
+without the flip, and nothing corrected them until the next frame. The
+draw-position loop is a routine now (`DrawPos`) and `LoadLevel` ends in
+it. It would have been found by no one: one frame in sixty, on a screen
+that has just changed.
+
+### Measured, harmless, and left
+
+- **Title and epilogue frames are one scanline long** (263 against 262):
+  the loop that leaves the logo, and the one that leaves the digits,
+  run to 90 and 84 cycles. It costs bytes to fix and shows nowhere.
+- **The blank is 89% full:** 2,507 of 2,816 cycles in the worst of
+  36,000 random frames. The overscan's 2,176 cycles are unused. Logic
+  that is added later belongs there, not in the blank.
+- **The story kernel's text-start line sat at exactly 76 cycles**, the
+  only line in the ROM with nothing to spare. It has three now (two
+  bytes). The game kernel has three, two at a band edge.
+
+### The dim sky
+
+The sky is two luma steps under the world: `COL_SKY = $06` against
+`$0A`, one constant, to be tuned by eye in Stella. `BandColr` holds a
+colour per band, in record order, so it reads the same forwards and
+backwards, and a band line writes its colour in the hblank that the band
+countdown used to spend. The countdown was what had to go:
+
+- **X runs 160 ahead.** It counts 160 to 255 and wraps to 0 on the 96th
+  du, which ends the loop without a compare, and its low three bits say
+  where a du sits in its band. Everything the kernel compares X against
+  is stored 160 high to match (`DrawPos`, `FlipG`); `HIDE_Y` is out of
+  range either way.
+- **Goal marker 0 is a subroutine**, so the band line, the plain line
+  and the prefetch line share it.
+- **The budget is 73 cycles** between one WSYNC and the next. Line 2
+  uses 70 with everything visible (71 at a band edge), the prefetch
+  line 70, a band line 64, a plain line 39. Marker 1 stays on line 2
+  and marker 0 on line 1, where they always were.
+- The kernel with its table is three bytes smaller than the one it
+  replaced.
+
+**How it was proved.** Old ROM against new, the same random input for
+36,141 frames: memory and audio identical (pointers, the kernel's own
+heights and one scratch byte aside); and scanline by scanline, the same
+writes to the three playfield bytes, both shapes and both lamps, in the
+same order — except nine frames, which are those upside-down first
+frames, where the old ROM was the one drawing wrongly. With RESET pressed
+in mid-sound, the only difference is channel 0: silent in the new ROM,
+still sounding in the old.
+
+**Not seen yet.** None of this has been looked at in Stella or on a
+console. What to look at: the grey (`$08` is one step dim, `$04` is
+two), and whether the sky now reads as distance.
+
+### The harness learned to count
+
+`tools/headless.py` counts cycles now: a WSYNC sleeps to the end of its
+scanline, and the timer runs through it. Three checks came with that —
+the game kernel always reaches its next WSYNC inside the scanline (the
+latest write is at cycle 72 of 76), the blank holds every frame's logic
+(SELECT held with the stick and fire down, in every level, both ways up,
+included), and the band colours come out in the right order both ways
+up. Its A/B compares every frame's memory. Until today it compared each
+frame's state and audio registers and the **last** frame's memory, so
+the `FireEdge` proof in #35 was weaker than it said; it is as stated
+now.

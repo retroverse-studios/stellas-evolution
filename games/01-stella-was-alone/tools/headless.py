@@ -2,11 +2,12 @@
 """Run the assembled ROM itself, headlessly.
 
 A small 6502 with the RIOT timer and the input and audio registers this
-game uses, driven one frame at a time. There is no beam: the kernels run
-and their TIA writes are counted, nothing is drawn. What it is for is
-everything that happens in vertical blank — the state machine, input
-edges, physics, the goal rule, the clock, and what goes to the speaker —
-and for the reset routine.
+game uses, driven one frame at a time. Nothing is drawn, but cycles are
+counted: a WSYNC sleeps to the end of its scanline, so a kernel line that
+runs past 76 cycles shows, and so does logic that outlasts the vertical
+blank. What it is for is everything that happens in that blank — the
+state machine, input edges, physics, the goal rule, the clock, and what
+goes to the speaker — for the reset routine, and for the kernels' budget.
 
     python3 tools/headless.py build/stella-was-alone.bin build/main.sym
         plays the game through every screen and checks what it does
@@ -14,9 +15,11 @@ and for the reset routine.
         feeds both ROMs the same random input, frame for frame, and
         reports the first frame on which their memory differs
 
-It is not Stella and not a console. It cannot hear the tune, see the
-picture, or notice a frame that overruns (instruction timings are close,
-not counted). On its first outing it found four faults that reading the
+It is not Stella and not a console. It cannot hear the tune or see the
+picture, its cycle counts are only as good as its table (branches and
+page crossings included, no undefined behaviour), and it does not model
+the TIA: a register written after the beam has passed is not noticed. On
+its first outing it found four faults that reading the
 source had not: a rest that played the chip's highest note, a 32-step
 table indexed by a counter that could only count to seven, a tune that
 would not let go of the completion beat, and a reset routine that had
@@ -93,6 +96,15 @@ class Machine:
         self.inpt4 = 0x80
         self.inpt5 = 0x80
         self.aud = [0] * 6
+        self.cycles = 0          # cycles run, sleeps on WSYNC included
+        self.linepos = 0         # cycles since the scanline began
+        self.wsyncs = []         # (pc after the write, cycle it landed on, after a timer wait?)
+        self._wsync = None
+        self.waited = False      # TIMINT read since the last WSYNC
+        self.colupf = []         # (cycle, value) of every COLUPF write
+        self.overruns = 0        # frames whose logic outlasted the vertical blank
+        self._timer_v = 0
+        self._first_read = False
 
     def flag(self, v):
         v &= 0xFF
@@ -106,6 +118,10 @@ class Machine:
             self.expired = False
             return self.timer & 0xFF
         if addr == 0x285:                       # TIMINT
+            if self._first_read and self._timer_v == 44 and self.expired:
+                self.overruns += 1             # the flag was up before the wait began
+            self._first_read = False
+            self.waited = True
             v = 0x80 if self.expired else 0
             self.expired = False
             return v
@@ -127,11 +143,16 @@ class Machine:
             self.timer = v
             self.frac = 0
             self.expired = False
+            self._timer_v, self._first_read = v, True
             return
         audio = (0x15, 0x16, 0x17, 0x18, 0x19, 0x1A)
         if addr in audio:
             self.aud[audio.index(addr)] = v
         self.m[addr] = v
+        if addr == 0x02:                      # WSYNC
+            self._wsync = self.pc
+        elif addr == 0x08:                    # COLUPF
+            self.colupf.append((self.cycles, v))
 
     def push(self, v):
         self.m[0x100 | self.sp] = v & 0xFF
@@ -304,6 +325,15 @@ class Machine:
                            "CLD": "d", "SED": "d"}[name], int(name in ("SEC", "SEI", "SED")))
         if cross and name not in ("STA", "STX", "STY"):
             cyc += 1
+        self.cycles += cyc
+        self.linepos += cyc
+        if self._wsync is not None:       # the write is the instruction's last cycle
+            idx = self.linepos - 1
+            self.wsyncs.append((self._wsync, idx, self.waited))
+            self._wsync = None
+            self.linepos = 0
+            self.waited = False
+            cyc += 75 - idx % 76         # and the CPU sleeps to the end of the line
         self.frac += cyc
         while self.frac >= self.interval:
             self.frac -= self.interval
@@ -367,8 +397,8 @@ class Run:
         for k in stick:
             m.swcha &= ~STICK[k]
         m.inpt4 = 0 if fire else 0x80
-        # SWCHB, active low: bit 0 RESET, bit 1 SELECT, bit 6 left difficulty
-        # (0 = A, the timed setting)
+        # SWCHB: bit 0 RESET and bit 1 SELECT are active low; bit 6, the
+        # left difficulty switch, reads 1 in the A position (the timed one)
         m.swchb = 0xFF & ~(2 if select else 0) & ~(1 if reset else 0) & ~(0 if timed else 0x40)
         state = self.r("State")
         self.trace.append((self.frame, state, bytes(m.m[0x80:0x100]), tuple(m.aud)))
@@ -544,6 +574,12 @@ def walkthrough(rom, sym, quiet=False):
     r.step_frame()
     c.that("a two-shape level loads both shapes",
            r.r("State") == P and r.r("CharCount") == 2 and r.r("Active") == 0)
+    sky, pf = sym["COL_SKY"], sym["COL_PF"]
+    i = len(r.m.colupf)
+    r.step_frame()
+    bands = [v for _, v in r.m.colupf[i:]]
+    c.that("one colour write a band, the top three the dim sky and the nine below the world",
+           bands == [sky] * 4 + [pf] * 9, str([hex(v) for v in bands]))
     r.step_frame("D", fire=True)
     r.step_frame()
     c.that("down + fire switches to Alex without a jump", r.r("Active") == 1 and vy(0) == 0 and vy(1) == 0)
@@ -598,6 +634,11 @@ def walkthrough(rom, sym, quiet=False):
            and r.r("BandStep") == 255)
     c.that("the run clock carried over into the upside-down replay",
            r.r("TFrm") + r.r("SecOnes") + 10 * r.r("SecTens") + 100 * r.r("SecHund") > 0)
+    i = len(r.m.colupf)
+    r.step_frame()
+    bands = [v for _, v in r.m.colupf[i:]]
+    c.that("upside down the sky is still at the top of the screen",
+           bands == [sky] + [pf] * 9 + [sky] * 3, str([hex(v) for v in bands]))
     r.w("Level", last)
     r.step_frame(select=True)
     r.step_frame()
@@ -652,6 +693,46 @@ def walkthrough(rom, sym, quiet=False):
     r.step_frame(reset=True)
     c.that("console RESET returns to the title, everything zeroed",
            r.r("State") == T and r.r("EndCnt") == 0 and r.r("TimedFlag") == 0)
+
+    # ---- the budget: every line, and the blank under load ---------------
+    # Both bodies and both lamps on the same du rows, row by row down the
+    # screen: line 2 with all three of its objects visible, in both views.
+    for quest in (0, 1):
+        r.w("Quest", quest)
+        r.w("Level", 2)
+        r.step_frame(select=True)
+        for k in range(80):
+            for c_i in range(r.r("CharCount")):
+                r.m.m[r.ram["CharY"] + c_i] = (k + c_i) & 0xFF
+                r.m.m[r.ram["CharYLo"] + c_i] = 0
+                r.m.m[r.ram["GoalY"] + c_i] = (k + 7 - 3 * c_i) & 0xFF
+            r.step_frame()
+    # SELECT held with the stick and fire down: a reload every frame, the
+    # most logic any frame was ever caught doing.
+    r.w("Quest", 0)
+    for level in range(sym["NUM_LEVELS"]):
+        r.w("Level", level)
+        for _ in range(3):
+            r.step_frame("LR", fire=True, select=True)
+
+    def latest(run):
+        k0, k1, game = run.sym["GameKernel"], run.sym["HeightTbl"], run.sym["TitleKernel"]
+        every, in_game, late = 0, 0, 0
+        for pc, idx, waited in run.m.wsyncs[1:]:
+            if not waited and k0 <= pc < k1:
+                every = max(every, idx)
+                if pc < game:
+                    in_game, late = max(in_game, idx), late + (idx >= 76)
+        return every, in_game, late
+
+    every, in_game, late = max(latest(b), latest(r))
+    c.that(f"the game kernel always reaches its next WSYNC inside the scanline (latest write {in_game} of 76)",
+           late == 0)
+    c.that(f"no kernel line runs more than a few cycles past its scanline (latest write {every} of 76: "
+           "the title's last logo line and the epilogue's last digit line, one line long each)",
+           every < 92)
+    c.that("every frame's logic fits in the vertical blank, SELECT held and the stick down included",
+           b.m.overruns + r.m.overruns == 0, f"{b.m.overruns + r.m.overruns} frames overran")
     return c
 
 
@@ -718,11 +799,11 @@ def play(rom, sym, segs, pk):
     return run
 
 
-def without_pointers(run):
-    """RAM as the game sees it, minus the pointers: those hold ROM
-    addresses, which differ between two builds that are otherwise the
-    same program."""
-    ram = bytearray(run.m.m[0x80:0x100])
+def without_pointers(run, at=-1):
+    """RAM as the game sees it at trace index `at`, minus the pointers:
+    those hold ROM addresses, which differ between two builds that are
+    otherwise the same program."""
+    ram = bytearray(run.m.m[0x80:0x100] if at < 0 else run.trace[at][2])
     for first, count in (("PF0Ptr", 8), ("TPtr", 12)):
         if first in run.ram:
             ram[run.ram[first] - 0x80:run.ram[first] - 0x80 + count] = b"\0" * count
@@ -736,8 +817,9 @@ def compare(rom_a, sym_a, rom_b, sym_b, frames, runs, quiet):
         pk = pokes(seed, frames, sym_a["NUM_LEVELS"])
         a = play(rom_a, sym_a, segs, pk)
         b = play(rom_b, sym_b, segs, pk)
-        first = next((i for i, (x, y) in enumerate(zip(a.trace, b.trace))
-                      if (x[1], without_pointers(a), x[3]) != (y[1], without_pointers(b), y[3])), None)
+        first = next((i for i in range(min(len(a.trace), len(b.trace)))
+                      if (a.trace[i][1], without_pointers(a, i), a.trace[i][3])
+                      != (b.trace[i][1], without_pointers(b, i), b.trace[i][3])), None)
         same = first is None and len(a.trace) == len(b.trace)
         states = sorted({x[1] for x in a.trace})
         print(f"seed {seed}: {len(a.trace)} frames, states {states} - "
