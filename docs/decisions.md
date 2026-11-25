@@ -392,6 +392,30 @@ Still true: nothing melodic in the 4K game, and two-voice harmony remains the 8K
 territory. **Game 2 currently has no background audio at all** — its two-voice score is
 outstanding work, tracked in that game's README.
 
+**AMENDMENT (2026-11-25) — a tune in the 4K game after all, on one voice.** The author
+overturned "nothing melodic in the 4K game" when the two options were put side by side:
+a one-channel tune in Game 1 costs Game 2 nothing that two voices do not still dwarf
+(one voice becomes two; a hum becomes harmony), whereas the other candidate for Game 1's
+first impression — the rainbow mark — would have spent something that belongs to Game 4.
+What survives of the original decision: **one voice only** (channel 0 stays the
+effects), and nothing that needs a second channel to be heard.
+
+Three drafts were rendered as WAV previews and the author chose **the lament — at
+the quicker of the two speeds it was heard at**, having been drafted at half that.
+(`src/tune.inc`: TEMPO 4, STRIKE 2. The other two drafts and the old drone stay
+there as TUNE 0–3 and cost nothing in the ROM.) It has not been heard in Stella or
+on hardware yet. Three things were learned building it and are now rules:
+
+- **A pure TIA tone cannot transpose in tune.** The drone's "a little higher each
+  level" is gone; it cannot be done with a melody, so the tune is the same on every
+  level and the *tempo* carries the urgency instead.
+- **A 32-step table cannot be indexed from the 8-bit frame counter.** Shifted right
+  five times it only counts to seven, which was all the four-note figure needed. The
+  tune has its own step counter (`TuneStep`, one byte).
+- **`HURRY` is a decision, not a given.** With the tune already quick, doubling it
+  again under pressure is a choice the author may want to hear before it ships; one
+  constant in `tune.inc` turns it off.
+
 ## 17. Collision Model — Boxes Span Exactly What They Draw (4K, RC2/RC2.1)
 
 **Question:** RC1 let Stella slide *through* the sides of platforms that were drawn as solid blocks — the collision boxes only blocked landings from above, not sideways movement. Fix it, leave it (lore: "the programmers got better across the series"), or make honest collision a Game 2 feature?
@@ -1203,6 +1227,12 @@ geometry restructured rather than a goal moved. The alternate goal placements
 also need a pass — they have been kept *working* but not always *hard*, and
 half of all playthroughs pick one.
 
+**Resolved 2026-11-25 — see #35.** L4's Alex has a climb, L1's alternate
+light no longer sits on the floor, and the floor rule is a build failure in
+Game 1's checker. It had never been in it: #33 describes the check as
+standing, and the checker could not fail on it, which is how three floor
+homes survived a commit titled "every goal in both variants is now a climb".
+
 ### The upside-down flip is flavour, not complexity
 
 Worth stating plainly, since it is the one thing that looks like depth and is
@@ -1309,3 +1339,233 @@ known-impossible — it is *testable*, which makes it a cheap source of a
 genuinely different puzzle that looks the same rotated. Still impossible in
 G1 (a second record is 73 bytes against 29 free — which vindicates reading the
 flip as a 4K accommodation), but comfortable at 16K with four banks.
+
+## 35. The Rest of the Honesty Rule, a Joint Proof, and the Relay
+
+**Question:** The 4K game is to be pushed as far as it goes before Game 2
+grows past it. Step one was small on paper — give L1's alternate and L4's
+Alex a climb, enforce #33's floor rule, and try one relay level. What did
+the checker not know about its own levels?
+
+**Status:** DECIDED (2026-11-25) — **measured, fixed, and made a standing
+check — but not yet played.** Every level was re-proven two ways (the
+shipped checker, and an independent per-frame search that allows full air
+steering); none of it has been playtested in Stella or seen on hardware.
+The levels are provisional until the author has played them.
+
+### The checker only proved one direction
+
+#17's rule is "what is drawn solid must BE solid". `check_art` checked
+every collision box is drawn. It never checked the reverse, and the
+playfield is mirrored: **a box added on one side of the screen is drawn on
+the other side too.** The redesigns since rc1 — rc2's shelves, then #33's
+"give every character a puzzle" — added one-sided boxes to symmetric art,
+and five levels came to draw blocks that were not there:
+
+| Level | What was drawn and not solid |
+|---|---|
+| L3 | the right-hand shelf (px 96–119) and the left low block (px 28–43) |
+| L5 | the whole left platform (px 4–35) — where both shapes woke |
+| L6 | the left mirror of the right ledge (px 16–31) |
+| L9 | the left mirror of Alex's step (px 12–27) |
+| L10 | a second tower, shelf and step: du 56–80 across most of the screen |
+
+rc1's levels were symmetric and had none. Two of them were worse than
+cosmetic. **L3 woke Stella one double-line inside the shelf and the pillar
+at once**; her first press clamped her through one of them (a body inside
+a box is pushed to that box's far edge), and that push was the level's only
+route to her home. **L5's proof depended on the same push:** Alex had to
+land on the platform with his head inside the overhanging ledge, and a
+press carried him out of it. RC2.1's "global overlap scan" had been a
+one-off; nothing re-ran it after the geometry moved.
+
+### What the checker runs now
+
+Five proofs on every level and both goal layouts, any one of which fails
+the build:
+
+- **DRAWN IS SOLID, both ways.** Every box is drawn, and everything drawn
+  where a body can reach is a box. Scenery entirely above the highest
+  point any body can occupy is left alone — L2's far-off structures are
+  meant to be looked at.
+- **NO EMBEDDING.** No stance on a box overlaps a slab (the overlap scan,
+  as a build check). A shape perched on a friend's head beside a slab is
+  the residual RC2-NOTES.md already records and is not tested.
+- **CLIMB.** No home stands on the level's lowest surface (#33). The floor
+  is the level's floor, not the surface a shape wakes on.
+- **ONE-WAY.** Each shape holds its home, at least one of them alone.
+- **RELAY.** When neither can, `joint_plan` must play the level start to
+  finish.
+
+`--joint` runs the joint search on every level; it found a bug in the
+search on its first full run (L3: it assumed a friend's head always catches
+a jumper, forgetting the friend can simply stand elsewhere).
+
+### The relay: a class of level the engine had always played
+
+The one-way rule needs one shape to finish entirely alone, and its helper
+only stands where it could have walked unaided. Neither can see a level
+where **each shape's home is reachable only from where the other one ends
+up** — the second helper has already been helped. Such a level failed as
+"no workable hold order", although the engine plays it perfectly well.
+
+The joint search plays instead: both shapes standing, either one may walk,
+jump or step off in one direction, land on the other's head (the base must
+be able to walk to a spot that catches it, and nothing may come to rest
+inside a slab), walk along it, and leave again. Every edge is a real
+sequence of inputs, so a found plan is a solution. Not modelled, which can
+only cost solutions: steering mid-air, switching while both are airborne,
+and a base walking out from under a rider.
+
+A relay is the place-and-hold answer to the order-locks #26 removed. The
+order is not enforced; it is the only way, and the player finds that out.
+It is the cheapest gameplay in the cartridge: zero bytes.
+
+**L8 "Steps" and L10 "The Exit" are relays now** — 4 moves, and 7 for the
+finale's longest plan. A first L8 was not one: from its tower top Stella
+could reach the perch alone, and the exact search said so.
+
+### A rule for level art, learned the hard way
+
+- **A shape can stand on a ledge with ONE pixel of overlap.** Measure every
+  "she can just reach it" from a ledge's last pixel, not its middle.
+- **Sky matters as much as ground.** Alex is 16 px wide; if the gap between
+  two overhead slabs is narrower, he cannot jump there at all. L5's right
+  side had 13.
+- **Waking beside a band-9 ledge's right edge makes the first press-right
+  push a shape through it.** Spawns go clear of the ledge, not under its lip.
+- **Anything off the mirror axis needs its twin** or the art must be
+  symmetric. The checker enforces it; a level is now 6 boxes *including*
+  twins, which is the real budget.
+
+### What changed, level by level
+
+| Level | Change | Kind now |
+|---|---|---|
+| 1 Awakening | the alternate light was on the floor: the block grew a column and the light sits on top, one jump short from the ground | solo |
+| 3 Discovery | redrawn symmetric: shelves on both sides of the pillar; Stella wakes clear of them | parallel |
+| 4 Connection | redrawn: wall perches become corner steps plus high ledges — a corner step anyone can reach, a 16 du climb from it only Stella can make | parallel |
+| 5 Ascent | redrawn: solid wall blocks, Alex's home on the right one's top, clear sky where Stella lifts him | Alex needs Stella |
+| 6 Boost | the fourth ledge gets its box | Alex needs Stella |
+| 8 Steps | a relay: a beam with a perch at each end | relay |
+| 9 Patience | corner steps; perches a double-line nearer the pillar (a solid stair beside the perch handed Stella the climb alone) | Stella needs Alex |
+| 10 The Exit | redrawn symmetric; a relay over a tower | relay |
+
+Unchanged: 2, 7. Six of the eight two-shape levels still need a friend,
+in three shapes now: four one-way and two relays.
+
+**Still owed:** a playtest of all of the above, the hardware validation
+rc3 already owed, and the stale claims listed in the review that opened
+this (the manual's "red doors" tip and its name for the endless game, the
+landing page's byte count, Game 2's bank-0 figure, and whether Quest 2's
+timer is meant to be forced — the README and #13 say so, the code does
+not).
+
+### The reset routine never cleared RAM
+
+Found while giving the tune a counter: `Reset`'s loop (the same one, with
+the same comment, in Game 2) pushes 256 zeros **onto the stack page**,
+$0100–$01FF. A push cannot reach the console's RAM at $80–$FF, so "clears
+TIA + RAM" was never true, and Game 1's "State = STATE_TITLE (0) from the
+RAM clear" rested on RAM happening to be zero at power-on. Real hardware
+does not promise that. Run with anything else in RAM, the machine drew the
+game kernel from random pointers, console RESET changed nothing, and only
+fire reached the title. Game 2 already sets `State` outright — presumably
+because a cold boot misbehaved there once. Game 1 now clears $80–$FF for
+real (7 bytes) and RESET returns everything to zero.
+
+### Running the ROM headlessly
+
+Everything above about input, the tune and the reset was checked by running the
+assembled ROM on a small 6502 interpreter rather than by reading the listing, and
+it is in the repo: **`tools/headless.py`** (`make headless`). It is a 6502 with the
+RIOT timer and the input and audio registers the game uses, driven a frame at a
+time; there is no beam, so it cannot see the picture or notice an overrun. What it
+does is walk every screen — a cold boot with garbage in RAM, title, story, play,
+the tune on its grid, the completion beat, two shapes, the ending, the upside-down
+replay, the epilogue, endless, reset — and check what must be true of each; and
+with `--compare OTHER.bin OTHER.sym` it feeds two ROMs the same random input and
+reports the first frame on which their memory differs, which is how the `FireEdge`
+refactor was proved to change nothing (eight runs of 6,000 frames, identical).
+
+It earned its keep on its first outing: three faults in the new tune code were
+invisible in the source and obvious in the trace — a rest written as
+`lda #0 / bne`, which is not the unconditional branch it looks like (every rest
+played the *highest* note at full volume); a 32-step table indexed by a counter
+that could only count to seven; and the tune running after the goal check on the
+frame a level completes, so its last note held through the fanfare. It also caught
+several bugs in itself before it caught any in the ROM, which is the right order,
+and its own first version mislabelled the audio registers and reported each
+frame's starting state — both of which showed up as failures of a ROM that was
+correct. **A harness that fails is not evidence against the thing it tests until
+the harness has been made to fail on purpose**: compare two ROMs that differ and
+see it say so.
+
+## 36. The Sky: Scenery Where No Shape Can Go, and Two Levels That Climb
+
+**Question:** Every room kept to the bottom 40% of the screen. Is that a
+limit of the engine, or a constraint to make levels easier to check — and
+if nothing can ever climb above the middle, what harm is there in drawing
+something up there? (The author asked for both: fuller rooms, and one or
+two levels that climb.)
+
+**Status:** DECIDED (2026-11-25) — **not a testing constraint, and not a
+hard limit.** "Nothing can stand above the middle" was true only of the
+levels as drawn: the highest surface any of them offered was du 48, in 8
+and 10. Measured on the engine:
+
+- One jump lands a shape 16 du higher — a sixth of the screen — and 24 du
+  higher off the other's head.
+- Given a staircase, Stella alone climbs to du 16; only the top band is
+  dead, because the top of the screen cuts the jump.
+- Every platform off the centre line needs its mirror twin, against six
+  boxes. The levels were spending theirs on the puzzle at the bottom.
+
+### Scenery above the highest point a body can reach
+
+Anything drawn where no body can ever get is scenery, costs nothing (a
+level's drawing is 36 bytes whether used or not), and `check_levels.py`
+already allowed it. What it did not do was judge *reach* well: it took the
+tallest box as the highest foothold, so a pillar nothing could climb put
+its own top — and all the sky above it — off limits in three rooms. It now
+starts from the floor and keeps only the tops some shape could land on
+from a height it already has, alone or off a friend's head, judged by
+height alone (which can only over-estimate). Lower L3's pillar by one band
+and the build fails: its sky is no longer out of reach.
+
+The look is a decision, not a rule: **hollow shapes** — windows and arches
+hanging from the top edge — because a filled slab floating up there reads
+as a platform you cannot reach (tried, and rejected on sight). A different
+skyline per room, so a room can be recognised when it is upside down.
+
+Room for sky, in bands of eight du: four in 1, 3 and 6; three in 2, 4, 7
+and 9; one in 8; none in 5 and 10.
+
+### Two rooms that climb
+
+- **5 Ascent → du 24.** A floating stair of four *centred* slabs: a
+  centred slab is one box, so the stair costs four of six. Each step is
+  16 du, one jump for Stella alone; her light is on top. Alex's light is
+  on the base slab, 16 du up — he still needs her head — so the room stays
+  "Alex needs Stella".
+- **10 The Exit → du 32.** A relay. Alex's home is the tower top at du 56,
+  two of Stella's heads up; Stella's is the cap above it, 24 du higher
+  than the tower, one Alex too high from the tower alone. Seven moves,
+  three lifts.
+
+Consequence: those two rooms have no sky — a shape can get into every
+band of them. That is right: they are the top of the world.
+
+**Not done, and the next question:** the sky is the same grey as the
+world. A dimmer grey for it would make "far away" legible at a glance, but
+the kernel writes the playfield colour once per frame, and changing it per
+band means touching a cycle-counted kernel; that wants Stella and a
+console in the loop, not a source edit.
+
+### A rule for level art, learned the hard way (continued from #35)
+
+- **Measure reach from what can be stood on, not from the tallest box.**
+- **A pillar's top is a foothold if it is one boost away.** 4 and 9's
+  pillars reached du 40, exactly one of Alex's-head boosts from their
+  du-64 ledges; they reach 32 now, and their tops are out of reach.
+

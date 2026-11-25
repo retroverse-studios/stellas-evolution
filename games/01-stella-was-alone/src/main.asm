@@ -29,6 +29,29 @@
 ; Build runs tools/check_levels.py: every level and goal variant is
 ; proven completable (including boost order) or the build fails.
 ;
+; 2026-11-25 (decision #35): every level redrawn so that what is
+; drawn is solid on BOTH sides of the mirror - five levels drew
+; blocks that were not there, and L3 and L5 only "solved" through
+; the pushes a body inside a slab gets. L8 and L10 are RELAYS: each
+; shape's home can only be reached from where the other one ends
+; up. The checker runs five proofs now, among them the floor rule
+; #33 wrote down and a joint search that plays a level start to
+; finish. None of this has been playtested yet.
+;
+; Also 2026-11-25: channel 1 plays a TUNE (src/tune.inc) in place of
+; the four-note drone: the lament, chosen from three drafts (the other
+; two and the drone are still in tune.inc, one TUNE in the ROM at a
+; time). It is struck, not held, and it runs twice as fast when the
+; clock is close. The four inline fire-button edge detectors became
+; one routine to pay for it. tools/headless.py runs this ROM through
+; every screen (`make headless`).
+;
+; Also 2026-11-25 (decision #36): eight rooms have a SKY - hollow
+; windows and arches drawn above the highest point any body can reach,
+; where the checker fails the build if they could ever be reached - and
+; two rooms climb into the top half: 5 Ascent, a floating stair to
+; du 24, and 10 The Exit, a relay to a cap at du 32.
+;
 ; Engine code: MIT (see repository LICENSE).
 ; Story/characters: CC BY-NC-SA 4.0 (see repository LICENSE-DOCS).
 ;
@@ -180,6 +203,7 @@ SqCol       ds 1        ; the epilogue square's breathing color
 PFn0        ds 1        ; rc3: next band's PF bytes, prefetched one
 PFn1        ds 1        ; line early so the boundary line's writes
 PFn2        ds 1        ; land inside hblank (no more ground tear)
+TuneStep    ds 1        ; the tune's step counter (src/tune.inc)
 
 ; ---------------------------------------------------------------
 ; Code
@@ -198,7 +222,17 @@ Reset:
         dex
         txs
         pha
-        bne .clear      ; clears TIA + RAM, leaves SP=$FF
+        bne .clear      ; clears the STACK page, leaves SP=$FF and X=0
+        ldx #$7F        ; and the RIOT RAM, which those pushes cannot
+.clrRAM:                ; reach. They never could: the comment used to
+        sta $80,x       ; say this cleared RAM, and the title relied on
+        dex             ; State being 0 at power-on. Real hardware does
+        bpl .clrRAM     ; not promise that (nor does Stella with its
+                        ; RAM randomising on): with anything else in
+                        ; there the machine drew the game kernel from
+                        ; random pointers, RESET did nothing, and only
+                        ; fire reached the title. Game 2 sets State
+                        ; outright for the same reason.
 
         lda #$80
         sta FirePrev
@@ -362,14 +396,10 @@ TitleLogic:
         lda #$20
 .bg:
         sta COLUBK
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
+        jsr FireEdge
+        bcs .done
         lda #0
         sta Level
-        sta FirePrev
         sta Quest               ; a fresh run, clock/count zeroed
         sta TFrm
         sta SecOnes
@@ -388,10 +418,6 @@ TitleLogic:
         rts
 .story:
         jsr EnterLevel
-        rts
-.release:
-        lda #$80
-        sta FirePrev
 .done:
         rts
 
@@ -454,13 +480,8 @@ StoryLogic:
         lda #0
         sta COLUBK
         sta AUDV1
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
-        lda #0
-        sta FirePrev
+        jsr FireEdge
+        bcs .done
         lda StoryAfter
         beq .playNext
         cmp #2
@@ -480,10 +501,6 @@ StoryLogic:
         jsr LoadLevel
         lda #STATE_PLAY
         sta State
-        rts
-.release:
-        lda #$80
-        sta FirePrev
 .done:
         rts
 
@@ -595,6 +612,8 @@ LoadStory:
 DoneLogic:
         SUBROUTINE
         jsr UpdateSound
+        lda #0                  ; the tune stops for the beat, so the
+        sta AUDV1               ; fanfare has the floor to itself
         lda StateTimer
         and #$08
         sta COLUBK              ; gentle pulse
@@ -660,21 +679,13 @@ WinLogic:
         dec StateTimer
         rts
 .fireCheck:                     ; linger until the player is ready
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
+        jsr FireEdge
+        bcs .done
         lda #0
-        sta FirePrev
         sta Quest
         lda #STATE_TITLE
         sta State
 .done:
-        rts
-.release:
-        lda #$80
-        sta FirePrev
         rts
 
 ; ---------------------------------------------------------------
@@ -880,6 +891,23 @@ FlipG:
         lda Temp
         rts
 
+; FireEdge: one fire-button edge detector for the title, the story
+; screens, the epilogue and play (was four inline copies). Returns
+; C=0 on a NEW press this frame (and records it), C=1 otherwise.
+; X and Y are preserved.
+FireEdge:
+        SUBROUTINE
+        lda INPT4
+        and #$80
+        cmp FirePrev
+        beq .same
+        sta FirePrev
+        cmp #$80               ; 0 = pressed, $80 = released
+        rts
+.same:
+        sec
+        rts
+
 ; ---------------------------------------------------------------
 ; ReadInput: move the active character (with solid-box blocking),
 ; fire jumps, down+fire switches when both characters are present.
@@ -933,11 +961,8 @@ ReadInput:
         sta CharX,x
 .noMove:
 
-        lda INPT4
-        and #$80
-        bne .release
-        bit FirePrev
-        bpl .done
+        jsr FireEdge
+        bcs .done
         lda SWCHA
         and #%00100000          ; holding down?
         beq .switch
@@ -968,12 +993,6 @@ ReadInput:
         eor #1                  ; exits under place-and-hold
         sta Active
 .pressed:
-        lda #0
-        sta FirePrev
-        rts
-.release:
-        lda #$80
-        sta FirePrev
 .done:
         rts
 
@@ -1373,9 +1392,10 @@ UpdateSound:
         rts
 
 ; ---------------------------------------------------------------
-; PlayExtras: the level drone (channel 1, rising pitch per level —
-; the world waking up) and timed mode (left difficulty switch A:
-; one minute per level, the background creeping red near the end).
+; PlayExtras: the tune on channel 1 (src/tune.inc; twice as fast
+; under time pressure), the run clock, and timed mode (left
+; difficulty switch A: one minute per level, the background
+; creeping red near the end).
 ; ---------------------------------------------------------------
 
 PlayExtras:
@@ -1419,8 +1439,9 @@ PlayExtras:
 .setT:
         sta Temp
 
-        ; drone: a slow four-note rising figure, transposed up each
-        ; level; under time pressure the figure doubles its tempo
+        ; THE TUNE, channel 1 (decision #16, amended 2026-11-25).
+        ; TUNE = 0 is the old four-note drone, kept for A/B.
+        IF TUNE = 0
         lda #1
         sta AUDC1
         lda FrameCtr
@@ -1447,6 +1468,53 @@ PlayExtras:
         sta AUDF1
         lda #2
         sta AUDV1
+        ELSE
+        ; One struck note per step from the table in tune.inc: TEMPO
+        ; and STRIKE there say how long a step is and how many frames
+        ; of it a note is loud. A byte with its top bit set is a rest.
+        ; TuneStep counts steps (an 8-bit frame counter shifted right
+        ; five times can only count to seven, which was all the old
+        ; four-note figure ever needed). HURRY doubles the frame
+        ; counter while the clock is low, so the tune plays twice as
+        ; fast: the same signal the drone gave. When the music runs,
+        ; run with it. DoneLogic releases channel 1 for the beat.
+        lda #12
+        sta AUDC1
+        lda FrameCtr
+        ldx Temp
+        IF HURRY
+        beq .calm
+        ldy TimerSec
+        cpy #16
+        bcs .calm
+        asl
+        ENDIF
+.calm:
+        IF TEMPO = 5
+        and #31                 ; 0 on the first frame of a step
+        ELSE
+        and #15
+        ENDIF
+        tax                     ; X = frames into the step
+        bne .same
+        inc TuneStep
+.same:
+        lda TuneStep
+        and #31
+        tay
+        lda Tune,y
+        bpl .note               ; top bit set: a rest
+        lda #0
+        beq .setv               ; (zero is loaded, so BEQ always taken)
+.note:
+        sta AUDF1
+        cpx #STRIKE
+        lda #5
+        bcc .setv
+        lda #2
+.setv:
+        sta AUDV1
+        ENDIF
 
         lda #0
         sta COLUBK
@@ -2000,7 +2068,8 @@ DigitFont:
         .byte $00,$00,$00,$00,$00,$00,$00   ; 10: blank
         .byte $18,$00,$18,$0C,$06,$66,$3C   ; 11: ?
 
-ArpOff:     .byte 8,5,3,0                       ; four-note rising figure
+        include "tune.inc"
+
 LvlStory:   .byte 0,1,2,$FF,$FF,3,$FF,$FF,$FF,$FF ; narration screens
 
 ; ---------------------------------------------------------------
@@ -2042,29 +2111,48 @@ LvlPtrLo:   .byte <Level1, <Level2, <Level3, <Level4, <Level5
 LvlPtrHi:   .byte >Level1, >Level2, >Level3, >Level4, >Level5
             .byte >Level6, >Level7, >Level8, >Level9, >Level10
 
-; --- Level 1 "Awakening": Stella alone; jump onto the block ----
+; --- Level 1 "Awakening": Stella alone; jump onto the block. The
+;     primary light sits on the low step. The alternate used to sit
+;     on the ground far right - a first level with no jump in it,
+;     half of the time - so the block grew a column and the
+;     alternate light sits on top of that: 24 du, one jump short
+;     from the ground, so the step has to be used as a step -------
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ..###........#######
+;     ..#.#........#.....#
+;     ..###........#######
 Level1:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$C0,$FF
-        .byte 88, 80, $FF,$FF,$FF,$FF     ; box tops
-        .byte 96, 88, $FF,$FF,$FF,$FF     ; box bottoms
-        .byte 0,  72, 0,  0,  0,  0      ; box left
-        .byte 160,88, 0,  0,  0,  0      ; box right
+        .byte $D0,$50,$D0,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $80,$80,$80,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $FE,$82,$FE,$00,$00,$00,$00,$00,$C0,$C0,$FC,$FF
+        .byte 88, 64, 80, 80, $FF,$FF     ; box tops
+        .byte 96, 88, 88, 88, $FF,$FF     ; box bottoms
+        .byte 0,  72, 56, 88, 0,  0      ; box left
+        .byte 160,88, 72, 104,0,  0      ; box right
         .byte 1                           ; Stella only
         .byte 20, 88-STELLA_H             ; Stella start
         .byte 80, 85                      ; (Alex unused)
-        .byte 76, 77                      ; Stella's goal: on the block
+        .byte 56, 77                      ; Stella's goal: on the low step
         .byte 80, $FF                     ; (no second goal)
-        .byte 120,85, 80,85               ; alt: ground, far right
+        .byte 76, 61, 80,85               ; alt: the column top
 
 ; --- Level 2 "Exploration": climb wide ledges to the high perch.
 ;     Far above, out of any reach, hang structures she can only
 ;     look at — there had to be more --------------------------- --
+;     The two far-off blocks that used to hang at du 16-24 are the
+;     hanging windows now (decision #36): same idea, more of it.
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ....####....######..
+;     ....#..#....#....#..
+;     ....####....######..
 Level2:
         .byte $10,$10,$10,$10,$10,$10,$10,$30,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$1F,$00,$FF
-        .byte $00,$00,$18,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $F0,$90,$F0,$00,$00,$00,$00,$00,$00,$1F,$00,$FF
+        .byte $3F,$21,$3F,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 72, 72, 56, 56, $FF
         .byte 96, 80, 80, 64, 64, $FF     ; rc2.1: solid, full band
         .byte 0,  28, 112,0,  152,0
@@ -2078,82 +2166,117 @@ Level2:
 
 ; --- Level 3 "Discovery": Alex appears; only he fits under the
 ;     pillar (8 du gap; Stella is 9 du tall). His goal sits on a
-;     corner step: jump at the far wall and it catches you -------
+;     corner step: jump at the far wall and it catches you.
+;     REDRAWN (decision #35): the shelf is a shelf on BOTH sides of
+;     the pillar. It used to be solid on the left and a drawn ghost
+;     on the right, the low block was solid on the right and a ghost
+;     on the left, and Stella woke a double-line inside the shelf and
+;     the pillar at once - her first press pushed her through one of
+;     them, and that push was the level's only solution --------
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ..###...####...#####
+;     ..#.#...#..#...#...#
+;     ..###...####...#####
 Level3:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$70,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$1E,$FF
-        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$EF,$00,$FF
-        .byte 88,40,80,80,72,80               ; box tops
-        .byte 96,80,88,88,80,88               ; box bottoms
-        .byte 0,68,4,148,40,116               ; box lefts
-        .byte 160,92,12,156,64,132             ; box rights (excl)
+        .byte $D0,$50,$D0,$10,$10,$10,$10,$10,$10,$10,$70,$F0
+        .byte $8F,$89,$8F,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $F8,$88,$F8,$00,$00,$E0,$E0,$E0,$E0,$EF,$00,$FF
+        .byte 88,40,80,80,72,72               ; box tops
+        .byte 96,80,88,88,80,80               ; box bottoms
+        .byte 0,68,4,148,40,96                ; box lefts
+        .byte 160,92,12,156,64,120            ; box rights (excl)
         .byte 2
-        .byte 60, 88-STELLA_H
+        .byte 20, 88-STELLA_H                ; Stella start: clear of the shelf
         .byte 30, 88-ALEX_H
-        .byte 48,69                      ; Stella: the shelf (72), inside
-        .byte 146,77                     ; the corridor the pillar leaves
-                                          ; her. 16du up, which she clears —
-                                          ; but it is a wall she must arc
-                                          ; OVER, not a step she walks up.
-                                          ; Her old home was the floor at 24.
-                                          ; Alex: the far corner step, 80
-        .byte 56,69, 120,77              ; alt: shifted along the shelf,
+        .byte 48,69                      ; Stella: the left shelf
+        .byte 146,77                     ; Alex: the far corner step
+        .byte 56,69, 148,77              ; alt: each shifted along its own
 
-; --- Level 4 "Connection": Stella climbs to her perch while
-;     Alex slips under the pillar to his goal --------------------
+; --- Level 4 "Connection": Stella climbs to her high ledge while
+;     Alex slips under the pillar to his corner step. REDESIGNED:
+;     Alex's home sat on the floor in both variants (decision #33's
+;     open item), so his half of the split route led nowhere. The
+;     wall perches are gone; each side of the pillar is now the same
+;     two-part lesson - a corner step anyone can reach, and a 16 du
+;     climb from it only Stella can make. His home is the step,
+;     hers is the ledge above it ---------------------------------
+;     The pillar reaches du 32 now (decision #36). At 40 its top was
+;     exactly one of Alex's-head boosts from the ledge, so a shape could
+;     stand on it, and no sky at all was allowed in this room.
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     .#####..###....#####
+;     .#...#..#.#....#...#
+;     .#####..###....#####
 Level4:
-        .byte $10,$10,$10,$10,$10,$10,$10,$30,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
-        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
-        .byte 88, 40, 72, 72, 56, 56
-        .byte 96, 80, 80, 80, 64, 64      ; rc2.1: solid, full band
-        .byte 0,  68, 32, 112,0,  152
-        .byte 160,92, 48, 128,8,  160
+        .byte $F0,$30,$F0,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
+        .byte $CE,$4A,$CE,$00,$00,$00,$00,$00,$0F,$00,$80,$FF
+        .byte $F8,$88,$F8,$00,$E0,$E0,$E0,$E0,$E0,$E0,$00,$FF
+        .byte 88, 32, 64, 64, 80, 80      ; box tops
+        .byte 96, 80, 72, 72, 88, 88      ; box bottoms
+        .byte 0,  68, 32, 112,4,  140     ; box lefts
+        .byte 160,92, 48, 128,20, 156     ; box rights (excl)
         .byte 2
         .byte 20, 88-STELLA_H
         .byte 30, 88-ALEX_H
-        .byte 0,  53                      ; Stella: left perch
-        .byte 130,85                      ; Alex: far right, under
-        .byte 0,  53, 100,85              ; alt: Alex just past it
+        .byte 32, 61                      ; Stella: the left high ledge
+        .byte 144,77                      ; Alex: the right corner step
+        .byte 40, 61, 140,77              ; alt: each shifted along its own
 
-; --- Level 5 "Ascent": Stella climbs the tower Alex slips
-;     beneath — both routes through the same obstacle ------------
+; --- Level 5 "Ascent": the highest place in the game. A floating
+;     stair of four slabs, each centred (so each is ONE box) and each
+;     a 16 du step - one jump, for Stella alone: base, 2nd, 3rd, top,
+;     from du 72 up to du 24. Her light is on the top slab. Alex's is
+;     on the base: 16 du, one Alex too high for his own jump, so he
+;     rides her head onto it and then walks the length of it. (The
+;     base floats 8 du above the ground, so he can still slip under
+;     the stair to change sides.)
+;     REDRAWN TWICE (decision #35, then #36). The first redraw fixed
+;     drawn-but-not-solid wall blocks and a "solution" that stood Alex
+;     inside a ledge. No scenery in this room: a shape can get into
+;     every band of it.
 Level5:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$F8,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
-        .byte 88, 56, 72, 72, 80, 80
-        .byte 96, 80, 80, 80, 88, 88      ; rc2.1: solid, full band
-        .byte 0,  60, 32, 112,140,124
-        .byte 160,100,48, 128,160,140
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$FF
+        .byte $00,$00,$00,$80,$00,$E0,$00,$FC,$00,$FF,$00,$FF
+        .byte 88, 24, 40, 56, 72, $FF     ; box tops
+        .byte 96, 32, 48, 64, 80, $FF     ; box bottoms
+        .byte 0,  76, 68, 56, 40, 0       ; box lefts
+        .byte 160,84, 92, 104,120,0       ; box rights (excl)
         .byte 2
-        .byte 10, 88-STELLA_H
-        .byte 20, 88-ALEX_H
-        .byte 76, 53                      ; Stella: top of the tower
-        .byte 144,77                     ; Alex: the far step (80). His
-                                          ; route UNDER the tower was the
-                                          ; point of the level, but his home
-                                          ; sat on the floor at 130 — so the
-                                          ; route led nowhere and the second
-                                          ; half of "Ascent" was a walk. He
-                                          ; rises 10, so the 8du is his own
-        .byte 76, 53, 130,77              ; alt: Alex to the corner —
-                                          ; the pad sat at the step's far
-                                          ; edge where Stella cannot stand
-                                          ; beside him to give the boost
+        .byte 12, 88-STELLA_H             ; both wake on the ground, clear
+        .byte 20, 88-ALEX_H               ; of the base slab's side
+        .byte 76, 21                      ; Stella: the top slab (24) - a
+                                          ; 16 du step from the third, alone
+        .byte 100,69                     ; Alex: the base slab (72). He rises
+                                          ; 10 against its 16: he needs her
+                                          ; head, from the ground beside it
+        .byte 72, 37, 48, 69             ; alt: Stella on the third slab,
+                                          ; Alex at the near end of the base
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. Under place-and-hold the order is
 ;     not a rule, it just falls out: Stella has to still be standing
-;     there to be jumped from, so she settles onto her own goal last -
+;     there to be jumped from, so she settles onto her own goal last.
+;     The fourth ledge (decision #35) is the mirror of the right-hand
+;     one: it was drawn and not there, a slab a shape could stand in -
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ...#####.....#####..
+;     ...#...#.....#...#..
+;     ...#####.....#####..
 Level6:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$F3,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
-        .byte 88, 72, 72, 72, $FF,$FF        ; box tops
-        .byte 96, 80, 80, 80, $FF,$FF        ; box bottoms
-        .byte 0,  112,40, 128,0,  0          ; box lefts
-        .byte 160,120,48, 144,0,  0          ; box rights (excl)
+        .byte $90,$90,$90,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $F0,$10,$F0,$00,$00,$00,$00,$00,$00,$F3,$00,$FF
+        .byte $3E,$22,$3E,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte 88, 72, 72, 72, 72, $FF        ; box tops
+        .byte 96, 80, 80, 80, 80, $FF        ; box bottoms
+        .byte 0,  112,40, 128,16, 0          ; box lefts
+        .byte 160,120,48, 144,32, 0          ; box rights (excl)
         .byte 2
         .byte 80, 88-STELLA_H
         .byte 60, 88-ALEX_H
@@ -2170,10 +2293,16 @@ Level6:
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
 ;     needs the extra height from Alex's back, so he is the one who
 ;     goes home last ------------------------------------------------
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ...####......#####..
+;     ...#..#......#...#..
+;     ...#..#......#...#..
 Level7:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$78,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $90,$90,$90,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $E0,$20,$20,$00,$00,$00,$00,$00,$03,$00,$78,$FF
+        .byte $3E,$22,$22,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte 88, 64, 64, 80, 80, $FF        ; box tops
         .byte 96, 72, 72, 88, 88, $FF    ; box bottoms (rc2: perches solid)
         .byte 0,  112,40, 20, 124,0      ; box lefts
@@ -2194,75 +2323,99 @@ Level7:
                                           ; alone; the puzzle is hers.
         .byte 40, 61, 128,77             ; alt: mirrored
 
-; --- Level 8 "Steps": Alex's goal is up on the far ledge — he
-;     crosses under the tower, then needs Stella (who crossed over
-;     it) as his step, so she reaches her own goal after him -------
+; --- Level 8 "Steps": a RELAY. Each one's home can only be reached
+;     from where the other one ends up. Alex's home is the beam
+;     (16 du: he rides Stella's head up to it). Stella's home is the
+;     perch at the end of the beam, 24 du up - one Alex too high
+;     from the beam alone - so he has to be standing home before she
+;     can climb on him and finish. Nothing else in the room stands
+;     higher than the beam, so there is no other way up. Neither
+;     can do without the other. Nothing is locked; this is just the
+;     only way. (A taller tower was tried first: from its top Stella
+;     could reach the perch alone, and the level was no relay.)
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     .#..#..#..#..#..#..#
 Level8:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$0F,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$F8,$F8,$F8,$00,$FF
-        .byte 88, 56, 72, 72, $FF,$FF
-        .byte 96, 80, 80, 80, $FF,$FF     ; rc2.1: solid, full band
-        .byte 0,  60, 32, 112,0,  0
-        .byte 160,100,48, 128,0,  0
+        .byte $30,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $92,$00,$00,$00,$00,$00,$0F,$00,$00,$00,$00,$FF
+        .byte $92,$00,$00,$00,$00,$00,$00,$00,$00,$F8,$00,$FF
+        .byte 88, 72, 48, 48, $FF,$FF     ; box tops
+        .byte 96, 80, 56, 56, $FF,$FF     ; box bottoms
+        .byte 0,  60, 32, 112,0,  0       ; box lefts
+        .byte 160,100,48, 128,0,  0       ; box rights (excl)
         .byte 2
         .byte 10, 88-STELLA_H
         .byte 20, 88-ALEX_H
-        .byte 76, 53                      ; Stella: top of the tower
-        .byte 114,69                      ; Alex: the high right ledge
-        .byte 76, 53, 34, 69              ; alt: the left ledge instead
+        .byte 120,45                     ; Stella: the right perch
+        .byte 88, 69                     ; Alex: the right end of the beam
+        .byte 32, 45, 64, 69             ; alt: mirrored
 
 ; --- Level 9 "Patience": Stella's perch needs Alex's back before
-;     he goes on to his own goal beyond the pillar ---------------
+;     he goes on to his own goal beyond the pillar.
+;     REDRAWN (decision #35): Alex's step stood just beyond the
+;     pillar, and the mirror drew it a second time beside the left
+;     perch, where it was not solid. Making it solid would have
+;     handed Stella a staircase to her perch and ended the level's
+;     puzzle, so the steps are corner steps now, and the perches sit
+;     a double-line nearer the pillar. A shape can stand on a ledge
+;     with ONE pixel of overlap, so the step's last pixel is where
+;     her longest jump is measured from: it falls 6px short --------
+;     The pillar reaches du 32 now, for the reason in level 4.
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     ..###..#.....###....
+;     ..#.#..#.....#.#....
+;     ..###........###....
 Level9:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$90,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$00,$03,$00,$E0,$FF
-        .byte $00,$00,$00,$00,$00,$E0,$E0,$E0,$E0,$E0,$00,$FF
-        .byte 88, 40, 64, 64, 80, $FF        ; box tops
-        .byte 96, 80, 72, 72, 88, $FF        ; box bottoms (rc2: perches solid)
-        .byte 0,  68, 40, 112,132,0         ; box lefts
-        .byte 160,92, 48, 120,148,0         ; box rights (excl)
+        .byte $D0,$50,$D0,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
+        .byte $90,$90,$80,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+        .byte $0E,$0A,$0E,$00,$E0,$E0,$E0,$E0,$EC,$E0,$00,$FF
+        .byte 88, 32, 64, 64, 80, 80      ; box tops
+        .byte 96, 80, 72, 72, 88, 88      ; box bottoms
+        .byte 0,  68, 56, 96, 4,  144     ; box lefts
+        .byte 160,92, 64, 104,16, 156     ; box rights (excl)
         .byte 2
         .byte 30, 88-STELLA_H
         .byte 50, 88-ALEX_H
-        .byte 40, 61                      ; Stella: the left perch, lifted
-                                          ; (rc2: flush on the perch)
-        .byte 136,77                     ; Alex: the step beyond the pillar
-                                          ; (80), not the floor at 124. The
-                                          ; level is called Patience because
-                                          ; he waits for her back — but his
-                                          ; home was on the ground, so
-                                          ; there was nothing to be patient
-                                          ; about. He rises 10: this is his.
-        .byte 40, 61, 144,77              ; alt: Alex further along
+        .byte 56, 61                      ; Stella: the left perch, lifted
+                                          ; from Alex's back, flush on it
+        .byte 148,77                      ; Alex: the right corner step
+                                          ; (80). He rises 10, so the 8 du
+                                          ; is his own — once he is under
+                                          ; the pillar, which only he fits
+        .byte 56, 61, 146,77              ; alt: Alex's light further along
 
-; --- Level 10 "The Exit": over the tower and under it, and both
-;     homes waiting one above the other beyond -----------------------
-;     REDESIGNED: both goals used to sit on the ground floor, so the
-;     finale's second half was two characters walking right. Neither
-;     had anything to solve. Now each has a climb, and Alex's climb is
-;     16du — a rise he cannot make alone (his is 10) — so he needs
-;     Stella's head as a stepstool exactly as on levels 6-9. The order
-;     is emergent, not enforced: Alex rides up first, Stella crosses
-;     from the tower top after, both hold at once.
+; --- Level 10 "The Exit": a relay to the top of the world. Alex's
+;     home is the tower top (du 56): two of Stella's heads, one from
+;     the ground to a low step and one from the step, because he rises
+;     16 du a lift and the tower is 32 above the floor. Stella's is
+;     the cap above it (du 32), 24 du up from the tower top - one
+;     Alex too high from the tower alone - so he has to be standing
+;     home before she can climb on him and finish. Neither can do
+;     without the other, and she crosses OVER the tower while he can
+;     still go UNDER it.
+;     REDRAWN TWICE (decision #35, then #36). The first redraw made
+;     the room symmetric (#33's version drew a second tower, shelf and
+;     step that were not there) and moved the homes to the far wall;
+;     this one takes them up instead of across, and there is no room
+;     for scenery: a shape can get into every band of it.
 Level10:
-        .byte $10,$10,$10,$10,$10,$10,$10,$10,$D0,$10,$00,$F0
-        .byte $00,$00,$00,$00,$00,$00,$00,$07,$F7,$3F,$00,$FF
-        .byte $00,$00,$00,$00,$00,$00,$00,$7F,$7F,$7F,$00,$FF
-        .byte 88, 72, 72, 56, 64, $FF        ; box tops
-        .byte 96, 80, 80, 80, 72, $FF        ; box bottoms
-        .byte 0,  24, 56, 84, 128,0         ; box lefts
-        .byte 160,48,72,124,152,0           ; box rights (excl)
+        .byte $10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$07,$00,$FF
+        .byte $00,$00,$00,$00,$80,$00,$00,$F0,$F0,$F1,$00,$FF
+        .byte 88, 32, 56, 72, 72, $FF     ; box tops
+        .byte 96, 40, 80, 80, 80, $FF     ; box bottoms
+        .byte 0,  76, 64, 36, 108,0       ; box lefts
+        .byte 160,84, 96, 52, 124,0       ; box rights (excl)
         .byte 2
-        .byte 4, 88-STELLA_H               ; clear of the step: a solid
-        .byte 56, 88-ALEX_H                ; du-72 shelf is a WALL to her
-        .byte 32,69                      ; Alex: the left step (72), 16du
-        .byte 136,61                     ; up — his rise is 10 — so he rides
-                                          ; Stella's head, and she can stand
-                                          ; clear of it at x 4-15.
-                                          ; Stella: the high shelf (64),
-                                          ; reached over the tower from 56
-        .byte 40,69, 144,61              ; alt: shifted along each ledge
+        .byte 8,  88-STELLA_H
+        .byte 20, 88-ALEX_H
+        .byte 76, 29                      ; Stella: the cap (32)
+        .byte 88, 53                      ; Alex: the tower top (56)
+        .byte 76, 29, 68, 53             ; alt: Alex's light further along
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py)
