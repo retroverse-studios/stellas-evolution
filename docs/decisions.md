@@ -1849,3 +1849,116 @@ and nothing in the repository said so.
 - **The source is linked from the manual,** so the claims can be
   checked: the code, the tools and this decision log are public.
 - **Later games** carry the same page, updated for how each was made.
+
+## 44. Two Players in Game 2 — and the Flicker Rule Relaxed
+
+**Status:** DECIDED (2026-11-26) — **Game 2 is playable by one or two
+players.** Amends #19 and the "lean into the flicker" change (commit
+`82133b8`).
+
+**The idea.** Each player holds one character. DOWN+Fire swaps to
+whichever character nobody holds; with three characters and two players
+there is always exactly one. One player alone plays exactly as now,
+switching among all three. As far as we know the game that inspired the
+series is single-player only, so this is a dimension of its own rather
+than a borrowing.
+
+**Why Game 2 and not Game 3:**
+- The theme. Game 2 is *Stella Was Together*: "not every challenge
+  could be overcome alone." It is the first game with more characters
+  than one person comfortably steers.
+- It is another axis on which each game grows (#22): Game 1 one
+  player, Game 2 two.
+- It is how the era did it. The console ships with two joysticks, and
+  SELECT choosing one or two players is a period game variation, not a
+  menu (#22, #42). Game 2's SELECT is unused ("reserved for future
+  variation").
+- Game 3 is harder: four characters, including Flicker, who flickers
+  even while controlled (#29), on two sprites.
+
+**The flicker rule, relaxed.** `82133b8` made the two characters you do
+not control always flicker, so that the player learns "the one you
+control is solid" and Flicker can break it in Game 3. With two players,
+two characters are held and the TIA has two sprites, so the free one
+must share a sprite with a held one. The mid-frame P1 hop that #19
+built, and `82133b8` left in place but unreachable (`RepoDU` = $FF), is
+turned back on: everyone draws solid whenever the free character
+separates vertically from a held one, and only when all three stand
+level do the free one and one held one flicker. The rule becomes
+"everyone held is solid unless all three stand level." One-player mode
+may keep the always-flicker look; that is open. We may yet find a
+better answer.
+
+**Design consequences:**
+- Every floor must stay solvable by one player. The solver proves that
+  already; two players acting at once can only make a floor easier,
+  which is fine for co-op.
+- The player count is chosen on the title with SELECT, shown in the
+  game's own visual language (no menu text).
+
+**Prerequisite: RAM.** Two players need a second "who is controlled"
+byte, a second fire-button memory and the player count: two or three
+bytes, fewer if flags are packed. Game 2 had none to spare: its new
+harness found the stack already one byte into the variables (#45). The
+hop's own six bytes (`P1Y2`..`P1Nu2`), unused since `82133b8`, become
+needed again. RAM has to be reclaimed before two players can be built.
+
+**The cartridge formats, for the record.** The 2600 sees only 4 KB of
+cartridge at a time, so every game past the first bank-switches:
+Game 2 is 8K as F8 (two 4K banks, already in use, and #9 made banking
+the story's world-swap, now delivered by pointer swaps). Game 3 is 16K,
+F6, four banks. Game 4 puts an ARM processor on the cartridge, as Champ
+Games-style homebrews do: the ARM runs the game and prepares each
+line's data, and the 6502 still feeds the TIA every scanline from what
+the ARM prepared.
+
+## 45. Game 2 Gets a Harness — and What It Found
+
+**Status:** Accepted (2026-11-26)
+
+Game 1's `tools/headless.py` found faults that reading the source had
+not. Game 2 had no equivalent, and two players will touch the kernel
+and RAM, so it gets one first: `games/02-stella-was-together/tools/
+headless.py`, run by `make headless` (and `make ram` for the RAM
+table).
+
+**What it models that Game 1's did not:** F8 banking (either bank at
+power-on); the 2600's address decoding, so RAM is one 128-byte block
+that the stack shares; frames counted VSYNC to VSYNC across both banks;
+the RIOT timer's first count one cycle after it is set; WSYNC sleeps in
+the cycle total. Game 1's harness kept the stack in a separate page and
+left WSYNC sleeps out of its cycle count; neither affected what it
+checked, but run through the new model Game 1's frames come out at
+263-265 lines rather than 262. That is worth confirming in Stella.
+
+**Calibration.** With the timer modelled exactly, Game 2's play frames
+come out at exactly 262 lines, the figure its own fix in `fecc421` was
+checked against.
+
+**Found, in order of harm:**
+1. **The stack overruns the variables by one byte.** 121 bytes are
+   declared; the deepest call chain (MainLoop -> WakeLogic or DoneLogic
+   -> PrepSprites -> FillP1 -> CharColor) needs 8 bytes of stack; 129 >
+   128. The eighth byte is `TimeDim` ($F8), the clock's darkening of
+   the sky, which gets `$32` (50). `DoneLogic` repaints the sky every
+   frame of the completion beat, subtracting `TimeDim`, so **from the
+   second frame of every floor's completion beat the whole sky is
+   black**: the "breath" is a cut to black for about 1.5 seconds. The
+   waking opening clobbers it too, and does not reload the floor, so
+   floor 1 begins with `TimeDim` = 50. This is very likely the flashing
+   the author remembered.
+2. **Screen changes make frames of the wrong length:** completion ->
+   narration 50 lines (the kernel is skipped that frame), narration ->
+   floor 287-289, title -> waking 276. A wrong-length frame can make a
+   television roll for an instant.
+3. **Play logic overruns its blank** in about 2% of soak frames (263-265
+   lines), at the vertical-blank wait in `MainLoop`.
+4. **Title and narration frames are a steady 263 lines:** the title's
+   last logo line and the narration's last line before
+   `AnnexOverscan` run past their scanline.
+
+`make headless` fails on (1), the one that corrupts memory, and measures
+(2)-(4) as WARN until they are fixed. The RAM table (`make ram`) shows
+which screens touch each variable; it is where the bytes for (1) and for
+two players (#44) will come from.
+

@@ -31,10 +31,24 @@ $(TEXTGEN): tools/gentext.py
 check: $(ROM)
 	python3 tools/check_levels.py $(ROM) build/main.sym src/main.asm
 
+# Run the ROM itself (tools/headless.py): a 6502 with the 2600's memory
+# map, F8 banking, the RIOT timer and both joysticks, driven a frame at a
+# time. It boots in either bank, plays every floor in order, soaks the
+# game in random input on both sticks, and checks the stack against the
+# variables. Known faults (frame lengths, late lines) are measured and
+# printed as WARN until they are fixed; a FAIL is a check that broke.
+headless: $(ROM)
+	python3 tools/headless.py $(ROM) build/main.sym
+
+# The same, plus which screens touch each RAM variable: where the bytes
+# for new features can come from. Slower.
+ram: $(ROM)
+	python3 tools/headless.py $(ROM) build/main.sym --ram --frames 2500
+
 run: $(ROM)
 	stella $(ROM)
 
 clean:
 	rm -rf build
 
-.PHONY: all check run clean
+.PHONY: headless ram all check run clean

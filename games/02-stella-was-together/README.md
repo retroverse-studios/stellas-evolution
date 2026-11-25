@@ -11,6 +11,38 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
+## Status (2026-11-26): two players decided, a harness, and a bug it found
+
+- **Two players** (decision #44): each player holds one character and
+  DOWN+Fire swaps to the free one; one player alone plays as now. SELECT
+  on the title will choose. It relaxes the always-flicker rule: the
+  mid-frame hop comes back, so everyone held draws solid unless all
+  three stand level.
+- **`make headless`** (decision #45): boots in either bank, plays all
+  nine floors in order, soaks the game in random input on both
+  joysticks, and checks the stack against the variables. **`make ram`**
+  adds a table of which screens touch each RAM variable.
+- **It found the stack one byte into the variables.** At its deepest
+  (the waking opening and the completion beat) the stack overwrites
+  `TimeDim`, and the completion beat then paints the whole sky black
+  for about 1.5 seconds at the end of every floor. Very likely the
+  flashing. `make headless` fails on this until it is fixed.
+- **Also measured** (WARN, not yet fixed): wrong-length frames at
+  every screen change (50, 276 and 287-289 lines), about 2% of play
+  frames running 263-265 lines, and title and narration frames at a
+  steady 263.
+
+**Next:**
+1. Reclaim RAM. That fixes the black sky and makes room for two players.
+2. Two players: SELECT on the title, a second held character, the hop
+   back on.
+3. Make every frame 262 lines, transitions included.
+4. Then Act 4, per-act skies and the second sound voice.
+
+Also noted, not yet looked at: floors 8 and 9 print identical solver
+figures, and the solver warns that on one of them Alex can stand at his
+home's height just off its box.
+
 ## Current state (2026-08-13)
 
 **Acts 1, 2 and 3 are complete.** Cold start → title on the dusk gradient →

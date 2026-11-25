@@ -1,0 +1,854 @@
+#!/usr/bin/env python3
+"""Run Game 2's assembled ROM itself, headlessly.
+
+A 6502 with the 2600's real address decoding, the F8 bank switch, the
+RIOT timer and the input registers, driven one frame at a time. Nothing
+is drawn, but cycles are counted: a WSYNC sleeps to the end of its
+scanline, so a kernel line that runs past 76 cycles shows, a frame that
+is not 262 lines shows, and so does logic that outlasts its blank.
+
+The CPU core is Game 1's (tools/headless.py there), copied so that each
+game's tools stand alone. What is new here is the memory map, which
+Game 1's harness simplified:
+
+- F8: touching $1FF8 or $1FF9 (in any mirror) maps bank 0 or bank 1
+  into every mirror of the cartridge window.
+- RAM is ONE 128-byte block, seen at $80-$FF and again at $180-$1FF.
+  The stack lives in it. A push past the last variable overwrites that
+  variable, and a push below $180 lands in the TIA. Game 1's harness
+  kept the stack in a separate page, so it could not see either.
+- A frame is VSYNC to VSYNC, not a trip round one MainLoop: the title
+  and narration run their own frame loop in bank 1.
+
+    python3 tools/headless.py build/stella-was-together.bin build/main.sym
+        boots, plays every floor in order, soaks the game in random
+        input, and checks timing, the stack, and the frame
+    python3 tools/headless.py ROM SYM --ram
+        and prints which states touch each RAM variable
+
+Usage: python3 tools/headless.py ROM SYM [--ram] [--frames N] [--quiet]
+"""
+import argparse
+import random
+import re
+import sys
+
+# ---------------------------------------------------------------------
+# The 6502: the 151 documented opcodes, by mnemonic and addressing mode.
+# ---------------------------------------------------------------------
+_ALU = ["izx", "zp", "imm", "abs", "izy", "zpx", "aby", "abx"]   # in bbb order
+_ROWS = [("ORA", _ALU, "01 05 09 0D 11 15 19 1D"), ("AND", _ALU, "21 25 29 2D 31 35 39 3D"),
+         ("EOR", _ALU, "41 45 49 4D 51 55 59 5D"), ("ADC", _ALU, "61 65 69 6D 71 75 79 7D"),
+         ("STA", ["zp", "zpx", "abs", "aby", "abx", "izx", "izy"], "85 95 8D 99 9D 81 91"),
+         ("LDA", _ALU, "A1 A5 A9 AD B1 B5 B9 BD"), ("CMP", _ALU, "C1 C5 C9 CD D1 D5 D9 DD"),
+         ("SBC", _ALU, "E1 E5 E9 ED F1 F5 F9 FD"),
+         ("ASL", ["acc", "zp", "zpx", "abs", "abx"], "0A 06 16 0E 1E"),
+         ("ROL", ["acc", "zp", "zpx", "abs", "abx"], "2A 26 36 2E 3E"),
+         ("LSR", ["acc", "zp", "zpx", "abs", "abx"], "4A 46 56 4E 5E"),
+         ("ROR", ["acc", "zp", "zpx", "abs", "abx"], "6A 66 76 6E 7E"),
+         ("STX", ["zp", "zpy", "abs"], "86 96 8E"),
+         ("LDX", ["imm", "zp", "zpy", "abs", "aby"], "A2 A6 B6 AE BE"),
+         ("DEC", ["zp", "zpx", "abs", "abx"], "C6 D6 CE DE"),
+         ("INC", ["zp", "zpx", "abs", "abx"], "E6 F6 EE FE"),
+         ("BIT", ["zp", "abs"], "24 2C"), ("JMP", ["abs", "ind"], "4C 6C"),
+         ("STY", ["zp", "zpx", "abs"], "84 94 8C"),
+         ("LDY", ["imm", "zp", "zpx", "abs", "abx"], "A0 A4 B4 AC BC"),
+         ("CPY", ["imm", "zp", "abs"], "C0 C4 CC"), ("CPX", ["imm", "zp", "abs"], "E0 E4 EC")]
+OPS = {}
+for name, modes, codes in _ROWS:
+    for mode, code in zip(modes, codes.split()):
+        OPS[int(code, 16)] = (name, mode)
+for name, code in [("BPL", "10"), ("BMI", "30"), ("BVC", "50"), ("BVS", "70"), ("BCC", "90"),
+                   ("BCS", "B0"), ("BNE", "D0"), ("BEQ", "F0")]:
+    OPS[int(code, 16)] = (name, "rel")
+for code, name in [(0x18, "CLC"), (0x38, "SEC"), (0x58, "CLI"), (0x78, "SEI"), (0xB8, "CLV"),
+                   (0xD8, "CLD"), (0xF8, "SED"), (0x48, "PHA"), (0x08, "PHP"), (0x68, "PLA"),
+                   (0x28, "PLP"), (0xAA, "TAX"), (0xA8, "TAY"), (0xBA, "TSX"), (0x8A, "TXA"),
+                   (0x9A, "TXS"), (0x98, "TYA"), (0xCA, "DEX"), (0x88, "DEY"), (0xE8, "INX"),
+                   (0xC8, "INY"), (0xEA, "NOP")]:
+    OPS[code] = (name, "imp")
+OPS.update({0x00: ("BRK", "imp"), 0x20: ("JSR", "jsr"), 0x40: ("RTI", "rti"), 0x60: ("RTS", "rts")})
+assert len(OPS) == 151
+RMW = {"ASL", "ROL", "LSR", "ROR", "DEC", "INC"}
+_CYCLES = {"imm": 2, "zp": 3, "zpx": 4, "zpy": 4, "abs": 4, "abx": 4, "aby": 4,
+           "izx": 6, "izy": 5, "ind": 5}
+
+
+class Machine:
+    """Registers, 64K of memory, and what this game touches of the outside
+    world: SWCHA, SWCHB, INPT4, INPT5, the RIOT timer, and the six audio
+    registers (kept where the ROM leaves them, in .aud, as
+    AUDC0 AUDC1 AUDF0 AUDF1 AUDV0 AUDV1)."""
+
+    def __init__(self, rom):
+        self.m = bytearray(0x10000)
+        self.m[0xF000:0x10000] = rom
+        self.a = self.x = self.y = 0
+        self.sp = 0xFD
+        self.n = self.v = self.d = self.i = self.z = self.c = 0
+        self.pc = self.m[0xFFFC] | self.m[0xFFFD] << 8
+        self.timer = 0
+        self.interval = 64
+        self.frac = 0
+        self.expired = True
+        self.swcha = 0xFF
+        self.swchb = 0xFF
+        self.inpt4 = 0x80
+        self.inpt5 = 0x80
+        self.aud = [0] * 6
+        self.cycles = 0          # cycles run, sleeps on WSYNC included
+        self.linepos = 0         # cycles since the scanline began
+        self.wsyncs = []         # (pc after the write, cycle it landed on, after a timer wait?)
+        self._wsync = None
+        self.waited = False      # TIMINT read since the last WSYNC
+        self.colupf = []         # (cycle, value) of every COLUPF write
+        self.overruns = 0        # frames whose logic outlasted the vertical blank
+        self._timer_v = 0
+        self._first_read = False
+
+    def flag(self, v):
+        v &= 0xFF
+        self.z = int(v == 0)
+        self.n = v >> 7
+        return v
+
+    def read(self, addr):
+        addr &= 0xFFFF
+        if addr == 0x284:                       # INTIM
+            self.expired = False
+            return self.timer & 0xFF
+        if addr == 0x285:                       # TIMINT
+            if self._first_read and self._timer_v == 44 and self.expired:
+                self.overruns += 1             # the flag was up before the wait began
+            self._first_read = False
+            self.waited = True
+            v = 0x80 if self.expired else 0
+            self.expired = False
+            return v
+        if addr == 0x280:
+            return self.swcha
+        if addr == 0x282:
+            return self.swchb
+        if addr == 0x3C:
+            return self.inpt4
+        if addr == 0x3D:
+            return self.inpt5
+        return self.m[addr]
+
+    def write(self, addr, v):
+        addr &= 0xFFFF
+        v &= 0xFF
+        if addr in (0x294, 0x295, 0x296, 0x297):   # the 8 / 16 / 64 / 1024 cycle timers
+            self.interval = {0x294: 8, 0x295: 16, 0x296: 64, 0x297: 1024}[addr]
+            self.timer = v
+            self.frac = 0
+            self.expired = False
+            self._timer_v, self._first_read = v, True
+            return
+        audio = (0x15, 0x16, 0x17, 0x18, 0x19, 0x1A)
+        if addr in audio:
+            self.aud[audio.index(addr)] = v
+        self.m[addr] = v
+        if addr == 0x02:                      # WSYNC
+            self._wsync = self.pc
+        elif addr == 0x08:                    # COLUPF
+            self.colupf.append((self.cycles, v))
+
+    def push(self, v):
+        self.m[0x100 | self.sp] = v & 0xFF
+        self.sp = (self.sp - 1) & 0xFF
+
+    def pull(self):
+        self.sp = (self.sp + 1) & 0xFF
+        return self.m[0x100 | self.sp]
+
+    def ea(self, mode):
+        """(effective address, page crossed); advances past the operand."""
+        pc = self.pc
+        if mode == "imm":
+            self.pc = (pc + 1) & 0xFFFF
+            return pc, False
+        if mode in ("zp", "zpx", "zpy", "izx", "izy"):
+            b = self.m[pc]
+            self.pc = (pc + 1) & 0xFFFF
+            if mode in ("zpx", "zpy"):
+                return (b + (self.x if mode == "zpx" else self.y)) & 0xFF, False
+            if mode == "zp":
+                return b, False
+            z = (b + self.x) & 0xFF if mode == "izx" else b
+            base = self.m[z] | self.m[(z + 1) & 0xFF] << 8
+            if mode == "izx":
+                return base, False
+            e = (base + self.y) & 0xFFFF
+            return e, (e & 0xFF00) != (base & 0xFF00)
+        a = self.m[pc] | self.m[(pc + 1) & 0xFFFF] << 8
+        self.pc = (pc + 2) & 0xFFFF
+        if mode == "abs":
+            return a, False
+        if mode == "ind":
+            return self.m[a] | self.m[(a & 0xFF00) | ((a + 1) & 0xFF)] << 8, False
+        e = (a + (self.x if mode == "abx" else self.y)) & 0xFFFF
+        return e, (e & 0xFF00) != (a & 0xFF00)
+
+    def step(self):
+        op = self.m[self.pc]
+        self.pc = (self.pc + 1) & 0xFFFF
+        name, mode = OPS[op]
+        cross, e = False, None
+        if mode in ("imp", "acc"):
+            cyc = 2
+        elif mode == "rel":
+            off = self.m[self.pc]
+            self.pc = (self.pc + 1) & 0xFFFF
+            e, cyc = off - 256 if off > 127 else off, 2
+        elif mode == "jsr":
+            e, _ = self.ea("abs")
+            cyc = 6
+        elif mode in ("rts", "rti"):
+            cyc = 6
+        else:
+            e, cross = self.ea(mode)
+            cyc = _CYCLES[mode]
+            if name in RMW:
+                cyc += 2
+            if name in ("STA", "STX", "STY") and mode in ("abx", "aby", "izy"):
+                cyc += 1
+        a = self.a
+        m = a if mode == "acc" else (self.read(e) if e is not None and mode != "rel" else 0)
+        if name in ("LDA", "LDX", "LDY"):
+            self.flag(m)
+            if name == "LDA":
+                self.a = m
+            elif name == "LDX":
+                self.x = m
+            else:
+                self.y = m
+        elif name == "STA":
+            self.write(e, a)
+        elif name == "STX":
+            self.write(e, self.x)
+        elif name == "STY":
+            self.write(e, self.y)
+        elif name in ("AND", "ORA", "EOR"):
+            self.a = self.flag({"AND": a & m, "ORA": a | m, "EOR": a ^ m}[name])
+        elif name in ("ADC", "SBC"):
+            mm = m if name == "ADC" else m ^ 0xFF
+            t = a + mm + self.c
+            self.v = int(bool(~(a ^ mm) & (a ^ t) & 0x80))
+            self.c = int(t > 0xFF)
+            self.a = self.flag(t)
+        elif name in ("CMP", "CPX", "CPY"):
+            r = {"CMP": a, "CPX": self.x, "CPY": self.y}[name]
+            self.c = int(r >= m)
+            self.flag(r - m)
+        elif name == "BIT":
+            self.z = int((a & m) == 0)
+            self.n = m >> 7
+            self.v = (m >> 6) & 1
+        elif name in RMW:
+            if name == "DEC":
+                v = (m - 1) & 0xFF
+            elif name == "INC":
+                v = (m + 1) & 0xFF
+            else:
+                c = self.c
+                if name == "ASL":
+                    self.c, v = m >> 7, (m << 1) & 0xFF
+                elif name == "LSR":
+                    self.c, v = m & 1, m >> 1
+                elif name == "ROL":
+                    self.c, v = m >> 7, ((m << 1) | c) & 0xFF
+                else:
+                    self.c, v = m & 1, (m >> 1) | (c << 7)
+            if mode == "acc":
+                self.a = self.flag(v)
+            else:
+                self.write(e, v)
+                self.flag(v)
+        elif name == "JMP":
+            self.pc = e
+        elif name == "JSR":
+            r = (self.pc - 1) & 0xFFFF
+            self.push(r >> 8)
+            self.push(r)
+            self.pc = e
+        elif name == "RTS":
+            lo = self.pull()
+            self.pc = (((self.pull() << 8) | lo) + 1) & 0xFFFF
+        elif name == "RTI":
+            self._pull_p()
+            lo = self.pull()
+            self.pc = self.pull() << 8 | lo
+        elif name == "BRK":
+            self.i = 1
+            self.pc = (self.pc + 1) & 0xFFFF
+            self.push(self.pc >> 8)
+            self.push(self.pc)
+            self.push(0x30)
+            self.pc = self.read(0xFFFE) | self.read(0xFFFF) << 8
+        elif name[0] == "B":                   # the eight branches (BIT, BRK: above)
+            if {"BPL": self.n == 0, "BMI": self.n, "BVC": self.v == 0, "BVS": self.v,
+                    "BCC": self.c == 0, "BCS": self.c, "BNE": self.z == 0, "BEQ": self.z}[name]:
+                cyc += 1 + int((self.pc & 0xFF00) != ((self.pc + e) & 0xFF00))
+                self.pc = (self.pc + e) & 0xFFFF
+        elif name == "PHA":
+            self.push(a)
+        elif name == "PHP":
+            self.push(0x20 | self.n << 7 | self.v << 6 | 0x10 | self.d << 3 | self.i << 2
+                      | self.z << 1 | self.c)
+        elif name == "PLA":
+            self.a = self.flag(self.pull())
+        elif name == "PLP":
+            self._pull_p()
+        elif name == "TAX":
+            self.x = self.flag(a)
+        elif name == "TAY":
+            self.y = self.flag(a)
+        elif name == "TSX":
+            self.x = self.flag(self.sp)
+        elif name == "TXA":
+            self.a = self.flag(self.x)
+        elif name == "TXS":
+            self.sp = self.x
+        elif name == "TYA":
+            self.a = self.flag(self.y)
+        elif name == "DEX":
+            self.x = self.flag(self.x - 1)
+        elif name == "DEY":
+            self.y = self.flag(self.y - 1)
+        elif name == "INX":
+            self.x = self.flag(self.x + 1)
+        elif name == "INY":
+            self.y = self.flag(self.y + 1)
+        elif name in ("CLC", "SEC", "CLI", "SEI", "CLV", "CLD", "SED"):
+            setattr(self, {"CLC": "c", "SEC": "c", "CLI": "i", "SEI": "i", "CLV": "v",
+                           "CLD": "d", "SED": "d"}[name], int(name in ("SEC", "SEI", "SED")))
+        if cross and name not in ("STA", "STX", "STY"):
+            cyc += 1
+        self.cycles += cyc
+        self.linepos += cyc
+        if self._wsync is not None:       # the write is the instruction's last cycle
+            idx = self.linepos - 1
+            self.wsyncs.append((self._wsync, idx, self.waited, getattr(self, "bank", 0)))
+            if getattr(self, "in_kernel", False) and not self.waited:
+                self.kernel_late = max(self.kernel_late, idx)
+            self._wsync = None
+            self.linepos = 0
+            self.waited = False
+            sleep = 75 - idx % 76        # and the CPU sleeps to the end of the line
+            cyc += sleep
+            self.cycles += sleep         # (Game 1's copy leaves this out: it never
+                                         # measured a frame's length)
+        self.frac += cyc
+        while self.frac >= self.interval:
+            self.frac -= self.interval
+            self.timer = (self.timer - 1) & 0xFF
+            if self.timer == 0xFF:
+                self.expired = True
+
+    def _pull_p(self):
+        p = self.pull()
+        self.n, self.v, self.d, self.i, self.z, self.c = [(p >> k) & 1 for k in (7, 6, 3, 2, 1, 0)]
+
+
+
+# ---------------------------------------------------------------------
+# The 2600 around the CPU: address decoding, F8, a frame at a time.
+# ---------------------------------------------------------------------
+TIA_INPUTS = {0x0C: "inpt4", 0x0D: "inpt5"}
+STICK0 = {"R": 0x80, "L": 0x40, "D": 0x20, "U": 0x10}   # SWCHA high nibble, active low
+STICK1 = {"R": 0x08, "L": 0x04, "D": 0x02, "U": 0x01}   # SWCHA low nibble
+
+
+class VCS(Machine):
+    """Machine with the console's memory map. `m` stays a flat 64K array
+    because the core fetches opcodes and operands from it directly: the
+    cartridge window is kept filled with the mapped bank in all eight of
+    its mirrors, and RAM lives at $80-$FF, where zero-page pointers read
+    it."""
+
+    def __init__(self, rom, bank=1, fill=None):
+        super().__init__(rom[:4096])
+        self.rom = rom
+        self.m = bytearray(0x10000)
+        self.map_bank(bank)
+        if fill:
+            fill(self.m)                       # power-on RAM
+        self.pc = self.m[0xFFFC] | self.m[0xFFFD] << 8
+        self.state_var = None                  # RAM address of State, for the RAM log
+        self.ram_log = None                    # addr -> {state: "r"/"w" set}
+        self.tia_hits = 0                      # stack pushes that landed in the TIA
+        self.min_sp = 0xFF
+        self.vsync_on = False
+        self.frame_start = False               # set by a VSYNC rising edge
+        self.overrun_polls = 0                 # a timer wait whose flag was already up
+        self.overrun_at = []                   # (State, pc) of each
+        self.colubk = []
+        self.in_kernel = False                 # between a blank's end and the next timer set
+        self.kernel_late = 0                   # latest WSYNC write inside a kernel
+
+    def map_bank(self, b):
+        self.bank = b
+        img = self.rom[b * 4096:(b + 1) * 4096]
+        for base in range(0x1000, 0x10000, 0x2000):
+            self.m[base:base + 4096] = img
+
+    def _hot(self, a):
+        if a in (0x1FF8, 0x1FF9):
+            self.map_bank(a - 0x1FF8)
+
+    def _log(self, ram, kind):
+        if self.ram_log is not None:
+            st = self.m[self.state_var]
+            self.ram_log.setdefault(ram, {}).setdefault(st, set()).add(kind)
+
+    def read(self, addr):
+        a = addr & 0x1FFF
+        if a & 0x1000:
+            v = self.m[addr & 0xFFFF]
+            self._hot(a)
+            return v
+        if not a & 0x80:                       # TIA
+            name = TIA_INPUTS.get(a & 0x0F)
+            return getattr(self, name) if name else 0
+        if not a & 0x200:                      # RAM, either mirror
+            ram = 0x80 | (a & 0x7F)
+            self._log(ram, "r")
+            return self.m[ram]
+        r = a & 0x2FF                          # RIOT
+        if r == 0x285 and self.expired:
+            self.in_kernel = True              # the wait is over: lines are drawn now
+        if r in (0x284, 0x285):
+            if self._first_read and self.expired:
+                self.overrun_polls += 1
+                self.overrun_at.append((self.m[self.state_var], self.pc, self.bank))
+            self._first_read = False
+        if r == 0x285:
+            self.waited = True
+        return super().read(r)
+
+    def write(self, addr, v):
+        a = addr & 0x1FFF
+        v &= 0xFF
+        if a & 0x1000:
+            self._hot(a)                       # a write to ROM does nothing else
+            return
+        if not a & 0x80:                       # TIA
+            t = a & 0x3F
+            if t == 0x00:
+                rising = bool(v & 2) and not self.vsync_on
+                self.vsync_on = bool(v & 2)
+                if rising:
+                    self.frame_start = True
+                if v & 2:
+                    self.in_kernel = False
+            elif t == 0x09:
+                self.colubk.append((self.cycles, v))
+            super().write(t, v)
+            return
+        if not a & 0x200:
+            ram = 0x80 | (a & 0x7F)
+            self._log(ram, "w")
+            self.m[ram] = v
+            return
+        if (a & 0x2FF) in (0x294, 0x295, 0x296, 0x297):
+            self.in_kernel = False
+            super().write(a & 0x2FF, v)
+            self.frac = self.interval - 1      # the RIOT's first count comes one
+            return                             # cycle after the write, not one
+        super().write(a & 0x2FF, v)            # interval: N*64+1 cycles to underflow
+
+    def push(self, v):
+        if self.sp & 0x80:
+            ram = self.sp
+            self._log(ram, "w")
+            self.m[ram] = v & 0xFF
+        else:
+            self.tia_hits += 1                 # $0100-$017F: the TIA's mirror
+        self.sp = (self.sp - 1) & 0xFF
+        if self.sp < self.min_sp:
+            self.min_sp = self.sp
+            self.deepest = (self.m[self.state_var], self.pc, self.bank,
+                            [self.m[a] for a in range(self.sp + 1, 0x100)])
+
+    def pull(self):
+        self.sp = (self.sp + 1) & 0xFF
+        return self.m[self.sp] if self.sp & 0x80 else 0
+
+
+def labels_by_bank(asm_path, sym):
+    """(bank, address) -> label, for reports: the two banks share one
+    address range, so an address alone does not name a routine."""
+    out, bank = {}, 0
+    for line in open(asm_path, errors="replace"):
+        if re.match(r"\s+SEG\s+BANK1", line):
+            bank = 1
+        m = re.match(r"^([A-Za-z_]\w*):", line)
+        if m and m.group(1) in sym and sym[m.group(1)] >= 0xF000:
+            out[(bank, sym[m.group(1)])] = m.group(1)
+    return out
+
+
+def where(labels, bank, pc):
+    best = max((a for b, a in labels if b == bank and a <= pc), default=None)
+    return f"bank {bank} {labels[(bank, best)]}+{pc - best}" if best is not None else f"{pc:04x}"
+
+
+def symbols(path):
+    out = {}
+    for line in open(path, errors="replace"):
+        m = re.match(r"^(\S+)\s+([0-9a-f]{4})", line.strip())
+        if m:
+            out[m.group(1)] = int(m.group(2), 16)
+    return out
+
+
+class Run:
+    """One powered-on console. A frame runs from one VSYNC rising edge to
+    the next, whichever bank draws it."""
+
+    def __init__(self, rom, sym, bank=1, fill=None):
+        self.m = VCS(rom, bank, fill)
+        self.rom, self.sym = rom, sym
+        self.ram = {k: v for k, v in sym.items() if 0x80 <= v <= 0xFF and k[0] != "."}
+        self.m.state_var = self.ram["State"]
+        self.frame = 0
+        self.lines = []                        # scanlines in each finished frame
+        self.late = []                         # (frame, latest WSYNC write cycle) per frame
+        self.frames = []                       # (State before, State after, lines, reset?)
+        self.late_at = []                      # (State, pc, cycle) of kernel lines past 75
+        self._run_to_frame()
+
+    def r(self, name, i=0):
+        return self.m.m[self.ram[name] + i]
+
+    def w(self, name, v, i=0):
+        self.m.m[self.ram[name] + i] = v & 0xFF
+
+    def bank0(self, label, n):
+        """n bytes of a bank-0 table, by label."""
+        a = self.sym[label] - 0xF000
+        return list(self.rom[a:a + n])
+
+    def _run_to_frame(self):
+        m, guard = self.m, 0
+        m.frame_start = False
+        while not m.frame_start:
+            m.step()
+            guard += 1
+            if guard > 400000:
+                sys.exit(f"no VSYNC for 400,000 instructions (pc {m.pc:04x}, bank {m.bank})")
+
+    def step_frame(self, stick0="", fire0=False, stick1="", fire1=False,
+                   select=False, reset=False, timed=False):
+        """Run one frame with these inputs; -> the State it ended in."""
+        m = self.m
+        m.swcha = 0xFF
+        for k in stick0:
+            m.swcha &= ~STICK0[k]
+        for k in stick1:
+            m.swcha &= ~STICK1[k]
+        m.swcha &= 0xFF
+        m.inpt4 = 0 if fire0 else 0x80
+        m.inpt5 = 0 if fire1 else 0x80
+        m.swchb = 0xFF & ~(2 if select else 0) & ~(1 if reset else 0) & ~(0 if timed else 0x40)
+        c0, w0 = m.cycles, len(m.wsyncs)
+        before = self.r("State")
+        sp0, tia0, deep0 = m.min_sp, m.tia_hits, getattr(m, "deepest", None)
+        k0, m.kernel_late = m.kernel_late, 0
+        self._run_to_frame()
+        if m.kernel_late > 75:
+            self.late_at += [(before, pc, idx, bank) for pc, idx, wa, bank in m.wsyncs[w0:]
+                             if idx > 75 and not wa]
+        m.kernel_late = max(k0, m.kernel_late)
+        cyc = m.cycles - c0
+        self.lines.append(round(cyc / 76))
+        lw = [idx for _, idx, waited, _b in m.wsyncs[w0:] if not waited]
+        self.late.append((self.frame, max(lw) if lw else 0))
+        if reset:                              # the cold start's clear, not the game's stack
+            m.min_sp, m.tia_hits, m.deepest = sp0, tia0, deep0
+        self.frame += 1
+        self.frames.append((before, self.r("State"), self.lines[-1], reset))
+        return self.r("State")
+
+    def home(self, ci):
+        """(CharY, left, right) of character ci's home on this floor."""
+        f = self.r("FloorSeq")
+        lo, hi = self.bank0("FloorHomeLo", 9)[f], self.bank0("FloorHomeHi", 9)[f]
+        a = (hi << 8 | lo) - 0xF000
+        return tuple(self.rom[a + 3 * ci:a + 3 * ci + 3])
+
+    def _place(self, ci, x, y):
+        self.w("CharX", x, ci)
+        self.w("CharY", y, ci)
+        for v in ("CharYLo", "CharVYHi", "CharVYLo"):
+            self.w(v, 0, ci)
+        self.w("OnGround", 1, ci)
+
+    def call(self, label):
+        """Run one of the game's subroutines to its rts, between frames, as
+        if the frame loop had called it (bank 0, where play runs)."""
+        m, back = self.m, self.m.pc
+        ret = self.sym["MainLoop"]
+        m.push((ret - 1) >> 8)
+        m.push(ret - 1)
+        m.pc = self.sym[label]
+        while m.pc != ret:
+            m.step()
+        m.pc = back
+
+    def homes_hold(self):
+        """Do all three still stand home a frame later? Tried on a copy."""
+        import copy
+        saved = self.m
+        self.m = copy.deepcopy(saved)
+        self.step_frame()
+        ok = self.r("State") == self.sym["STATE_DONE"]
+        self.m = saved
+        self.frame -= 1
+        self.lines.pop()
+        self.late.pop()
+        self.frames.pop()
+        return ok
+
+    def goto_homes(self, quick=False):
+        """Every character standing at home, no motion left in it. A home
+        is a height and an x range, and the range can be wider than the
+        ledge under it (a full-width range on a floor of shelves), so each
+        x along it is tried on a copy of the machine until the character
+        is still standing there a frame later."""
+        import copy
+        width = self.bank0("WidthTbl", 3)
+        for ci in range(3):
+            y, left, right = self.home(ci)
+            lo, hi = max(left, 4), min(right - 1, 156 - width[ci])
+            if quick:                          # the soak: near enough is fine
+                self._place(ci, (lo + hi) // 2, y)
+                continue
+            for x in sorted(range(lo, hi + 1, 2), key=lambda v: abs(v - (lo + hi) // 2)):
+                trial = copy.deepcopy(self.m)
+                saved, self.m = self.m, trial
+                self._place(ci, x, y)
+                self.step_frame()
+                ok = self.r("CharY", ci) == y and self.r("OnGround", ci) and \
+                    left < self.r("CharX", ci) + width[ci] and self.r("CharX", ci) < right
+                self.m = saved
+                self.frame -= 1
+                self.lines.pop()
+                self.late.pop()
+                self.frames.pop()
+                if ok:
+                    self._place(ci, x, y)
+                    break
+            else:
+                self._place(ci, (lo + hi) // 2, y)
+
+
+class Checks:
+    def __init__(self, quiet=False):
+        self.fails, self.warns, self.quiet, self.n = [], [], quiet, 0
+
+    def warn(self, label, ok, detail=""):
+        """A known fault, measured and printed but not failed on, until it
+        is fixed. Each says where it is."""
+        if not ok:
+            self.warns.append(label)
+        if not ok or not self.quiet:
+            print(f"  {'ok  ' if ok else 'WARN'}  {label}" + (f" - {detail}" if detail else ""))
+
+    def that(self, label, ok, detail=""):
+        self.n += 1
+        if not ok:
+            self.fails.append(label)
+        if not ok or not self.quiet:
+            print(f"  {'ok  ' if ok else 'FAIL'}  {label}" + (f" - {detail}" if detail else ""))
+
+
+# ---------------------------------------------------------------------
+# What must be true.
+# ---------------------------------------------------------------------
+STATES = ("TITLE", "PLAY", "STORY", "WAKE", "DONE")
+
+
+def ram_top(asm_path):
+    """First byte after the declared variables: the stack may use what
+    is left above it, and nothing below."""
+    txt = open(asm_path, errors="replace").read()
+    block = txt[txt.index("SEG.U VARS"):]
+    block = block[:block.index("SEG BANK0")]
+    return 0x80 + sum(int(n) for n in re.findall(r"^\w+\s+ds\s+(\d+)", block, re.M))
+
+
+def settle(r, n=3):
+    for _ in range(n):
+        r.step_frame()
+
+
+def press(r, **kw):
+    """A fresh press: one frame held, then released long enough to count
+    as let go."""
+    r.step_frame(**kw)
+    settle(r)
+
+
+def walkthrough(r, sym, c):
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    nf = sym["NUM_FLOORS"]
+    settle(r, 30)
+    c.that("power-on reaches the title", r.r("State") == S["TITLE"])
+    press(r, fire0=True)
+    c.that("fire on the title opens the waking", r.r("State") == S["WAKE"])
+    for _ in range(600):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    c.that("the waking gives way to floor 1", r.r("State") == S["PLAY"] and r.r("FloorSeq") == 0)
+    finished = 0
+    for f in range(nf):
+        settle(r, 10)
+        c.that(f"floor {f + 1} is in play", r.r("State") == S["PLAY"] and r.r("FloorSeq") == f,
+               f"State {r.r('State')}, FloorSeq {r.r('FloorSeq')}")
+        r.goto_homes()
+        if not r.homes_hold() and "SwapWorld" in sym:
+            r.call("SwapWorld")                 # the homes may be in the other world
+            r.goto_homes()
+        r.step_frame()
+        done = r.r("State") == S["DONE"]
+        c.that(f"floor {f + 1}: all three standing home completes it", done)
+        if not done:
+            break
+        for _ in range(200):
+            if r.step_frame() != S["DONE"]:
+                break
+        c.that(f"floor {f + 1}: the beat ends on a narration screen", r.r("State") == S["STORY"])
+        for _ in range(60):
+            if r.r("State") != S["STORY"]:
+                break
+            press(r, fire0=True)
+        finished += 1
+    c.that(f"all {nf} floors play in order", finished == nf)
+    c.that("after the last narration, the title", r.r("State") == S["TITLE"])
+
+
+def soak(r, frames, seed, sym):
+    """Random input on both joysticks, random jumps between floors and
+    the odd RESET: as many paths through the code as cheaply as possible."""
+    q = random.Random(seed)
+    nf = sym["NUM_FLOORS"]
+    stick = ["", "L", "R", "U", "D", "LU", "RU", "LD", "RD"]
+    f = 0
+    while f < frames:
+        n = q.randint(1, 40)
+        s0, s1 = q.choice(stick), q.choice(stick)
+        b0, b1 = q.random() < 0.3, q.random() < 0.3
+        timed = q.random() < 0.3
+        for _ in range(n):
+            r.step_frame(s0, b0 and q.random() < 0.5, s1, b1 and q.random() < 0.5, timed=timed)
+        f += n
+        k = q.random()
+        if k < 0.04:
+            r.step_frame(reset=True)
+        elif k < 0.15 and r.r("State") == sym["STATE_PLAY"]:
+            r.goto_homes(quick=True)
+        elif k < 0.2:
+            r.w("FloorSeq", q.randrange(nf))
+
+
+def ram_vars(asm_path):
+    """(address, name, size) of every declared variable, in order."""
+    txt = open(asm_path, errors="replace").read()
+    block = txt[txt.index("SEG.U VARS"):]
+    block = block[:block.index("SEG BANK0")]
+    out, addr = [], 0x80
+    for name, n in re.findall(r"^(\w+)\s+ds\s+(\d+)", block, re.M):
+        out.append((addr, name, int(n)))
+        addr += int(n)
+    return out
+
+
+def report_ram(log, asm_path):
+    """Which screens touch each variable. A variable no screen touches,
+    or two that are never live on the same screen, is RAM to be had."""
+    print("\nRAM: which states touch each variable (r = read, w = written;")
+    print("TITLE:w alone is the power-on clear and nothing else)")
+    for addr, name, size in ram_vars(asm_path):
+        touched = {}
+        for a in range(addr, addr + size):
+            for st, kinds in log.get(a, {}).items():
+                touched.setdefault(st, set()).update(kinds)
+        desc = " ".join(f"{STATES[st] if st < len(STATES) else st}:{''.join(sorted(k))}"
+                        for st, k in sorted(touched.items()))
+        print(f"  ${addr:02X} {name:12s} {size:2d}  {desc or '(never touched)'}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description="run Game 2's ROM headlessly")
+    ap.add_argument("rom")
+    ap.add_argument("sym")
+    ap.add_argument("--asm", default="src/main.asm")
+    ap.add_argument("--frames", type=int, default=6000, help="random-input frames (6000)")
+    ap.add_argument("--ram", action="store_true", help="print the RAM-by-state table")
+    ap.add_argument("--quiet", action="store_true")
+    args = ap.parse_args()
+    rom = open(args.rom, "rb").read()
+    sym = symbols(args.sym)
+    top = ram_top(args.asm)
+    c = Checks(args.quiet)
+
+    for bank in (0, 1):
+        for label, fill in (("cleared", None),
+                            ("garbage", lambda m: m.__setitem__(slice(0x80, 0x100),
+                                                                bytes(random.Random(7).randrange(256)
+                                                                      for _ in range(128))))):
+            b = Run(rom, sym, bank, fill)
+            settle(b, 20)
+            c.that(f"power-on in bank {bank}, RAM {label}: the title", b.r("State") == sym["STATE_TITLE"])
+
+    r = Run(rom, sym)
+    r.m.min_sp, r.m.tia_hits = 0xFF, 0          # the reset's clear pushes through the page on purpose
+    if args.ram:
+        r.m.ram_log = {}                        # slow: every RAM access, by State
+    walkthrough(r, sym, c)
+    soak(r, args.frames, 1, sym)
+    m = r.m
+
+    from collections import Counter
+    labels = labels_by_bank(args.asm, sym)
+    names = {sym[f"STATE_{k}"]: k for k in STATES}
+
+    def at(state, pc, bank):
+        return f"{names.get(state, state)} at {where(labels, bank, pc)}"
+
+    steady = [(a, n) for a, b, n, rs in r.frames if a == b and not rs]
+    turns = [(a, b, n) for a, b, n, rs in r.frames if a != b and not rs]
+    play = [n for a, n in steady if names.get(a) in ("PLAY", "DONE", "WAKE")]
+    annex = [n for a, n in steady if names.get(a) in ("TITLE", "STORY")]
+    long_play = sum(1 for n in play if n != 262)
+    c.warn("every play frame is 262 lines", long_play == 0,
+           f"{long_play} of {len(play)} ({100 * long_play / max(1, len(play)):.1f}%) are "
+           + ", ".join(f"{n} x{k}" for n, k in sorted(Counter(n for n in play if n != 262).items())))
+    c.warn("every title and narration frame is 262 lines", all(n == 262 for n in annex),
+           ", ".join(f"{n} lines x{k}" for n, k in sorted(Counter(annex).items())))
+    bad_turns = Counter((names.get(a), names.get(b), n) for a, b, n in turns if n != 262)
+    c.warn("the frame where one screen gives way to another is 262 lines", not bad_turns,
+           "; ".join(f"{a} -> {b}: {n} lines x{k}" for (a, b, n), k in sorted(bad_turns.items())))
+    late = Counter((at(st, pc, bk), idx) for st, pc, idx, bk in r.late_at)
+    c.warn("no kernel line runs past its scanline", not late,
+           "; ".join(f"{w} (cycle {i}) x{k}" for (w, i), k in sorted(late.items())))
+    over = Counter(at(st, pc, bk) for st, pc, bk in m.overrun_at)
+    c.warn("logic always fits its blank", not over,
+           "; ".join(f"{w} x{k}" for w, k in sorted(over.items())))
+    used = 0xFF - m.min_sp
+    free = m.min_sp + 1 - top
+    c.that(f"the stack never reaches the variables: deepest {used} bytes, "
+           f"{free} to spare above ${top - 1:02X}", free >= 0 and m.tia_hits == 0)
+    if args.ram:
+        report_ram(m.ram_log, args.asm)
+    print(f"headless: {args.rom}: "
+          + ("all checks pass" if not c.fails else f"{len(c.fails)} FAILED")
+          + (f", {len(c.warns)} known faults measured" if c.warns else ""))
+    sys.exit(1 if c.fails else 0)
+
+
+if __name__ == "__main__":
+    main()
