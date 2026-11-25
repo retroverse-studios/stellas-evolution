@@ -567,6 +567,9 @@ class Run:
         self.late.append((self.frame, max(lw) if lw else 0))
         if reset:                              # the cold start's clear, not the game's stack
             m.min_sp, m.tia_hits, m.deepest = sp0, tia0, deep0
+        if not timed and self.r("State") in (self.sym["STATE_PLAY"], self.sym["STATE_DONE"]):
+            top = max(self.r("SkyGrad", i) & 0x0F for i in range(12))
+            self.dim_frames = getattr(self, "dim_frames", 0) + (top < 8)
         self.frame += 1
         self.frames.append((before, self.r("State"), self.lines[-1], reset))
         return self.r("State")
@@ -727,6 +730,9 @@ def walkthrough(r, sym, c):
             press(r, fire0=True)
         finished += 1
     c.that(f"all {nf} floors play in order", finished == nf)
+    c.that("with the clock off, the sky keeps its full ramp (brightest band luma 8+) "
+           "in play and in the completion beat", getattr(r, "dim_frames", 0) == 0,
+           f"{getattr(r, 'dim_frames', 0)} frames dimmed")
     c.that("after the last narration, the title", r.r("State") == S["TITLE"])
 
 
@@ -781,6 +787,64 @@ def report_ram(log, asm_path):
         print(f"  ${addr:02X} {name:12s} {size:2d}  {desc or '(never touched)'}")
 
 
+POINTERS = {"PF0Ptr", "PF1Ptr", "PF2Ptr", "PlatPtr", "HomePtr", "PFColPtr", "TPtr",
+            "RecPtr"}
+
+
+def named_ram(run, layout, skip):
+    """The variables' values by name: two builds may lay RAM out
+    differently, so they are compared variable by variable. Pointers hold
+    ROM addresses, which move whenever code does, so they are left out."""
+    mem = run.m.m
+    return {name: bytes(mem[a:a + n]) for a, name, n in layout
+            if name not in POINTERS and name not in skip}
+
+
+def compare(rom_a, sym_a, asm_a, rom_b, sym_b, asm_b, frames, runs, skip):
+    """The same random input on two builds; the first frame on which any
+    shared variable differs."""
+    la, lb = ram_vars(asm_a), ram_vars(asm_b)
+    shared = {n for _, n, _ in la} & {n for _, n, _ in lb}
+    skip = set(skip) | ({n for _, n, _ in la} ^ {n for _, n, _ in lb})
+    bad = 0
+    for seed in range(runs):
+        ra, rb = Run(rom_a, sym_a), Run(rom_b, sym_b)
+        q = random.Random(seed)
+        stick = ["", "L", "R", "U", "D", "LU", "RU"]
+        first = None
+        f = 0
+        while f < frames and first is None:
+            n = q.randint(1, 40)
+            s0, s1 = q.choice(stick), q.choice(stick)
+            b0 = q.random() < 0.3
+            timed = (f // 900) % 2 == 1
+            poke = q.random()
+            for _ in range(n):
+                fire = b0 and q.random() < 0.5
+                for r in (ra, rb):
+                    r.step_frame(s0, fire, s1, False, timed=timed)
+                va, vb = named_ram(ra, la, skip), named_ram(rb, lb, skip)
+                if va != vb:
+                    diff = [k for k in va if va[k] != vb.get(k)]
+                    first = (f, diff)
+                    break
+                f += 1
+            if first is None and poke < 0.1:
+                for r in (ra, rb):
+                    if r.r("State") == r.sym["STATE_PLAY"]:
+                        r.goto_homes(quick=True)
+            elif first is None and poke < 0.13:
+                for r in (ra, rb):
+                    r.step_frame(reset=True)
+        states = sorted({STATES[a] for a, _, _, _ in ra.frames})
+        print(f"seed {seed}: {f} frames, states {states} - "
+              + ("identical" if first is None else f"DIFFER at frame {first[0]}: {first[1]}"))
+        bad += first is not None
+    print(f"compared by name: {len(shared - skip)} variables; not compared: "
+          f"{', '.join(sorted(skip | (POINTERS & shared)))}")
+    return bad
+
+
 def main():
     ap = argparse.ArgumentParser(description="run Game 2's ROM headlessly")
     ap.add_argument("rom")
@@ -789,7 +853,17 @@ def main():
     ap.add_argument("--frames", type=int, default=6000, help="random-input frames (6000)")
     ap.add_argument("--ram", action="store_true", help="print the RAM-by-state table")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--compare", nargs=3, metavar=("ROM", "SYM", "ASM"),
+                    help="A/B against another build, variable by variable")
+    ap.add_argument("--runs", type=int, default=6, help="A/B runs (6)")
+    ap.add_argument("--skip", default="", help="comma-separated variables not to compare")
     args = ap.parse_args()
+    if args.compare:
+        b_rom, b_sym, b_asm = args.compare
+        bad = compare(open(b_rom, "rb").read(), symbols(b_sym), b_asm,
+                      open(args.rom, "rb").read(), symbols(args.sym), args.asm,
+                      args.frames, args.runs, [v for v in args.skip.split(",") if v])
+        sys.exit(1 if bad else 0)
     rom = open(args.rom, "rb").read()
     sym = symbols(args.sym)
     top = ram_top(args.asm)

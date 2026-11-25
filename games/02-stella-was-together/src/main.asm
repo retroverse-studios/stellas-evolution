@@ -237,7 +237,6 @@ Temp        ds 1
 ; --- state machine + floor sequencing ---------------------------
 State       ds 1        ; STATE_TITLE / STATE_PLAY / STATE_STORY
 FloorSeq    ds 1        ; index of the current floor in the FloorTable
-StoryAfter  ds 1        ; after a narration: 0 = next floor, 1 = title
 WrapMode    ds 1        ; per-floor edge mode: 0 = clamp, 1 = screen-wrap
 ActiveM1    ds 1        ; physics loop bound (2 = all three characters)
 HomePtr     ds 2        ; -> this floor's per-character home-CharY table
@@ -268,7 +267,10 @@ WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
                         ; drops / 4 Alex slides in
 WakeT       ds 1        ; frame counter within the phase
 
-StateTimer  ds 1        ; STATE_DONE: frames left in the completion beat
+StateTimer  = WakeT      ; STATE_DONE: frames left in the completion
+                        ; beat. Shares WakeT's byte: the opening and the
+                        ; beat never run together, and each sets its own
+                        ; before reading it (decision #46)
 UpPrev      ds 1        ; UP edge-detect for the portal/rift verbs
 
 ; --- Act 3 (world-swap) -------------------------------------------
@@ -279,9 +281,10 @@ RecPtr      ds 2        ; -> this floor's record, fixed at LoadFloor.
                         ; PF0Ptr can't anchor swaps any more (Act 3's
                         ; rift blink repoints it), so swaps and blinks
                         ; both reckon from RecPtr.
-StoryId     ds 1        ; the narration screen the annex should show
-                        ; (bank 0 sets it at the floor boundary; bank 1
-                        ; re-points TPtr from it every frame)
+                        ; (StoryAfter and StoryId were here. Both are
+                        ; FloorSeq in disguise: the narration after floor
+                        ; n is screen n, and it is the last one when
+                        ; FloorSeq reaches NUM_FLOORS. Decision #46)
 
 ; --- the floor clock (decision #22's UI axis, restored) ------------
 ; Game 1 has a per-level clock and a run clock; Game 2 had neither,
@@ -292,7 +295,11 @@ StoryId     ds 1        ; the narration screen the annex should show
 ; existing FrameCtr, so only the seconds need storing.
 TimerSec    ds 1        ; seconds left on this floor
 TimerOn     ds 1        ; the difficulty switch, sampled once at load
-TimeDim     ds 1        ; luma the clock has taken out of the sky (0-4)
+                        ; (TimeDim was here: a pure function of
+                        ; TimerSec, so BuildSky works it out when it
+                        ; paints. Decision #46)
+SkyDim      = LV        ; BuildSky's working copy of it. LV is physics
+                        ; scratch, and BuildSky never runs inside physics
 
 ; ===============================================================
 ; BANK 0 — file $0000-$0FFF, mapped at $F000-$FFFF
@@ -784,11 +791,14 @@ LoadFloor:
         lda SWCHB               ; left difficulty A arms the clock (#22:
         and #$40                ; switch-driven, no menu). Sampled here
         sta TimerOn             ; so a mid-floor flip doesn't reset it.
-        beq .noClock
         lda #45                 ; 45 seconds: G1's endless opening,
-        sta TimerSec            ; which is where a player meets a clock
-.noClock:
-        jsr DimFor              ; clear any dim left by the last floor
+        sta TimerSec            ; which is where a player meets a clock.
+                                ; Set untimed too: BuildSky's dim reads
+                                ; it, and it used to stay 0 there, so
+                                ; "no time left" dimmed the untimed sky
+                                ; by its full 4 luma (decision #45).
+                                ; ClockTick still only counts when
+                                ; TimerOn
         lda #0
         sta Temp                ; no breath on a fresh floor
         jsr BuildSky            ; world A's sky (CurWorld was just zeroed)
@@ -816,6 +826,15 @@ BuildSky:
         clc
         adc Temp                ; Temp is the caller's breath: 0 during
         sta Temp                ; play, +2 on the completion beat
+        lda #16                 ; the clock's shadow, from the seconds
+        sec                     ; left: none until the last sixteen,
+        sbc TimerSec            ; then a luma step every four, to four
+        bcs .dimmed             ; as it hits zero. Untimed floors keep
+        lda #0                  ; TimerSec at 45: none. Dimming must
+.dimmed:                        ; GROW as the seconds fall
+        lsr
+        lsr
+        sta SkyDim
         ldx #11
 .loop:
         lda GradOfs,x
@@ -826,7 +845,7 @@ BuildSky:
         clc
         adc Temp
         sec
-        sbc TimeDim             ; the clock's shadow (0 untimed)
+        sbc SkyDim              ; the clock's shadow (0 untimed)
         bcc .black              ; never borrow into the hue nibble
         sta SkyGrad,x
         dex
@@ -884,12 +903,11 @@ ClockTick:
         lda TimerSec            ; stays in phase with no extra state
         beq .expired
         dec TimerSec
-        lda TimeDim             ; does this tick actually change the
-        pha                     ; light? only four do over a whole floor
-        jsr DimFor
-        pla
-        cmp TimeDim
-        beq .out
+        lda TimerSec            ; does this tick change the light? The
+        cmp #16                 ; dim is (16 - seconds) / 4 under
+        bcs .out                ; sixteen, so it steps exactly at 12,
+        and #3                  ; 8, 4 and 0: four repaints a floor
+        bne .out
         lda #0
         sta Temp                ; no breath during play
         jsr BuildSky            ; repaint: the sky is only redrawn on
@@ -898,29 +916,6 @@ ClockTick:
 .expired:
         jmp LoadFloor           ; out of time: the floor starts over,
                                 ; exactly as Game 1's story mode does
-
-; DimFor: set TimeDim from the seconds left — 0 luma until the last
-; sixteen seconds, then one luma step every four seconds, to four steps
-; (the sky's own black) as the clock hits zero. Dimming must INCREASE
-; as the seconds FALL; the obvious shift-the-seconds-down version does
-; the opposite and brightens the world exactly when the player is
-; running out of it.
-DimFor:
-        SUBROUTINE
-        lda TimerSec
-        cmp #16
-        bcs .none               ; still comfortable: full light
-        lda #16
-        sec
-        sbc TimerSec
-        lsr
-        lsr                     ; seconds gone / 4 = 0..4 luma of dim
-        sta TimeDim
-        rts
-.none:
-        lda #0
-        sta TimeDim
-        rts
 
 ; ---------------------------------------------------------------
 ; AtHome: X = character. Carry SET if that character is standing on
@@ -1035,21 +1030,10 @@ DoneLogic:
         beq .advance
         rts
 .advance:
-        ldx FloorSeq            ; the lamps are finished; the annex
-        lda FloorStoryTbl,x     ; reads the screen id from StoryId each
-        sta StoryId             ; frame and points TPtr there itself
-        inc FloorSeq
-        lda FloorSeq
-        cmp #NUM_FLOORS
-        bcc .more
-        lda #1                  ; past the last floor -> back to title
-        sta StoryAfter
-        jmp .toStory
-.more:
-        lda #0                  ; more floors -> play the next one
-        sta StoryAfter
-.toStory:
-        lda #STATE_STORY
+        inc FloorSeq            ; the lamps are finished. The annex shows
+        lda #STATE_STORY        ; screen FloorSeq (the narration after
+                                ; floor n is screen n), and goes back to
+                                ; the title once FloorSeq is NUM_FLOORS
         sta State
         rts
 
@@ -2117,7 +2101,13 @@ FillP1:
         sta P1XA
         lda NusizTbl,x
         sta NUSIZ1              ; Alex doubled, Marcus single
-        jsr CharColor
+        lda ColDimTbl,x         ; CharColor, inlined: as a call it was
+        cpx Active              ; the fourth level of the deepest chain
+        bne .dim                ; (WakeLogic/DoneLogic -> PrepSprites ->
+        lda ColBriTbl,x         ; FillP1 -> CharColor), 8 bytes of stack
+.dim:                           ; with 7 free: it wrote $32 into TimeDim
+                                ; and the completion beat's sky went
+                                ; black. 6 bytes deep now (decision #45)
         ldy RepoDU              ; 30Hz flicker dims the pair; lift
         iny                     ; time-shared tenants ($FF -> 0) a
         bne .noBoost            ; gentle 2 luma. More would whiten
@@ -2407,9 +2397,6 @@ FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
 FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
-FloorStoryTbl: .byte 1, 2, 3          ; narration after each floor
-        .byte 4, 5, 6
-        .byte 7, 8, 9
 ; Act boundaries are a comment, not a table (the ROM never read it):
 ; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
 ; (world-swap), 10 = the finale (decision #18).
@@ -3217,8 +3204,9 @@ StoryFrame:
         bcs .noReset
         jmp ColdStart           ; this bank's own copy: maps bank 0
 .noReset:
-        lda StoryId             ; bank 0 named the screen at the floor
-        jsr LoadStory1          ; boundary; re-point TPtr every frame
+        lda FloorSeq            ; after floor n, screen n (bank 0 has
+        jsr LoadStory1          ; already counted it); re-point TPtr
+                                ; every frame
         lda INPT4
         and #$80
         bne .release
@@ -3226,8 +3214,9 @@ StoryFrame:
         bpl .inputDone
         lda #0
         sta FirePrev
-        lda StoryAfter
-        bne .toTitle
+        lda FloorSeq            ; the last narration leads to the title
+        cmp #NUM_FLOORS
+        bcs .toTitle
         lda #STATE_PLAY
         sta State
         jmp .inputDone

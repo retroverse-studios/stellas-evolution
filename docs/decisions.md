@@ -1962,3 +1962,45 @@ checked against.
 which screens touch each variable; it is where the bytes for (1) and for
 two players (#44) will come from.
 
+## 46. Game 2's RAM: Two Bugs Fixed, Five Bytes Found
+
+**Status:** Accepted (2026-11-26). Follows #45; makes room for #44.
+
+**Fixed:**
+- **The stack overrun (#45, finding 1).** `CharColor` is inlined into
+  `FillP1`, so the deepest chain is three calls (6 bytes), not four
+  (8). The completion beat keeps its sky. 7 bytes of bank 0.
+- **The untimed sky was four steps dark, always.** Found while fixing
+  the first. `LoadFloor` set `TimerSec` only when the clock was armed,
+  so untimed floors kept 0, and the dimming read "no seconds left" and
+  took its full 4 luma off the sky. Every untimed floor since the clock
+  was added (`41a5b4e`) showed a ramp of 0-4 instead of 0-8. `TimerSec`
+  is now set to 45 either way; the clock still only counts when armed.
+
+**Four bytes freed, with no change in behaviour:**
+- `StateTimer` shares `WakeT`'s byte. The opening and the completion
+  beat never run together, and each sets its own before reading it.
+- `StoryAfter` is gone: it was "FloorSeq has reached NUM_FLOORS".
+- `StoryId` is gone: the narration after floor n is screen n, so the
+  annex reads `FloorSeq`. `FloorStoryTbl` (1 to 9) went with it.
+- `TimeDim` is gone: it was a pure function of `TimerSec`. `BuildSky`
+  works the dim out when it paints (into `SkyDim`, an alias of the
+  physics scratch byte `LV`, since the sky is never painted inside
+  physics). It is computed inline, not by a call, because a world swap
+  reaches `BuildSky` two calls deep and one more would be the overrun
+  again. The clock repaints at exactly the seconds where the dim
+  changes: 12, 8, 4 and 0.
+
+**Result:** 117 bytes declared, the stack 6 deep at most, **5 bytes
+spare**. Two players (#44) need two or three.
+
+**How it was checked:** `make headless` passes, with two new checks:
+the stack against the variables, and (clock off) the sky keeps its full
+ramp in play and in the completion beat; the old build fails that one
+on 1,059 frames. `headless.py --compare` runs two builds on the same
+random input and compares every variable by name each frame, so a
+changed RAM layout can still be compared. Against the build with only
+the two fixes: six runs of about 4,000 frames through every screen,
+identical, skipping only the shared byte (`WakeT`/`StateTimer`), the
+scratch bytes `LV` and `Temp`, the pointers, and the removed variables.
+

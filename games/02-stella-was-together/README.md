@@ -22,18 +22,20 @@ puzzles, and a spatial toolkit that grows across the game.
   nine floors in order, soaks the game in random input on both
   joysticks, and checks the stack against the variables. **`make ram`**
   adds a table of which screens touch each RAM variable.
-- **It found the stack one byte into the variables.** At its deepest
-  (the waking opening and the completion beat) the stack overwrites
-  `TimeDim`, and the completion beat then paints the whole sky black
-  for about 1.5 seconds at the end of every floor. Very likely the
-  flashing. `make headless` fails on this until it is fixed.
+- **It found the stack one byte into the variables,** which painted the
+  whole sky black for about 1.5 seconds at the end of every floor (very
+  likely the flashing). **Fixed** (decision #46), along with a second
+  bug it led to: the untimed sky had been four luma steps too dark on
+  every floor. Four bytes of RAM were then freed with no change in
+  behaviour, proved by `headless.py --compare`: **5 bytes spare** now,
+  enough for two players.
 - **Also measured** (WARN, not yet fixed): wrong-length frames at
   every screen change (50, 276 and 287-289 lines), about 2% of play
   frames running 263-265 lines, and title and narration frames at a
   steady 263.
 
 **Next:**
-1. Reclaim RAM. That fixes the black sky and makes room for two players.
+1. ~~Reclaim RAM~~ done (decision #46).
 2. Two players: SELECT on the title, a second held character, the hop
    back on.
 3. Make every frame 262 lines, transitions included.

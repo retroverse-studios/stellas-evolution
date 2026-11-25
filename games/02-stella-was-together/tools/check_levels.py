@@ -149,7 +149,6 @@ def load(bin_path, sym_path, asm_path):
                      ("FloorHomeLo", "the home height table"),
                      ("FloorWrapTbl", "the edge mode"),
                      ("FloorSkyTbl", "the sky base"),
-                     ("FloorStoryTbl", "the narration id"),
                      ("FloorRiftL", "the rift column"),
                      ("FloorPortL", "portal column A"),
                      ("FloorPort2L", "portal column B")):
