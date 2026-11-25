@@ -123,13 +123,11 @@ the one that belongs to the shape you're controlling now. When a light
 holds steady, its owner is home. If you need a friend's head first, they
 can always step off and help: no order is ever locked.
 
-<img src="manual/pictures/room-01-awakening.png" width="320" alt="Room 1: Stella, a red block, on a grey floor; a low step with a red light on it; a column rising from the step with a dotted red light on top; hollow windows in the darker grey sky">
+<img src="manual/pictures/room-01-awakening.png" width="320" alt="Room 1: Stella, a red block, on a grey floor; a low step with a red light on it; a column rising from the step; hollow windows in the darker grey sky">
 
 *Room 1 as the cartridge holds it. The red block is Stella and the green
 one Alex, each where it wakes. The solid bar in a shape's colour is its
-light. The dotted bar is the same light in its other place: every room
-keeps its lights in two places and picks one when it loads. The darker
-grey at the top is sky.*
+light. The darker grey at the top is sky.*
 
 Three things a room will not tell you:
 
@@ -162,17 +160,20 @@ have read her thoughts.
 | <img src="manual/pictures/room-05-ascent.png" width="288" alt="Room 5, Ascent"> | **5. Ascent.** The highest place in the game: a stair of four slabs, each one jump higher than the last. Her light is on top. His is on the bottom slab, a jump up from the floor, which is beyond his own. He needs a lift to get on. |
 | <img src="manual/pictures/room-06-boost.png" width="288" alt="Room 6, Boost"> | **6. Boost.** Four ledges, each one jump up. His light is on one of them. None of them is within his jump. |
 | <img src="manual/pictures/room-07-lift.png" width="288" alt="Room 7, Lift"> | **7. Lift.** Her light is on a perch one Alex higher than she can jump. His light is on a step he can reach on his own. |
-| <img src="manual/pictures/room-08-steps.png" width="288" alt="Room 8, Steps"> | **8. Steps.** A beam across the room and two perches above it. His light is at the end of the beam. Hers is on a perch, one Alex higher than she can jump from the beam. He has to be standing home before she can climb on him. |
-| <img src="manual/pictures/room-09-patience.png" width="288" alt="Room 9, Patience"> | **9. Patience.** Her light is on a high perch that wants his back first. His is on a far corner step, the other side of the pillar. Lift her, then let him go on. |
-| <img src="manual/pictures/room-10-the-exit.png" width="288" alt="Room 10, The Exit"> | **10. The Exit.** A tower, a cap above it, and two steps. His light is on the tower top, two lifts up. Hers is on the cap, one more Alex up than she can jump from there. The longest room in the game: seven moves, three lifts. |
+| <img src="manual/pictures/room-08-patience.png" width="288" alt="Room 8, Patience"> | **8. Patience.** Her light is on a high perch that wants his back first. His is on a far corner step, the other side of the pillar. Lift her, then let him go on. |
+| <img src="manual/pictures/room-09-steps.png" width="288" alt="Room 9, Steps"> | **9. Steps.** A beam across the room and two perches above it. His light is at the end of the beam. Hers is on a perch, one Alex higher than she can jump from the beam. He has to be standing home before she can climb on him. |
+| <img src="manual/pictures/room-10-the-exit.png" width="288" alt="Room 10, The Exit"> | **10. The Exit.** A tower, a cap above it, and two steps. His light is on the tower top, two lifts up. Hers is on the cap, one more Alex up than she can jump from there. The longest of the first ten: seven moves, three lifts. |
 
 ### The world turns
 
 After the tenth room Stella feels it: the world shifts. Then the same
-ten rooms come back upside down. Nothing in them has moved. The floor is
-still the floor, the lights are still where they were, and the joystick
-works exactly as before. Only the picture has turned over. There are no
-thoughts between these rooms.
+ten rooms come back upside down. The rooms have not moved. The floor is
+still the floor, and the joystick works exactly as before. The lights
+have moved. Every room keeps a second place for each light, and the
+second time round the lights are there. What you worked out the first
+time is a start, not an answer: a shape that was a step may now need
+one, and one room asks the pair of them to climb its stair together,
+all the way up. There are no thoughts between these rooms.
 
 <img src="manual/pictures/story-shifted.png" width="480" alt="Text screen reading: the world shifted, changed.">
 
@@ -180,7 +181,8 @@ thoughts between these rooms.
 
 <img src="manual/pictures/room-03-discovery-upside-down.png" width="288" alt="Room 3 upside down: the floor along the top, the sky along the bottom">
 
-*Room 3 the second time round.*
+*Room 3 the second time round. Alex's light has gone up onto the far
+shelf.*
 
 ### The ending
 
@@ -242,7 +244,7 @@ With the switch at B there is no limit at all.
 | Switch | Effect |
 |---|---|
 | SELECT (title screen) | Choose the story game (a black sky) or the endless game (an ember sky) |
-| SELECT (during play) | Start the room over. The lights may come back in their other places |
+| SELECT (during play) | Start the room over |
 | RESET | Return to the title screen |
 | LEFT DIFFICULTY → A | A one-minute clock on each room of the story game |
 | LEFT DIFFICULTY → B | No clock |
@@ -260,7 +262,8 @@ by one step, and so is his light.
 - A light higher than its owner can jump wants a friend under it. Think
   about who has to stand still and be a step, and for how long.
 - Upside down, your instincts are wrong in exactly one direction.
-  Trust the joystick; doubt your eyes.
+  Trust the joystick; doubt your eyes. And look again at where the
+  lights are.
 - The corner of the world is closer than it looks. So is the edge of a
   jump. The wall will catch you — sometimes that is the trick.
 - You can change shape in mid-air. DOWN + Fire does not make the new
@@ -268,7 +271,7 @@ by one step, and so is his light.
 
 ---
 
-*Every room in this cartridge, with either placement of its lights, is
+*Every room in this cartridge, both ways up, is
 checked by a program before the cartridge is built. If you are stuck,
 the room is not the problem.*
 

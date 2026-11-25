@@ -1704,3 +1704,37 @@ come from when nobody can take new ones?
   their other places, which is what the cartridge does today), the run
   clock and when it runs, the one-minute clock, and every switch,
   including the two that do nothing.
+
+## 39. The Upside-Down Run Gets Its Own Lights
+
+**Status:** Accepted (2026-11-25)
+
+The second run was the first ten rooms with the picture turned over.
+Turning the picture changes no puzzle, so ten of the twenty rooms were
+already solved by the time they arrived. It was a way to get twenty
+rooms out of ten records, and it still is: what changes is the 4 bytes
+of each record that held a second set of lights.
+
+- **The second set of lights is the remix.** It used to be a coin flip
+  off the frame counter at load, and was mostly a mirror image. Now the
+  story game plays it exactly when the world has turned over, and plays
+  the first set otherwise. Each remix was chosen by searching every
+  standable light position in the room with `check_levels.py`'s joint
+  planner and taking the hardest pair that reads as a new idea rather
+  than a longer walk. 5 (a leapfrog up the stair, 12 moves) and 7 (a
+  relay with a flight across the room, 10 moves) are the big ones; 3, 6
+  and 9 are at their room's ceiling already, so theirs are new routes.
+- **The endless game keeps the first set.** Its clock falls to 12
+  seconds and the remixes run to 12 moves.
+- **The endless orientation is no longer the level's parity.** Bit 0 of
+  `Rand` chose the orientation and `Rand mod 10` the room. 10 is even,
+  so each room always came the same way up. Bit 6 now. Quest is 1 in
+  the story and $40 in endless, and LoadLevel's `lsr` reads bit 0 as
+  "the story's remix", which is why NextRandom must never use bit 0.
+- **8 Patience and 9 Steps change places,** so the first relay is not
+  followed by an easier room.
+- **SELECT restarts the room as it was.** The manual's "the lights may
+  come back in their other places" goes.
+- **Cost: none.** 13 bytes free before and after.
+- **Not decided here:** whether 7's remix is fun. It needs a person.
+

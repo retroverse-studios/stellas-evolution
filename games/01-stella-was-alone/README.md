@@ -7,7 +7,7 @@ rectangle, fast, fits under overhangs) — wake alone in a constrained world and
 learn that some heights and gaps can only be crossed together.
 
 - **Theme:** existence & isolation — "Stella was alone. She didn't know why."
-- **Scope:** 10 levels (replayed upside-down), 2 characters, 5 narration screens
+- **Scope:** 10 levels, then the same 10 upside down with their lights remixed; 2 characters, 5 narration screens
 - **Controls:** Left/Right move, Fire jumps, Down+Fire switches character
 - **Constraint:** everything fits in 4,096 bytes of ROM and 128 bytes of RAM
 
@@ -25,6 +25,54 @@ make run    # builds and launches in the Stella emulator
 is the whole game.
 
 See [`../../docs/`](../../docs/) for the full design documents.
+
+## Status: v1.0-rc3-dev — the upside-down remixes (2026-11-25)
+
+The second run used to be the first ten rooms with the picture turned
+over: the same ten puzzles again, already solved. Now each room's second
+set of lights (which used to be a coin flip, mostly a mirror image) is
+a **remix**, and the story game plays it once the world turns over
+(decision #39). The rooms do not change; only where the lights are.
+
+| Room | Upright | Upside down (remix) |
+|---|---|---|
+| 1 Awakening | the step | the column top |
+| 2 Exploration | the left perch | the right perch |
+| 3 Discovery | 2 moves | 3 moves: Alex climbs on to the far shelf |
+| 4 Connection | 3 moves, no lift | 4 moves: roles swap, Alex rides Stella to her ledge |
+| 5 Ascent | 6 moves, 1 lift | **12 moves, 5 lifts**: Alex on the top slab, Stella one below; they leapfrog up the whole stair |
+| 6 Boost | 3 moves | 4 moves: the outer ledges |
+| 7 Lift | 3 moves, 1 lift | **a relay, 10 moves, 3 lifts**: the perches cap Stella's jump, so she reaches her corner step only by stepping off one; Alex launches off her head across the room to the far perch |
+| 8 Patience | 3 moves, 1 lift | 4 moves: roles swap |
+| 9 Steps | relay, 4 moves | relay, 4 moves: Stella crosses the room on Alex's head |
+| 10 The Exit | relay, 7 moves | relay, 8 moves: Alex's home is the low step; he comes down after lifting her |
+
+Move counts are `check_levels.py --joint`'s shortest plans. 3, 6 and 9
+were searched exhaustively over every standable light position and their
+shapes allow no harder pair; the remix there is a change of route, not
+of difficulty.
+
+- **8 and 9 swapped.** Patience (one lift) now comes before Steps (the
+  first relay), so the first ten climb without a dip.
+- **The endless game's coin was the level's parity.** `NextRandom` took
+  the orientation from bit 0 of the same byte it reduced mod 10, so
+  rooms 1, 3, 5, 7, 9 were always upright and 2, 4, 6, 8, 10 always
+  upside down. It takes bit 6 now. The endless game always plays the
+  upright lights: the remixes are too long for its clock.
+- **SELECT no longer re-rolls the lights.** It restarts the room as it
+  was.
+- **Room:** 13 bytes free, unchanged. The choice is `lda Quest / lsr /
+  bcc` (5 bytes, against the coin flip's 6). The story sets Quest to 1,
+  endless to $40, so one shift tells the two apart. The first try spent
+  2 bytes and the `ALIGN 8` before the logo turned them into 8.
+- **`make headless` checks it:** upright plays the primary lights,
+  upside down the remix, SELECT keeps the remix, endless turns rooms
+  over whatever their number (this check fails on the old code) and
+  always plays the primary lights.
+- **Not yet played by a person.** The remixes are proved solvable by
+  the engine's own physics. Whether 7's flight across the room (an
+  8-pixel launch window, with steering) is fun or fiddly needs hands on
+  a joystick.
 
 ## Status: v1.0-rc3-dev — the manual (2026-11-25)
 
@@ -315,7 +363,7 @@ Title screen, then ten levels with narration screens at the story beats
 3. **Discovery** — Alex appears (only he fits under the pillar)
 4. **Connection** / 5. **Ascent** — ability-gated split routes
 6. **Boost** — Alex needs Stella's head; 7. **Lift** — Stella needs Alex's back
-8. **Steps** / 9. **Patience** — order matters: send the right one home first
+8. **Patience** / 9. **Steps** — order matters: send the right one home first
 10. **The Exit** — over and under the same tower, goals side by side
 
 After level 10: the closing narration, then a small, unexplained blue square.

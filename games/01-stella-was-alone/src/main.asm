@@ -459,8 +459,11 @@ NextRandom:
         eor #$B4                ; 8-bit LFSR
 .noEor:
         sta Rand
-        and #1
-        sta Quest               ; heads: the world turns over
+        and #$40                ; bit 6, not bit 0: the level below is
+        sta Quest               ; Rand mod 10, and 10 is even, so bit 0
+                                ; would turn over only even levels. And
+                                ; never bit 0: LoadLevel reads bit 0 as
+                                ; "the story's remix lights"
         lda Rand
 .mod:
         cmp #NUM_LEVELS
@@ -783,9 +786,12 @@ LoadLevel:
         lda (PF0Ptr),y
         sta CharY+1
 
-        lda FrameCtr            ; entropy from the player's timing:
-        and #1                  ; primary or alternate goal spots
-        beq .primary
+        lda Quest               ; the remix lights once the story's
+        lsr                     ; world turns over (Quest = 1). The
+        bcc .primary            ; endless game turns over with bit 6
+                                ; ($40, see NextRandom), so its carry is
+                                ; always clear: the remixes are too
+                                ; long for its clock
         ldy #69
         bne .readGoals
 .primary:
@@ -2214,7 +2220,7 @@ Level3:
         .byte 30, 88-ALEX_H
         .byte 48,69                      ; Stella: the left shelf
         .byte 146,77                     ; Alex: the far corner step
-        .byte 56,69, 148,77              ; alt: each shifted along its own
+        .byte 40, 69, 112,69  ; REMIX (upside down): Alex up on the far shelf, a climb from his corner step
 
 ; --- Level 4 "Connection": Stella climbs to her high ledge while
 ;     Alex slips under the pillar to his corner step. REDESIGNED:
@@ -2246,7 +2252,7 @@ Level4:
         .byte 30, 88-ALEX_H
         .byte 32, 61                      ; Stella: the left high ledge
         .byte 144,77                      ; Alex: the right corner step
-        .byte 40, 61, 140,77              ; alt: each shifted along its own
+        .byte 12, 77, 40, 61  ; REMIX (upside down): roles swapped: Stella on the corner step, Alex on her ledge, off her head
 
 ; --- Level 5 "Ascent": the highest place in the game. A floating
 ;     stair of four slabs, each centred (so each is ONE box) and each
@@ -2276,8 +2282,7 @@ Level5:
         .byte 100,69                     ; Alex: the base slab (72). He rises
                                           ; 10 against its 16: he needs her
                                           ; head, from the ground beside it
-        .byte 72, 37, 48, 69             ; alt: Stella on the third slab,
-                                          ; Alex at the near end of the base
+        .byte 84, 37, 76, 21  ; REMIX (upside down): Alex on the top slab, Stella one below: a leapfrog all the way up
 
 ; --- Level 6 "Boost": the ledges are beyond Alex's jump — he has
 ;     to leap from Stella's head. Under place-and-hold the order is
@@ -2310,7 +2315,7 @@ Level6:
                                           ; end up. The step at 128 is the
                                           ; alternate's mirror of it
         .byte 110,69                     ; Alex: the high right ledge
-        .byte 132,69, 34,69              ; alt: mirrored
+        .byte 136,69, 24, 69  ; REMIX (upside down): the outer ledges, one each side
 
 ; --- Level 7 "Lift": the perch is above even Stella's jump — she
 ;     needs the extra height from Alex's back, so he is the one who
@@ -2343,38 +2348,9 @@ Level7:
                                           ; to a floor you walk to. 8du is
                                           ; all he rises, so this is his
                                           ; alone; the puzzle is hers.
-        .byte 40, 61, 128,77             ; alt: mirrored
+        .byte 132,77, 40, 61  ; REMIX (upside down): a relay: Stella reaches a corner step only by stepping off a perch, and Alex flies off her head across the room to the far perch
 
-; --- Level 8 "Steps": a RELAY. Each one's home can only be reached
-;     from where the other one ends up. Alex's home is the beam
-;     (16 du: he rides Stella's head up to it). Stella's home is the
-;     perch at the end of the beam, 24 du up - one Alex too high
-;     from the beam alone - so he has to be standing home before she
-;     can climb on him and finish. Nothing else in the room stands
-;     higher than the beam, so there is no other way up. Neither
-;     can do without the other. Nothing is locked; this is just the
-;     only way. (A taller tower was tried first: from its top Stella
-;     could reach the perch alone, and the level was no relay.)
-;     SKY: far off, and out of reach by construction - the checker
-;     fails the build if a body could ever enter these bands. The left
-;     half in 4-px columns (mirrored), one row per band from the top:
-;     .#..#..#..#..#..#..#
-Level8:
-        .byte $30,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
-        .byte $92,$00,$00,$00,$00,$00,$0F,$00,$00,$00,$00,$FF
-        .byte $92,$00,$00,$00,$00,$00,$00,$00,$00,$F8,$00,$FF
-        .byte 88, 72, 48, 48, $FF,$FF     ; box tops
-        .byte 96, 80, 56, 56, $FF,$FF     ; box bottoms
-        .byte 0,  60, 32, 112,0,  0       ; box lefts
-        .byte 160,100,48, 128,0,  0       ; box rights (excl)
-        .byte 2
-        .byte 10, 88-STELLA_H
-        .byte 20, 88-ALEX_H
-        .byte 120,45                     ; Stella: the right perch
-        .byte 88, 69                     ; Alex: the right end of the beam
-        .byte 32, 45, 64, 69             ; alt: mirrored
-
-; --- Level 9 "Patience": Stella's perch needs Alex's back before
+; --- Level 8 "Patience": Stella's perch needs Alex's back before
 ;     he goes on to his own goal beyond the pillar.
 ;     REDRAWN (decision #35): Alex's step stood just beyond the
 ;     pillar, and the mirror drew it a second time beside the left
@@ -2391,7 +2367,7 @@ Level8:
 ;     ..###..#.....###....
 ;     ..#.#..#.....#.#....
 ;     ..###........###....
-Level9:
+Level8:
         .byte $D0,$50,$D0,$10,$10,$10,$10,$10,$10,$10,$F0,$F0
         .byte $90,$90,$80,$00,$00,$00,$00,$00,$00,$00,$00,$FF
         .byte $0E,$0A,$0E,$00,$E0,$E0,$E0,$E0,$EC,$E0,$00,$FF
@@ -2408,7 +2384,36 @@ Level9:
                                           ; (80). He rises 10, so the 8 du
                                           ; is his own — once he is under
                                           ; the pillar, which only he fits
-        .byte 56, 61, 146,77              ; alt: Alex's light further along
+        .byte 8,  77, 56, 61  ; REMIX (upside down): roles swapped: Stella on the corner step, Alex up on her perch
+
+; --- Level 9 "Steps": a RELAY. Each one's home can only be reached
+;     from where the other one ends up. Alex's home is the beam
+;     (16 du: he rides Stella's head up to it). Stella's home is the
+;     perch at the end of the beam, 24 du up - one Alex too high
+;     from the beam alone - so he has to be standing home before she
+;     can climb on him and finish. Nothing else in the room stands
+;     higher than the beam, so there is no other way up. Neither
+;     can do without the other. Nothing is locked; this is just the
+;     only way. (A taller tower was tried first: from its top Stella
+;     could reach the perch alone, and the level was no relay.)
+;     SKY: far off, and out of reach by construction - the checker
+;     fails the build if a body could ever enter these bands. The left
+;     half in 4-px columns (mirrored), one row per band from the top:
+;     .#..#..#..#..#..#..#
+Level9:
+        .byte $30,$10,$10,$10,$10,$10,$10,$10,$10,$10,$10,$F0
+        .byte $92,$00,$00,$00,$00,$00,$0F,$00,$00,$00,$00,$FF
+        .byte $92,$00,$00,$00,$00,$00,$00,$00,$00,$F8,$00,$FF
+        .byte 88, 72, 48, 48, $FF,$FF     ; box tops
+        .byte 96, 80, 56, 56, $FF,$FF     ; box bottoms
+        .byte 0,  60, 32, 112,0,  0       ; box lefts
+        .byte 160,100,48, 128,0,  0       ; box rights (excl)
+        .byte 2
+        .byte 10, 88-STELLA_H
+        .byte 20, 88-ALEX_H
+        .byte 120,45                     ; Stella: the right perch
+        .byte 88, 69                     ; Alex: the right end of the beam
+        .byte 120,45, 60, 69  ; REMIX (upside down): Alex at the other end of the beam: Stella crosses on his head
 
 ; --- Level 10 "The Exit": a relay to the top of the world. Alex's
 ;     home is the tower top (du 56): two of Stella's heads, one from
@@ -2437,7 +2442,7 @@ Level10:
         .byte 20, 88-ALEX_H
         .byte 76, 29                      ; Stella: the cap (32)
         .byte 88, 53                      ; Alex: the tower top (56)
-        .byte 76, 29, 68, 53             ; alt: Alex's light further along
+        .byte 76, 29, 116,69  ; REMIX (upside down): Alex's home is the low step: he has to come down after lifting her
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py)

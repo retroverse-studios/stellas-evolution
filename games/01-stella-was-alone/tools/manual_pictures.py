@@ -2,7 +2,8 @@
 """Pictures for the manual, drawn from the cartridge's own bytes.
 
 The ten rooms as the ROM holds them (the playfield, each shape where it
-wakes, each light in both its places), one of them upside down, the
+wakes, each light where it is the right way up), one of them upside
+down with the lights its remix moves them to, the
 title screen, the five narration screens (as strips of their text), the
 cast to scale, the closing screen and a room with the clock run low.
 None of these is a screenshot. They are the level records and the text
@@ -70,17 +71,6 @@ class Screen:
         for yy in range(y, y + h):
             for xx in range(x, x + w):
                 self.dot(xx, yy, colour)
-
-    def dashed(self, x, y, w, h, colour):
-        """A rectangle's outline, every other pixel: a light's other place."""
-        for xx in range(x, x + w):
-            if (xx - x) % 2 == 0:
-                self.dot(xx, y, colour)
-                self.dot(xx, y + h - 1, colour)
-        for yy in range(y, y + h):
-            if (yy - y) % 2 == 0:
-                self.dot(x, yy, colour)
-                self.dot(x + w - 1, yy, colour)
 
     def upside_down(self):
         self.px.reverse()
@@ -152,7 +142,7 @@ class Cart:
         return text_row(*[self.rom[addr + plane * stride + r] for plane in range(6)])
 
 
-def room_picture(cart, rec, background=0x00):
+def room_picture(cart, rec, background=0x00, remix=False):
     s = Screen(background)
     sky, world = cart.sym["COL_SKY"], cart.sym["COL_PF"]
     for band in range(12):
@@ -162,13 +152,10 @@ def room_picture(cart, rec, background=0x00):
     goal_h = cart.sym["GOAL_H"] * 2
     heights, widths = cart.at("HeightTbl", 2), cart.at("WidthTbl", 2)
     stella, alex = 0x38, 0xCC
-    for place in (1, 0):                         # the other place first, so the usual one is on top
-        for ci in range(rec[60]):
-            x, y = rec[65 + place * 4 + ci * 2], rec[66 + place * 4 + ci * 2] * 2
-            if place:
-                s.dashed(x, y, 8, goal_h, stella if ci == 0 else alex)
-            else:
-                s.rect(x, y, 8, goal_h, stella if ci == 0 else alex)
+    place = 1 if remix else 0                    # the remix is the second set
+    for ci in range(rec[60]):
+        x, y = rec[65 + place * 4 + ci * 2], rec[66 + place * 4 + ci * 2] * 2
+        s.rect(x, y, 8, goal_h, stella if ci == 0 else alex)
     for ci in range(rec[60]):                    # each shape where it wakes
         s.rect(rec[61 + ci * 2], rec[62 + ci * 2] * 2, widths[ci], heights[ci] * 2,
                stella if ci == 0 else alex)
@@ -247,7 +234,7 @@ def main():
 
     for i, rec in enumerate(cart.rooms):
         write(room_picture(cart, rec), slug(i) + ".png")
-    s = room_picture(cart, cart.rooms[2])       # Discovery, the world turned over
+    s = room_picture(cart, cart.rooms[2], remix=True)   # Discovery, the world turned over
     s.upside_down()
     write(s, slug(2) + "-upside-down.png")
     write(title_picture(cart), "title.png")

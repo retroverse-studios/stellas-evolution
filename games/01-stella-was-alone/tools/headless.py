@@ -416,6 +416,19 @@ class Run:
         self.frame += 1
         return self.r("State")
 
+    def lights(self):
+        """Which of the room's two sets of lights is loaded: 'primary',
+        'remix', or None. Judged by x alone (y is flipped upside down)."""
+        m, s = self.m.m, self.sym
+        lv = self.r("Level")
+        rec = m[s["LvlPtrHi"] + lv] << 8 | m[s["LvlPtrLo"] + lv]
+        got = (self.r("GoalX"), m[self.ram["GoalX"] + 1])
+        n = self.r("CharCount")
+        for name, at in (("primary", 65), ("remix", 69)):
+            if got[:n] == (m[rec + at], m[rec + at + 2])[:n]:
+                return name
+        return None
+
     def goto_goals(self):
         """Put every present shape standing on its own light (as if played
         there), with no motion left in it."""
@@ -619,6 +632,7 @@ def walkthrough(rom, sym, quiet=False):
     r.step_frame()
     c.that("the finale goes straight to play, both shapes",
            r.r("State") == P and r.r("Level") == last and r.r("CharCount") == 2)
+    c.that("upright, the story game plays the primary lights", r.lights() == "primary")
     r.goto_goals()
     r.step_frame()
     c.that("the finale completes", r.step_frame() == D)
@@ -644,6 +658,10 @@ def walkthrough(rom, sym, quiet=False):
     r.step_frame()
     c.that("the finale again, upside down",
            r.r("State") == P and r.r("Level") == last and r.r("BandStep") == 255)
+    c.that("upside down, the story game plays the remix lights", r.lights() == "remix")
+    r.step_frame(select=True)
+    r.step_frame()
+    c.that("and SELECT brings the remix back, not a coin flip", r.lights() == "remix")
     r.goto_goals()
     r.step_frame()
     c.that("it completes", r.step_frame() == D)
@@ -682,6 +700,17 @@ def walkthrough(rom, sym, quiet=False):
         pass
     c.that("a survived room counts and tightens the clock",
            r.r("EndCnt") == 1 and r.r("State") == P and r.r("TimerSec") == 43)
+    seen, lit = set(), set()
+    for _ in range(60):
+        seen.add((r.r("Level") & 1, r.r("Quest") != 0))
+        lit.add(r.lights())
+        r.goto_goals()
+        r.step_frame()
+        while r.step_frame() == D:
+            pass
+    c.that("endless turns rooms over whatever their number (not by parity)",
+           len(seen) == 4, str(sorted(seen)))
+    c.that("endless always plays the primary lights", lit == {"primary"}, str(lit))
     for _ in range(30):
         r.w("TimerSec", 1)                 # let the clock run out
         for _ in range(61):
