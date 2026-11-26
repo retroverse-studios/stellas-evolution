@@ -2150,3 +2150,39 @@ Stella and Marcus on floor 9 (Alex's home is the perch both worlds
 share, so one crossing is enough for him).
 
 **Cost:** solver only; the ROM is unchanged.
+
+## 51. Game 2: Room for Act 4 — the Annex Takes Jobs
+
+**Status:** Accepted (2026-11-26). Act 4 is two floors (the seam, then
+where they meet), and Game 2 gets endless mode and the run clock. Bank 0
+had 124 bytes free, and the floors alone need about 270.
+
+**The constraint:** the picture is drawn from bank 0, and the kernel
+reads the floor records directly, so floors must live in bank 0. Bank 1
+(the annex) already held the title and narration, but only as whole
+frames: bank 0 handed the frame over and took it back.
+
+**Decision:** bank 0 can now call bank 1 mid-frame. The stubs already
+had an unused call-and-return pair (GoCopyB, from the world-swap
+prototype), so this costs no stub bytes. It is now `GoAnnex`: bank 0
+loads Y with a job and calls it; bank 1's `AnnexJob` runs the job, which
+ends `jmp GoBackBank0`. The bank switch overwrites A, so a job answers
+in X. A job can't call bank-0 routines; bank 0 keeps those calls and
+asks the annex again. Moved:
+- **The waking opening's phases** (black, sky, eyes, Stella's fall,
+  Alex sliding in). They only touch RAM. Bank 0 keeps the calls to
+  `LoadFloor`, physics and `PrepSprites`.
+- **The sound engine.** It reads RAM and writes the sound registers,
+  nothing else, and the second sound voice can now grow in bank 1.
+  Its exits jump back instead of returning, so the stack is no deeper.
+
+**Checked:** the A/B harness ran the new ROM against the old for eight
+6,000-frame runs of random input: RAM and all six sound registers are
+identical frame by frame, except two scratch bytes (`Temp`, `CYH`) that
+hold the address of a floor record's plane, which moved down with the
+code. A new check plays the opening untouched: all five phases in
+order, floor 1 after 294 frames (as before), every frame 262 lines. The
+stack is still 6 bytes deep at most.
+
+**Cost:** bank 0 went from 124 to 459 bytes free; bank 1 from about
+2,120 to 1,979.

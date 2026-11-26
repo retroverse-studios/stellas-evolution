@@ -793,6 +793,30 @@ def two_players(r, sym, c):
            (r.r("Active"), r.r("Active2")) == (1, 2))
 
 
+def opening_plays_out(rom, sym, c):
+    """Left alone, the waking opening runs every phase in order — the
+    black, the sky, the eyes, Stella's fall, Alex sliding in — and hands
+    over to floor 1 with everyone at their spawn. Its phases run in the
+    annex since decision #51; the walkthrough skips it with fire."""
+    r = Run(rom, sym)
+    settle(r, 30)
+    press(r, fire0=True)
+    phases, n = [], 0
+    while r.r("State") == sym["STATE_WAKE"] and n < 1200:
+        p = r.r("WakePhase")
+        if not phases or phases[-1] != p:
+            phases.append(p)
+        r.step_frame()
+        n += 1
+    c.that("left alone, the opening runs its five phases in order",
+           phases == [0, 1, 2, 3, 4], f"phases {phases}")
+    c.that("the opening hands over to floor 1",
+           r.r("State") == sym["STATE_PLAY"] and r.r("FloorSeq") == 0,
+           f"after {n} frames")
+    long = [ln for a, b, ln, rs in r.frames if ln != 262 and not rs]
+    c.that("every frame of the opening is 262 lines", not long, f"{long[:5]}")
+
+
 def clock_runs_out(r, sym, c):
     """A timed floor whose clock reaches zero starts over: through
     STATE_LOAD, so the reload runs in the next frame's vblank."""
@@ -910,9 +934,11 @@ def compare(rom_a, sym_a, asm_a, rom_b, sym_b, asm_b, frames, runs, skip):
                 for r in (ra, rb):
                     r.step_frame(s0, fire, s1, False, timed=timed)
                 va, vb = named_ram(ra, la, skip), named_ram(rb, lb, skip)
+                va["(audio)"], vb["(audio)"] = list(ra.m.aud), list(rb.m.aud)
                 if va != vb:
                     diff = [k for k in va if va[k] != vb.get(k)]
-                    first = (f, diff)
+                    first = (f, [f"{k} {va[k]}/{vb.get(k)}" for k in diff]
+                             + [f"in {STATES[ra.r('State')]}"])
                     break
                 f += 1
             if first is None and poke < 0.1:
@@ -995,6 +1021,7 @@ def main():
            f"{seen['solo_hop']} frames")
     two_players(r, sym, c)
     clock_runs_out(r, sym, c)
+    opening_plays_out(rom, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")

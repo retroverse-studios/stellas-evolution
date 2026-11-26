@@ -37,7 +37,8 @@ puzzles, and a spatial toolkit that grows across the game.
   the variables and blacked out the sky at the end of every floor
   (very likely the flashing), and the untimed sky was four luma steps
   too dark.
-- **Bank 0 has 124 bytes free** (bank 1 has 2.4K).
+- **Bank 0 has 459 bytes free** (bank 1 has about 2K): the waking
+  opening's phases and the sound moved to bank 1 (decision #51).
 - **Fixed** (decision #49): with two players the free character drew
   solid in its dim colour (dim Marcus vanished on dark ground), and a
   held Alex sharing a sprite turned a dark wrong hue. In play every
@@ -48,7 +49,12 @@ puzzles, and a spatial toolkit that grows across the game.
 2. ~~Two players~~ done (decision #47). Not yet tried on hardware
    or in an emulator with two people.
 3. ~~Every frame 262 lines~~ done (decisions #47, #48).
-4. Then Act 4, per-act skies and the second sound voice.
+4. Act 4 as two floors: **the seam** (wrap, portal and swap meet at
+   one screen edge), then **where they meet** (one shared home, each
+   character arriving by a different verb). Room made (decision #51).
+5. Endless mode (one or two players) and the run clock, from Game 1;
+   SELECT steps through one player, two, endless one, endless two.
+6. Per-act skies (dawn for Act 4) and the second sound voice.
 
 Floors 8 and 9 are the same two worlds with A and B exchanged, so their
 reach figures match; the solver now also proves floor 9's "there and

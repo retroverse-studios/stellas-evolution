@@ -107,6 +107,10 @@ NUM_FLOORS  = 9         ; Act 1 (wrap):   Together Again / The Low Door
 ; --- wake-up opening timing (frames) ---------------------------
 WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
 WAKE_EYES   = 70        ; phase 2: eyes open before Stella arrives
+JOB_WAKESETUP = 0       ; annex jobs (GoAnnex, Y = job; decision #51)
+JOB_WAKEPRE   = 1
+JOB_WAKEPOST  = 2
+JOB_SOUND     = 3
 
 ; THE WORLD IS GREYSCALE; COLOUR MEANS AGENCY (decision #27).
 ; Hue 0 is the neutral ramp, so every hue on screen belongs to
@@ -333,10 +337,10 @@ SkyDim      = LV        ; BuildSky's working copy of it. LV is physics
 ; in both banks: execution crosses banks inside these routines — the
 ; hotspot access swaps ROM mid-stream and the next opcode fetch comes
 ; from the other bank's copy. Bank 1 carries an unlabeled duplicate; a
-; STUB_SIZE check there catches drift at assembly time. These stubs
-; ARE the world-swap capability's core; a future Act-3 floor fills in
-; CopyBWorker + world data in bank 1 (see the git tag for the proven
-; implementation).
+; STUB_SIZE check there catches drift at assembly time. GoBank1 and
+; GoBank0 hand whole frames across (the title and the narration);
+; GoAnnex and GoBackBank0 are a call and its return, so bank 0 can
+; run an annex job mid-frame (decision #51).
 ; ---------------------------------------------------------------
 
 GoBank1:                ; jmp here from bank 0 code -> Bank1Entry
@@ -345,12 +349,14 @@ GoBank1:                ; jmp here from bank 0 code -> Bank1Entry
 GoBank0:                ; jmp here from bank 1 code -> Bank0Entry
         lda BANK0HOT
         jmp Bank0Entry
-GoCopyB:                ; jsr here from bank 0 to pull world B art:
+GoAnnex:                ; jsr here from bank 0, Y = an annex job:
         lda BANK1HOT    ; map bank 1, then the identical stub's jmp
-        jmp CopyBWorker ; lands in bank 1's copy worker
+        jmp AnnexJob    ; lands in bank 1's job dispatcher
 GoBackBank0:            ; jmp here from bank 1 to return to the caller
         lda BANK0HOT    ; map bank 0; the rts is fetched from bank 0's
-        rts             ; identical stub and pops GoCopyB's return
+        rts             ; identical stub and pops GoAnnex's return.
+                        ; A is lost to the switch (and N/Z with it):
+                        ; a job answers in X, Y or carry
 ColdStart:              ; RESET vector target in both banks:
         ldy #$FF        ; power-on is one player (RAM is noise)
 WarmStart:              ; console RESET: jmp here with Y = Active2,
@@ -462,8 +468,10 @@ MainLoop:
         beq .doDone
         cmp #STATE_LOAD
         beq .doLoad
-        jsr WakeInit            ; STATE_OPEN (the title's frame never
-        jsr PrepSprites         ; reaches here: the annex caught it)
+        jsr LoadFloor           ; STATE_OPEN (the title's frame never
+        ldy #JOB_WAKESETUP      ; reaches here: the annex caught it):
+        jsr GoAnnex             ; floor 1, then the opening's dark
+        jsr PrepSprites
         jmp .logicDone
 .doLoad:
         jsr LoadFloor           ; a floor boundary (or the clock ran
@@ -548,7 +556,8 @@ Overscan:
         bne .waitOS
         jsr UpdatePhysics
         jsr CheckGoal   ; all three home -> the beat, then narration
-        jsr UpdateSound
+        ldy #JOB_SOUND
+        jsr GoAnnex
         jsr BlinkPortal ; portal columns are only ever half-present
         jsr BlinkRifts  ; ...and the rifts, one size thinner
         jsr ClockTick   ; the floor clock (decision #22 restored)
@@ -581,152 +590,22 @@ Overscan:
 ; cleanly — every character is already standing on its spawn.
 ; ---------------------------------------------------------------
 
-WakeInit:
-        SUBROUTINE
-        jsr LoadFloor           ; Floor 1 data (FloorSeq = 0)
-        lda #2
-        sta Active              ; Marcus is the sleeper: P0, solid
-        ldx #11
-        lda #0
-.dark:
-        sta SkyGrad,x           ; the sky starts black...
-        dex
-        bpl .dark
-        sta PFColor             ; ...and so do the platforms
-        sta WakePhase
-        sta WakeT
-        lda #<BlackPF
-        sta PFColPtr
-        lda #>BlackPF
-        sta PFColPtr+1
-        lda #200                ; park Stella and Alex below the
-        sta CharY               ; visible screen (kernel draws
-        sta CharY+1             ; nothing at y=200; no physics runs
-        lda #STATE_WAKE         ; for them until phase 3)
-        sta State
-        rts
-
+; WakeLogic: the waking opening, one frame. Its phases are RAM-only
+; and live in the annex (decision #51); bank 0 keeps the calls into
+; bank-0 routines. The annex answers in X: 0 draw, 1 run physics
+; (then ask again), 2 the opening is over.
 WakeLogic:
         SUBROUTINE
-        lda INPT4               ; a fresh fire press skips the opening
-        and #$80
-        bne .arm
-        bit FirePrev
-        bpl .run                ; still held from the title: ignore
-        lda #0
-        sta FirePrev
-        jmp .finish
-.arm:
-        lda #$80
-        sta FirePrev
-.run:
-        lda WakePhase
-        cmp #3
-        bcs .physics
-        cmp #1
-        beq .p1
-        cmp #2
-        beq .p2
-        ; --- phase 0: hold the black -------------------------------
-        inc WakeT
-        lda WakeT
-        cmp #WAKE_BLACK
-        bcc .p0d
-        lda #1
-        sta WakePhase
-        lda #0
-        sta WakeT
-.p0d:
-        jmp .draw
-.p1:
-        ; --- phase 1: the sky assembles, horizon (band 11) first ---
-        lda WakeT
-        and #7
-        bne .p1t                ; one new band every 8 frames
-        lda WakeT
-        lsr
-        lsr
-        lsr
-        sta Temp                ; n = 0..11
-        lda #11
-        sec
-        sbc Temp
-        tax                     ; band 11 - n
-        lda GradOfs,x
-        clc
-        adc #FLOOR1_SKY
-        sta SkyGrad,x
-.p1t:
-        inc WakeT
-        lda WakeT
-        cmp #96                 ; 12 bands x 8 frames
-        bcc .draw
-        lda #2
-        sta WakePhase
-        lda #0
-        sta WakeT
-        lda #PFA_COLOR          ; the sky stands: platforms appear
-        sta PFColor             ; (plain grey — the home lamps only
-        lda #<GreyPF            ; begin once the player has control)
-        sta PFColPtr
-        lda #>GreyPF
-        sta PFColPtr+1
-        bne .draw
-.p2:
-        ; --- phase 2: eyes open (the forcing below stops) ----------
-        inc WakeT
-        lda WakeT
-        cmp #WAKE_EYES
-        bcc .draw
-        lda #3
-        sta WakePhase
-        lda #0
-        sta WakeT
-        sta CharY               ; Stella appears at the top of the
-        sta CharYLo             ; sky above her spawn x and falls
-        sta CharVYHi
-        sta CharVYLo
-        sta OnGround
-        beq .draw
-.physics:
-        jsr UpdatePhysics
-        lda WakePhase
-        cmp #4
-        beq .p4
-        ; --- phase 3: Stella falls; keep Alex parked ---------------
-        lda #200
-        sta CharY+1
-        lda #0
-        sta CharVYHi+1
-        sta CharVYLo+1
-        lda OnGround
-        beq .draw
-        lda #4                  ; she landed (real thump): Alex's turn
-        sta WakePhase
-        lda #85                 ; ground level (feet on the floor)
-        sta CharY+1
-        lda #0
-        sta CharX+1             ; from the left edge...
-        sta CharVYHi+1
-        sta CharVYLo+1
-        lda #1
-        sta OnGround+1
-        sta CharFace+1
-        bne .draw
-.p4:
-        ; --- phase 4: Alex slides in to his spawn ------------------
-        lda CharX+1
-        clc
-        adc #2
-        sta CharX+1
-        cmp #32
-        bcc .draw
-.finish:
-        jsr LoadFloor           ; clean re-arm; positions = spawns
-        lda #STATE_PLAY
-        sta State
-        jsr PrepSprites         ; lamps + sprite slots valid THIS
-        rts                     ; frame (PFColRam was still text)
+        ldy #JOB_WAKEPRE
+        jsr GoAnnex
+        dex
+        bmi .draw               ; 0: draw
+        bne .finish             ; 2: over (or fire skipped it)
+        jsr UpdatePhysics       ; 1: Stella falls, Alex slides in
+        ldy #JOB_WAKEPOST
+        jsr GoAnnex
+        dex
+        bpl .finish             ; 2: over; 0 falls through to draw
 .draw:
         jsr PrepSprites
         lda WakePhase
@@ -738,6 +617,12 @@ WakeLogic:
         sta COLUP0
 .awake:
         rts
+.finish:
+        jsr LoadFloor           ; clean re-arm; positions = spawns
+        lda #STATE_PLAY
+        sta State
+        jmp PrepSprites         ; lamps + sprite slots valid THIS
+                                ; frame (PFColRam was still text)
 
 ; ===============================================================
 ; FLOOR FRAMEWORK — walk the FloorTable in order
@@ -1055,7 +940,8 @@ CheckGoal:
 
 DoneLogic:
         SUBROUTINE
-        jsr UpdateSound
+        ldy #JOB_SOUND
+        jsr GoAnnex
         lda StateTimer          ; the breath: sky base +0 / +2 luma
         and #$08                ; (bigger would carry the luma nibble
         lsr                     ; into the next HUE — dusk violet must
@@ -1926,96 +1812,6 @@ HeadTest:
         rts
 .no:
         clc
-        rts
-
-; ---------------------------------------------------------------
-; UpdateSound: game 1's one-channel effect engine — jump, land, and
-; the floor fanfare. Nothing can cut the fanfare off: STATE_DONE runs
-; neither ReadInput nor UpdatePhysics, so no jump or landing happens
-; while it plays (game 1 needs an explicit guard for this; here the
-; state machine gives it for free).
-; ---------------------------------------------------------------
-
-UpdateSound:
-        SUBROUTINE
-        lda SoundT
-        bne .active
-        lda #0
-        sta AUDV0
-        sta SoundId
-        rts
-.active:
-        dec SoundT
-        lda SoundId
-        cmp #1
-        beq .jump
-        cmp #2
-        beq .land
-        cmp #4
-        beq .blip
-        cmp #5
-        beq .chime
-        ; floor fanfare: low note then high note. Game 1's two notes
-        ; verbatim — decision #26 gives the series one goal mechanic,
-        ; so it gets one sound of completion too.
-        lda #12
-        sta AUDC0
-        lda SoundT
-        cmp #8
-        bcs .note1
-        lda #11
-        bne .setf
-.note1:
-        lda #15
-.setf:
-        sta AUDF0
-        lda #8
-        sta AUDV0
-        rts
-.jump:
-        lda #4                  ; jump: rising pure tone
-        sta AUDC0
-        lda #8
-        clc
-        adc SoundT
-        sta AUDF0
-        lda #6
-        sta AUDV0
-        rts
-.land:
-        lda #6                  ; land: a low thump
-        sta AUDC0
-        lda #25
-        sta AUDF0
-        lda #8
-        sta AUDV0
-        rts
-.blip:
-        lda #1                  ; portal: a short buzzy chirp — the one
-        sta AUDC0               ; machine timbre in a game of voices
-        lda #20
-        sta AUDF0
-        lda #5
-        sta AUDV0
-        rts
-.chime:
-        lda #4                  ; world-swap: a pure tone stepping with
-        sta AUDC0               ; the swap — rising back into world A,
-        lda SoundT              ; falling into B (the workbench's
-        ldy CurWorld            ; signature, kept: the two truths have
-        bne .down               ; two pitches)
-        lda #16
-        sec
-        sbc SoundT
-        jmp .setf0
-.down:
-        lda #10
-        clc
-        adc SoundT
-.setf0:
-        sta AUDF0
-        lda #7
-        sta AUDV0
         rts
 
 ; ---------------------------------------------------------------
@@ -3255,12 +3051,9 @@ Floor9Rec:
 ; ===============================================================
 ; BANK 1 — file $1000-$1FFF, also mapped at $F000-$FFFF
 ;
-; The skeleton keeps only the F8 world-swap plumbing here: the
-; byte-identical trampoline stubs (so the 8192-byte F8 layout stays
-; honest and a future Act-3 floor can switch worlds) plus the minimal
-; Bank1Entry / CopyBWorker targets the stubs name. The prototype
-; world-swap floors' bank-1 data + real copy worker live in the
-; `game2-workbench` git tag.
+; The annex: the byte-identical stubs, the title and narration
+; frames (Bank1Entry), and the jobs bank 0 calls mid-frame through
+; GoAnnex (AnnexJob: the waking opening's phases and the sound).
 ; ===============================================================
 
         SEG BANK1
@@ -3273,8 +3066,8 @@ Bank1Top:
         jmp Bank1Entry
         lda BANK0HOT            ; GoBank0
         jmp Bank0Entry
-        lda BANK1HOT            ; GoCopyB
-        jmp CopyBWorker
+        lda BANK1HOT            ; GoAnnex
+        jmp AnnexJob
         lda BANK0HOT            ; GoBackBank0
         rts
         ldy #$FF                ; ColdStart
@@ -3302,8 +3095,8 @@ Bank1Top:
 ; Handover discipline: bank 0 sets StoryId (RAM, shared) at a floor
 ; boundary; StoryFrame re-points TPtr from it EVERY frame (LoadStory1
 ; is idempotent, so no "just entered" state is needed). The title is
-; always world A and screen 0. CopyBWorker is kept as the stubs'
-; byte-identical call/return shape, unused for now.
+; always world A and screen 0. Jobs called mid-frame (GoAnnex) are
+; the other way in: see AnnexJob.
 ; ---------------------------------------------------------------
 
 Bank1Entry:
@@ -3789,8 +3582,267 @@ StoryKernel:
         bne .sloop
         rts
 
-CopyBWorker:
-        jmp GoBackBank0         ; the call/return shape, kept honest
+; ---------------------------------------------------------------
+; AnnexJob: bank 0 calls into the annex with Y = a job, through
+; GoAnnex; every job ends `jmp GoBackBank0`, which returns to bank 0's
+; caller. Jobs may use bank-1 subroutines but not bank-0 ones: bank 0
+; keeps those calls and asks the annex again (decision #51).
+; ---------------------------------------------------------------
+AnnexJob:
+        SUBROUTINE
+        dey
+        bpl .1
+        jmp WakeSetup           ; JOB_WAKESETUP = 0
+.1:     bne .2
+        jmp WakePre             ; JOB_WAKEPRE   = 1
+.2:     dey
+        bne .3
+        jmp WakePost            ; JOB_WAKEPOST  = 2
+.3:     jmp UpdateSound         ; JOB_SOUND     = 3
+
+; ---------------------------------------------------------------
+; UpdateSound: game 1's one-channel effect engine — jump, land, and
+; the floor fanfare. Nothing can cut the fanfare off: STATE_DONE runs
+; neither ReadInput nor UpdatePhysics, so no jump or landing happens
+; while it plays (game 1 needs an explicit guard for this; here the
+; state machine gives it for free).
+; ---------------------------------------------------------------
+
+UpdateSound:                    ; JOB_SOUND, in the annex since
+        SUBROUTINE              ; decision #51: RAM and TIA only
+        lda SoundT
+        bne .active
+        lda #0
+        sta AUDV0
+        sta SoundId
+        jmp GoBackBank0
+.active:
+        dec SoundT
+        lda SoundId
+        cmp #1
+        beq .jump
+        cmp #2
+        beq .land
+        cmp #4
+        beq .blip
+        cmp #5
+        beq .chime
+        ; floor fanfare: low note then high note. Game 1's two notes
+        ; verbatim — decision #26 gives the series one goal mechanic,
+        ; so it gets one sound of completion too.
+        lda #12
+        sta AUDC0
+        lda SoundT
+        cmp #8
+        bcs .note1
+        lda #11
+        bne .setf
+.note1:
+        lda #15
+.setf:
+        sta AUDF0
+        lda #8
+        sta AUDV0
+        jmp GoBackBank0
+.jump:
+        lda #4                  ; jump: rising pure tone
+        sta AUDC0
+        lda #8
+        clc
+        adc SoundT
+        sta AUDF0
+        lda #6
+        sta AUDV0
+        jmp GoBackBank0
+.land:
+        lda #6                  ; land: a low thump
+        sta AUDC0
+        lda #25
+        sta AUDF0
+        lda #8
+        sta AUDV0
+        jmp GoBackBank0
+.blip:
+        lda #1                  ; portal: a short buzzy chirp — the one
+        sta AUDC0               ; machine timbre in a game of voices
+        lda #20
+        sta AUDF0
+        lda #5
+        sta AUDV0
+        jmp GoBackBank0
+.chime:
+        lda #4                  ; world-swap: a pure tone stepping with
+        sta AUDC0               ; the swap — rising back into world A,
+        lda SoundT              ; falling into B (the workbench's
+        ldy CurWorld            ; signature, kept: the two truths have
+        bne .down               ; two pitches)
+        lda #16
+        sec
+        sbc SoundT
+        jmp .setf0
+.down:
+        lda #10
+        clc
+        adc SoundT
+.setf0:
+        sta AUDF0
+        lda #7
+        sta AUDV0
+        jmp GoBackBank0
+
+; WakeSetup: the opening's first frame, after bank 0's LoadFloor.
+WakeSetup:
+        lda #2
+        sta Active              ; Marcus is the sleeper: P0, solid
+        ldx #11
+        lda #0
+.dark:
+        sta SkyGrad,x           ; the sky starts black...
+        dex
+        bpl .dark
+        sta PFColor             ; ...and so do the platforms
+        sta WakePhase
+        sta WakeT
+        lda #<BlackPF
+        sta PFColPtr
+        lda #>BlackPF
+        sta PFColPtr+1
+        lda #200                ; park Stella and Alex below the
+        sta CharY               ; visible screen (kernel draws
+        sta CharY+1             ; nothing at y=200; no physics runs
+        lda #STATE_WAKE         ; for them until phase 3)
+        sta State
+        jmp GoBackBank0
+
+; WakePre: fire skips; phases 0-2 (the black, the sky, the eyes).
+; X = 0 draw, 1 physics (phase 3+), 2 skip to play.
+WakePre:
+        SUBROUTINE
+        lda INPT4               ; a fresh fire press skips the opening
+        and #$80
+        bne .arm
+        bit FirePrev
+        bpl .run                ; still held from the title: ignore
+        lda #0
+        sta FirePrev
+        ldx #2
+        jmp GoBackBank0
+.arm:
+        lda #$80
+        sta FirePrev
+.run:
+        ldx #0                  ; the answer, unless phase 3+
+        lda WakePhase
+        cmp #3
+        bcs .physics
+        cmp #1
+        beq .p1
+        cmp #2
+        beq .p2
+        ; --- phase 0: hold the black -------------------------------
+        inc WakeT
+        lda WakeT
+        cmp #WAKE_BLACK
+        bcc .done
+        lda #1
+        sta WakePhase
+        lda #0
+        sta WakeT
+        beq .done
+.p1:
+        ; --- phase 1: the sky assembles, horizon (band 11) first ---
+        lda WakeT
+        and #7
+        bne .p1t                ; one new band every 8 frames
+        lda WakeT
+        lsr
+        lsr
+        lsr
+        sta Temp                ; n = 0..11
+        lda #11
+        sec
+        sbc Temp
+        tay                     ; band 11 - n
+        lda GradOfs1,y
+        clc
+        adc #FLOOR1_SKY
+        sta SkyGrad,y
+.p1t:
+        inc WakeT
+        lda WakeT
+        cmp #96                 ; 12 bands x 8 frames
+        bcc .done
+        lda #2
+        sta WakePhase
+        lda #0
+        sta WakeT
+        lda #PFA_COLOR          ; the sky stands: platforms appear
+        sta PFColor             ; (plain grey — the home lamps only
+        lda #<GreyPF            ; begin once the player has control)
+        sta PFColPtr
+        lda #>GreyPF
+        sta PFColPtr+1
+        bne .done
+.p2:
+        ; --- phase 2: eyes open (the forcing below stops) ----------
+        inc WakeT
+        lda WakeT
+        cmp #WAKE_EYES
+        bcc .done
+        lda #3
+        sta WakePhase
+        lda #0
+        sta WakeT
+        sta CharY               ; Stella appears at the top of the
+        sta CharYLo             ; sky above her spawn x and falls
+        sta CharVYHi
+        sta CharVYLo
+        sta OnGround
+        beq .done
+.physics:
+        inx
+.done:
+        jmp GoBackBank0
+
+; WakePost: after bank 0's physics, phases 3-4.
+; X = 0 draw, 2 the opening is over.
+WakePost:
+        SUBROUTINE
+        ldx #0
+        lda WakePhase
+        cmp #4
+        beq .p4
+        ; --- phase 3: Stella falls; keep Alex parked ---------------
+        lda #200
+        sta CharY+1
+        lda #0
+        sta CharVYHi+1
+        sta CharVYLo+1
+        lda OnGround
+        beq .done
+        lda #4                  ; she landed (real thump): Alex's turn
+        sta WakePhase
+        lda #85                 ; ground level (feet on the floor)
+        sta CharY+1
+        lda #0
+        sta CharX+1             ; from the left edge...
+        sta CharVYHi+1
+        sta CharVYLo+1
+        lda #1
+        sta OnGround+1
+        sta CharFace+1
+        bne .done
+.p4:
+        ; --- phase 4: Alex slides in to his spawn ------------------
+        lda CharX+1
+        clc
+        adc #2
+        sta CharX+1
+        cmp #32
+        bcc .done
+        ldx #2
+.done:
+        jmp GoBackBank0
 
 ; ---------------------------------------------------------------
 ; Annex data: the logo (ported from Game 1; 8-byte tables must not
