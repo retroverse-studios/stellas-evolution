@@ -100,6 +100,7 @@ FLOOR_DEFS = [
     {"rec": "Floor7Rec", "home": "Floor7Home", "mode": "swap"},
     {"rec": "Floor8Rec", "home": "Floor8Home", "mode": "swapboth"},
     {"rec": "Floor9Rec", "home": "Floor9Home", "mode": "swapboth+return"},
+    {"rec": "Floor10Rec", "home": "Floor10Home", "mode": "swap+seam+coop+return"},
 ]
 
 
@@ -161,7 +162,8 @@ def load(bin_path, sym_path, asm_path):
                      ("FloorSkyTbl", "the sky base"),
                      ("FloorRiftL", "the rift column"),
                      ("FloorPortL", "portal column A"),
-                     ("FloorPort2L", "portal column B")):
+                     ("FloorPort2L", "portal column B"),
+                     ("FloorSolidN", "the solid-box count")):
         need(tbl, num_floors, why)
     # mouths are interleaved two per floor
     need("FloorMouX", 2 * num_floors, "portal mouths")
@@ -208,9 +210,9 @@ def load(bin_path, sym_path, asm_path):
               "new floor's proof metadata here" % (num_floors, len(FLOOR_DEFS)))
         sys.exit(1)
 
-    # FloorBandByChar is indexed char*3 + floor (MulThree + FloorSeq,
-    # exactly as PrepSprites does it), so the whole table is read once
-    # here and indexed [ci*3 + floor] below.
+    # FloorBandByChar is indexed char*NUM_FLOORS + floor (MulFloors +
+    # FloorSeq, exactly as PrepSprites does it), so the whole table is
+    # read once here and indexed [ci*NUM_FLOORS + floor] below.
     bb = syms["FloorBandByChar"] - ROM_BASE
     bands = list(rom[bb:bb + 3 * num_floors])
 
@@ -242,6 +244,27 @@ def load(bin_path, sym_path, asm_path):
         if rl != 255:
             rifts = [(rl, rl + 4), (156 - rl, 160 - rl)]
         dual = "swap" in d["mode"]
+        # Act 4: a floor with doors AND rifts has its doors only in
+        # world B (ReadPortal's CurWorld gate), and its own world-B PF0
+        # pair after the record (ON +126, OFF +138: BlinkRifts)
+        seam = dual and portals and rifts
+        # ClampBoxes visits only boxes 1..FloorSolidN (box 0 is the
+        # ground, which can't side-block): so box 0 must be the ground,
+        # boxes 1..N solid and the rest one-way or pads — in BOTH worlds,
+        # or a wall would stop blocking
+        nsol = rom[syms["FloorSolidN"] - ROM_BASE + f]
+        for tag, at in (("A", rec + 36), ("B", rec + 102)):
+            if tag == "B" and "swap" not in d["mode"]:
+                continue
+            bx = rom[at:at + 24]
+            kinds = ["S" if bx[i] != bx[i + 6] else "o" for i in range(6)]
+            if bx[0] != 88 or bx[6] != 96 or bx[12] != 0 or bx[18] != 160 \
+                    or kinds[1:] != ["S"] * nsol + ["o"] * (5 - nsol):
+                print("check-levels: F%d world %s boxes %s don't match "
+                      "FloorSolidN=%d (ground first, then the solid boxes, "
+                      "then one-way) — ClampBoxes would miss a wall"
+                      % (f + 1, tag, "".join(kinds), nsol))
+                sys.exit(1)
         floors.append({
             "idx": f, "mode": d["mode"], "rec": rec,
             "homeY": [home[3 * c] for c in range(num_chars)],
@@ -252,9 +275,12 @@ def load(bin_path, sym_path, asm_path):
             "spawns": [(rom[rec + 60], rom[rec + 61]),
                        (rom[rec + 62], rom[rec + 63]),
                        (rom[rec + 64], rom[rec + 65])],
-            "portals": portals,
+            "portals": [] if seam else portals,
+            "portalsB": portals if seam else None,
+            "pf0B": (list(rom[rec + 126:rec + 138]),
+                     list(rom[rec + 138:rec + 150])) if seam else None,
             "rifts": rifts,
-            "band": bands,
+            "band": bands, "num_floors": num_floors,
             "boxesB": list(rom[rec + 102:rec + 126]) if dual else None,
             # the record's three art planes and, for portal floors, the
             # OFF copy at record+66 that BlinkPortal swaps in (on dual
@@ -443,16 +469,22 @@ def add_helpers(sim, helpers):
     friend genuinely acts as a stepstool without faking support over
     ground the helper cannot itself reach."""
     for hsim, hstart in helpers:
-        for feet, xs in hsim.footing(hstart).items():
-            head_top = feet - hsim.h
-            run = []
-            for x in sorted(xs):
-                if run and x - run[-1] > hsim.spd:
-                    sim.extra.append((head_top, run[0], run[-1] + hsim.w))
-                    run = []
-                run.append(x)
-            if run:
+        add_heads(sim, hsim, hsim.footing(hstart))
+
+
+def add_heads(sim, hsim, footing):
+    """Head surfaces from a helper's footing {feet: xs} (see
+    add_helpers); hsim gives the helper's height, width and stride."""
+    for feet, xs in footing.items():
+        head_top = feet - hsim.h
+        run = []
+        for x in sorted(xs):
+            if run and x - run[-1] > hsim.spd:
                 sim.extra.append((head_top, run[0], run[-1] + hsim.w))
+                run = []
+            run.append(x)
+        if run:
+            sim.extra.append((head_top, run[0], run[-1] + hsim.w))
 
 
 def helper_subsets(ci):
@@ -509,19 +541,33 @@ class DualSim:
     per truth, and the static-helper approximation is unchanged."""
 
     def __init__(self, fl, phys, ci, wrap, helpers=(), swaps_on=True,
-                 start_world=0, max_swaps=None):
+                 start_world=0, max_swaps=None, portals_on=True):
         self.max_swaps = max_swaps         # None: as many as you like
         self.w = phys["w3"][ci]
         self.h = phys["h3"][ci]
         self.rifts = fl["rifts"] if swaps_on else []
         self.start_world = start_world
         self.sims = []
-        for boxes in (fl["boxes"], fl["boxesB"]):
+        # Portals per world: Act 4 has doors true in only one world
+        # (fl["portalsB"]); a floor without them keeps one set for both
+        per_world = (fl["portals"], fl.get("portalsB") or fl["portals"])
+        for boxes, ports in zip((fl["boxes"], fl["boxesB"]), per_world):
             s = Char1(boxes, phys, ci, wrap)
-            s.portals = list(fl["portals"])  # acts 2+3 never mix today
-            add_helpers(s, [(Char1(boxes, phys, hj, wrap),
-                             fl["spawns"][hj]) for hj in helpers])
+            s.portals = list(ports) if portals_on else []
             self.sims.append(s)
+        # A friend's head is a surface wherever the FRIEND can stand,
+        # and on a dual floor the friend crosses worlds and takes doors
+        # too: its footing comes from its own DualSim (no helpers of
+        # its own), split per world. Act 4 boosts happen on ledges only
+        # a door reaches.
+        for hj in helpers:
+            hd = DualSim(fl, phys, hj, wrap, (), swaps_on, start_world,
+                         None, portals_on)
+            per = ({}, {})
+            for x, feet, w, _p in hd.footing(fl["spawns"][hj]):
+                per[w].setdefault(feet, set()).add(x)
+            for w in (0, 1):
+                add_heads(self.sims[w], hd.sims[w], per[w])
 
     def footing(self, start):
         """BFS: returns set of (x, feet, world) standing states. The frame
@@ -538,7 +584,16 @@ class DualSim:
             x, feet, w, par, n = st
             sim = self.sims[w]
             np = par ^ 1
-            if self.max_swaps is None or n < self.max_swaps:
+            if sim.portals:                # UP in a column, this world's
+                land = sim.portal_edge(x, par)
+                if land is not None:
+                    stack.append((land[0], land[1], w, np, n))
+            # the ROM reads the door before the rift, and a teleport
+            # spends the UP press: overlapping both, you go through
+            # the door and never swap
+            door = sim.portals and any(x < r and x + self.w > l
+                                       for (l, r), _m in sim.portals)
+            if (self.max_swaps is None or n < self.max_swaps) and not door:
                 n2 = n if self.max_swaps is None else n + 1
                 for (l, r) in self.rifts:  # the swap edge
                     if x < r and x + self.w > l:
@@ -561,8 +616,15 @@ class DualSim:
         return {st[:4] for st in seen}
 
     def can_home(self, start, hf, hl, hr):
-        return any(feet == hf and x < hr and x + self.w > hl
-                   for x, feet, _w, _p in self.footing(start))
+        return bool(self.home_worlds(start, hf, hl, hr))
+
+    def home_worlds(self, start, hf, hl, hr):
+        """The worlds this character can stand home in. The swap is
+        GLOBAL (SwapWorld flips the floor for everyone) and CheckGoal
+        wants all three home at once, so a floor finishes only in a
+        world every character can be home in — survey_dual intersects."""
+        return {w for x, feet, w, _p in self.footing(start)
+                if feet == hf and x < hr and x + self.w > hl}
 
     def entry_moves(self, start, hf, hl, hr):
         """Ways in, dual-world: the single-world count plus swap
@@ -583,6 +645,10 @@ class DualSim:
                     land = self.sims[1 - w].arc(x, feet, False, 0, par)
                     if land and is_home(land[0], land[1]):
                         ways.append(((x, feet, w), "swap"))
+            if sim.portals:
+                land = sim.portal_edge(x, par)
+                if land and is_home(land[0], land[1]):
+                    ways.append(((x, feet, w), "door"))
             for d in (-1, 1):
                 nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
@@ -600,26 +666,32 @@ class DualSim:
         return ways
 
 
-def survey_dual(fl, phys, swaps_on=True, start_world=0, max_swaps=None):
-    """Per character: (solo, helped-any-subset) across both worlds."""
-    out = []
+def survey_dual(fl, phys, swaps_on=True, start_world=0, max_swaps=None,
+                portals_on=True, wrap=None):
+    """Per character: (solo, helped-any-subset), judged in ONE finishing
+    world. The world-swap is global and CheckGoal tests all three at
+    once, so a character home only in world A and another home only in
+    world B is not a finish: per world, collect who can be home (alone,
+    or with some helper subset), and report the world where the most
+    characters make it (all three, on a floor that proves)."""
+    wrap = fl["wrap"] if wrap is None else wrap
+    per = []                     # per char: (solo worlds, helped worlds)
     for ci in range(3):
-        solo = DualSim(fl, phys, ci, fl["wrap"], (),
-                       swaps_on, start_world, max_swaps)
-        solo_ok = solo.can_home(fl["spawns"][ci],
-                                fl["homeY"][ci] + phys["h3"][ci],
-                                *fl["home_box"][ci])
-        helped = solo_ok
+        home = (fl["spawns"][ci], fl["homeY"][ci] + phys["h3"][ci],
+                *fl["home_box"][ci])
+        solo = DualSim(fl, phys, ci, wrap, (), swaps_on, start_world,
+                       max_swaps, portals_on).home_worlds(*home)
+        helped = set(solo)
         for sub in helper_subsets(ci):
-            if DualSim(fl, phys, ci, fl["wrap"], sub,
-                       swaps_on, start_world, max_swaps).can_home(
-                    fl["spawns"][ci], fl["homeY"][ci] + phys["h3"][ci],
-                    *fl["home_box"][ci]):
-                helped = True
+            if helped == {0, 1}:
                 break
-        out.append((solo_ok, helped))
-    return out
-
+            helped |= DualSim(fl, phys, ci, wrap, sub, swaps_on,
+                              start_world, max_swaps,
+                              portals_on).home_worlds(*home)
+        per.append((solo, helped))
+    best = max((0, 1), key=lambda w: (sum(w in h for _s, h in per),
+                                      sum(w in s for s, _h in per)))
+    return [(best in s, best in h) for s, h in per]
 
 def boxes_of(b):
     """The floor's six boxes as (top, bottom, left, right) tuples —
@@ -694,6 +766,30 @@ def check_rift_art(fl):
                          "mask ($%02x vs $%02x)" % (b, on[b], off[b]))
     if not any((on[b] ^ off[b]) & mask for b in range(11)):
         fails.append("the rift never actually blinks")
+    if fl.get("pf0B"):
+        # Act 4: world B's own PF0 pair carries the rift AND the doors
+        # (PF0 columns: px 8-15 = bits 6-7, and their mirror)
+        dmask = 0
+        for (dl, _dr), _m in fl["portalsB"][:1]:
+            for px in range(dl, dl + 8):
+                dmask |= 1 << (4 + px // 4)
+        if not fl["portalsB"] or fl["portalsB"][0][0][0] >= 16:
+            fails.append("a seam floor's doors must stand in PF0 (x < 16)")
+        both = mask | dmask
+        on_b, off_b = fl["pf0B"]
+        for b in range(11):
+            if on_b[b] & both != both:
+                fails.append("band %d: world B PF0 $%02x lacks rift+door "
+                             "bits $%02x" % (b, on_b[b], both))
+            if (on_b[b] ^ off_b[b]) & ~both:
+                fails.append("band %d: world B ON/OFF differ by more than "
+                             "rift+door ($%02x vs $%02x)"
+                             % (b, on_b[b], off_b[b]))
+        if not any((on_b[b] ^ off_b[b]) & dmask for b in range(11)):
+            fails.append("world B's doors never actually blink")
+        if len(fl["portalsB"]) < 2 or \
+                fl["portalsB"][1][0][0] != 152 - fl["portalsB"][0][0][0]:
+            fails.append("world B's second door should be the mirror")
     return fails
 
 
@@ -824,7 +920,7 @@ def check_lamp_bands(fl, phys):
     """
     fails = []
     tb = fl["band"]
-    mine = [tb[ci * 9 + fl["idx"]] for ci in range(3)]
+    mine = [tb[ci * fl["num_floors"] + fl["idx"]] for ci in range(3)]
     if len(set(mine)) != 3:
         fails.append("lamp bands %s are not three distinct bands — two "
                      "characters would share (and overwrite) one lamp"
@@ -915,6 +1011,22 @@ def check_floor_dual(fl, phys, name):
     if "swap" in fl["mode"]:
         short = [NAMES[ci] for ci in range(3) if not one[ci][1]]
         margins.append("needs a return: " + (", ".join(short) or "nobody"))
+    if "seam" in modes:
+        # the finale composes every verb: take any one away and some
+        # character can't get home
+        if all(r[1] for r in survey_dual(fl, phys, wrap=0)):
+            fails.append("floor solvable with the wrap OFF — the seam "
+                         "is decorative")
+        if all(r[1] for r in survey_dual(fl, phys, portals_on=False)):
+            fails.append("floor solvable with portals OFF — the door "
+                         "is decorative")
+    if "coop" in modes:
+        # the not-alone beat: someone needs a friend's head, and the
+        # others finish alone (they are the stepstools)
+        if all(r[0] for r in res):
+            fails.append("no cooperative beat: everyone finishes alone")
+        if sum(r[0] for r in res) < 2:
+            fails.append("fewer than 2 solo finishers — no booster order")
     if "return" in modes and all(r[1] for r in one):
         fails.append("one swap gets everyone home — the way back is "
                      "never needed")

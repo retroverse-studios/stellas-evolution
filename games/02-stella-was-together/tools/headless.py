@@ -591,7 +591,8 @@ class Run:
     def home(self, ci):
         """(CharY, left, right) of character ci's home on this floor."""
         f = self.r("FloorSeq")
-        lo, hi = self.bank0("FloorHomeLo", 9)[f], self.bank0("FloorHomeHi", 9)[f]
+        n = self.sym["NUM_FLOORS"]
+        lo, hi = self.bank0("FloorHomeLo", n)[f], self.bank0("FloorHomeHi", n)[f]
         a = (hi << 8 | lo) - 0xF000
         return tuple(self.rom[a + 3 * ci:a + 3 * ci + 3])
 
@@ -856,7 +857,15 @@ def endless(rom, sym, c):
            r.r("State") == S["PLAY"] and S["WAKE"] not in states and S["OPEN"] not in states,
            f"State {r.r('State')}, floor {r.r('FloorSeq') + 1}")
     floors, clocks, stories = [r.r("FloorSeq")], [r.r("TimerSec")], 0
+    # A player takes a different time over every floor, and the picker
+    # rolls on the frame counter: finishing each floor the instant it
+    # loads would step the dice by the same 91 frames every time and
+    # test the harness's rhythm instead of the picker. Seeded, so the
+    # run is the same every time.
+    q = random.Random(52)
     for n in range(18):
+        for _ in range(q.randrange(0, 200)):
+            r.step_frame()
         r.goto_homes()
         if not r.homes_hold() and "SwapWorld" in sym:
             r.call("SwapWorld")
@@ -907,6 +916,51 @@ def endless(rom, sym, c):
     c.that("every frame of the endless game is 262 lines", not long, f"{long[:5]}")
 
 
+def the_seam(rom, sym, c):
+    """Floor 10's moves, in the ROM itself (the solver proves them on
+    its model; this plays them on the engine): in world A UP at the
+    edge swaps, because the doors are only true in B; in world B the
+    same press takes the door, which wins over the rift; and Alex,
+    standing on Stella's head where world A's ledge runs through the
+    rift, swaps — and the floor turns over with both of them home."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    r = Run(rom, sym)
+    settle(r, 30)
+    press(r, fire0=True)
+    for _ in range(900):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    r.w("FloorSeq", 9)
+    r.w("State", S["LOAD"])
+    settle(r, 3)
+    h = [r.home(ci) for ci in range(3)]
+    r._place(2, 150, 82)                     # Marcus, ground, in rift + door
+    r.w("Active", 2)
+    settle(r, 2)
+    press(r, stick0="U")
+    c.that("the seam: in world A, UP at the edge swaps (no doors there)",
+           r.r("CurWorld") == 1 and r.r("CharX", 2) == 150)
+    press(r, stick0="U")
+    settle(r, 4)
+    c.that("the seam: in world B the same press takes the door, not the rift",
+           r.r("CurWorld") == 1 and r.r("CharX", 2) == 4 and r.r("CharY", 2) == 34,
+           f"world {r.r('CurWorld')}, Marcus at ({r.r('CharX', 2)}, {r.r('CharY', 2)})")
+    r.call("SwapWorld")                      # back to A for the boost
+    r._place(0, 144, 15)                     # Stella on A's ledge at 24
+    r._place(1, 140, 12)                     # Alex on her head, in the rift
+    r._place(2, 40, 82)
+    r.w("Active", 1)
+    settle(r, 2)
+    press(r, stick0="U")
+    settle(r, 30)
+    at = [(r.r("CharY", ci), r.r("CharX", ci)) for ci in range(3)]
+    c.that("the seam: Alex swaps from Stella's head and both land home",
+           r.r("CurWorld") == 1 and at[1][0] == h[1][0] and at[0][0] == h[0][0]
+           and h[0][1] <= at[0][1] < h[0][2] and h[1][1] <= at[1][1] < h[1][2],
+           f"world {r.r('CurWorld')}, Stella {at[0]}, Alex {at[1]}")
+
+
 def clock_runs_out(r, sym, c):
     """A timed floor whose clock reaches zero starts over: through
     STATE_LOAD, so the reload runs in the next frame's vblank."""
@@ -955,8 +1009,14 @@ def soak(r, frames, seed, sym, each=None):
             r.step_frame(reset=True)
         elif k < 0.15 and r.r("State") == sym["STATE_PLAY"]:
             r.goto_homes(quick=True)
-        elif k < 0.2:
+        elif k < 0.2 and r.r("State") == sym["STATE_PLAY"]:
+            # jump floors the way the game does — through STATE_LOAD,
+            # which loads the record. Poking FloorSeq alone left one
+            # floor's record under another floor's tables: floor 1's
+            # walls with floor 10's doors and rift, a frame no real
+            # game can reach (and which overran the blank).
             r.w("FloorSeq", q.randrange(nf))
+            r.w("State", sym["STATE_LOAD"])
 
 
 def ram_vars(asm_path):
@@ -1112,6 +1172,8 @@ def main():
     clock_runs_out(r, sym, c)
     opening_plays_out(rom, sym, c)
     endless(rom, sym, c)
+    if sym["NUM_FLOORS"] >= 10:
+        the_seam(rom, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")

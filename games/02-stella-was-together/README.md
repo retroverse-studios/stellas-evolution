@@ -11,7 +11,19 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-26): two players, endless, every frame 262 lines
+## Status (2026-11-27): Act 4 begins — floor 10, "The Seam"
+
+- **Floor 10, "The Seam"** (decision #54): the wrap, the doors and
+  the swap meet at the screen's edge. Doors stand only in world B,
+  every home is in world B, and Alex reaches his only by swapping from
+  Stella's head where world A's ledge runs through the rift. Proved by
+  the solver and played in the ROM by the harness.
+- The solver now requires one finishing world for all three, and lets
+  friends boost from wherever doors and swaps take them.
+- Fixed a vertical-blank overrun on floor 5 with two players (also in
+  the previous build): ClampBoxes visits only solid boxes.
+
+## Earlier (2026-11-26): two players, endless, every frame 262 lines
 
 - **One or two players** (decisions #44, #47). SELECT on the title
   steps the count (and, since #52, the endless game), shown as the
@@ -28,7 +40,7 @@ puzzles, and a spatial toolkit that grows across the game.
   follows it now run in overscan, which was idle; #47), and the title,
   narration and every screen change (#48). The harness now fails the
   build on any frame that isn't.
-- **`make headless`** (decision #45) plays all nine floors, soaks one-
+- **`make headless`** (decision #45) plays all ten floors, soaks one-
   and two-player play in random input, checks the stack against the
   variables (4 bytes spare) and checks the two-player rules.
   **`make ram`** adds which screens touch each RAM variable.
@@ -38,7 +50,7 @@ puzzles, and a spatial toolkit that grows across the game.
   the variables and blacked out the sky at the end of every floor
   (very likely the flashing), and the untimed sky was four luma steps
   too dark.
-- **Bank 0 has 387 bytes free** (bank 1 has about 1.3K): the waking
+- **Bank 0 had 387 bytes free** (169 after floor 10; bank 1 has about 1.3K): the waking
   opening's phases and the sound moved to bank 1 (decision #51).
 - **Endless and the run clock** (decision #52): SELECT steps through
   one player, two, endless one, endless two (an ember title sky). The
@@ -55,9 +67,9 @@ puzzles, and a spatial toolkit that grows across the game.
 2. ~~Two players~~ done (decision #47). Not yet tried on hardware
    or in an emulator with two people.
 3. ~~Every frame 262 lines~~ done (decisions #47, #48).
-4. Act 4 as two floors: **the seam** (wrap, portal and swap meet at
-   one screen edge), then **where they meet** (one shared home, each
-   character arriving by a different verb). Room made (decision #51).
+4. Act 4 as two floors: ~~**the seam**~~ done (decision #54), then
+   **where they meet** (one shared home, each character arriving by a
+   different verb). Bank 0 has 169 bytes for it.
 5. ~~Endless mode and the run clock~~ done (decision #52). Not yet
    seen on a screen or played by a person.
 6. Per-act skies (dawn for Act 4) and the second sound voice.
@@ -71,7 +83,7 @@ tests x).
 ## Current state (2026-08-13)
 
 **Acts 1, 2 and 3 are complete.** Cold start → title on the dusk gradient →
-the **waking-Marcus opening** → nine floors in order, each with narration.
+the **waking-Marcus opening** → ten floors in order, each with narration.
 The spatial ladder stands full height: wrap (always on) → portal →
 world-swap, each verb kept as the next arrives (decision #18).
 
@@ -209,7 +221,8 @@ world-swap re-attaches in Act 3.
       sixteen. Costs 77 bytes of bank 0 and 3 of RAM. Game 2 had no
       clock at all, which made the roomier cartridge strictly *more*
       forgiving than the 4K one
-- [ ] Act 4 finale (one floor composing wrap + portal + swap)
+- [x] Act 4, floor 10 "The Seam" (wrap + portal + swap at one edge)
+- [ ] Act 4, floor 11 "Where They Meet"
 - [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio
       (channel 1 is entirely unused — Game 1 has a level drone and Game 2
       has silence, which is another axis that shrank rather than grew)

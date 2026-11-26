@@ -70,6 +70,7 @@ SCREENS = [
     ["TWO TRUTHS", " ONE PLACE."],                          # 7: after F7
     ["EACH TRUE", " IN TURN."],                             # 8: after F8
     ["THE WAY HOME", " WAS THROUGH."],                      # 9: after F9
+    [" IT WAS", "ONE DOOR."],                               # 10: after F10
 ]
 
 

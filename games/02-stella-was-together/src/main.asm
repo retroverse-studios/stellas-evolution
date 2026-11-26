@@ -40,7 +40,7 @@
 ;         "Two Truths" (the approach ladder is only true in B), F8
 ;         "The Handoff" (neither world alone suffices), F9 "The Way
 ;         Home" (the stairs are in B, the homes in A: swap back).
-;   * boot flow: title -> wake-up -> floors 1-9 (each followed by its
+;   * boot flow: title -> wake-up -> floors 1-10 (each followed by its
 ;     narration) -> back to the title.
 ;
 ; Adding a floor is: one row in each Floor* table + one record (with
@@ -98,12 +98,13 @@ STATE_SCORE = 7         ; the run's numbers (annex), fire for the title
                         ; holds on it instead of cutting to text)
 
 ; --- floor sequencing ------------------------------------------
-NUM_FLOORS  = 9         ; Act 1 (wrap):   Together Again / The Low Door
+NUM_FLOORS  = 10        ; Act 1 (wrap):   Together Again / The Low Door
                         ;   / The Wall
                         ; Act 2 (portal): The Fold / The High Door / The
                         ;   Cross
                         ; Act 3 (worlds): Two Truths / The Handoff /
                         ;   His Own Truth
+                        ; Act 4 (finale): The Seam
 
 ; --- wake-up opening timing (frames) ---------------------------
 WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
@@ -1271,11 +1272,22 @@ WalkSpeed:
 ; ReadPortal: the input half. UP while the active character overlaps a
 ; column -> DoTeleport. Edge-gated like the workbench's, so holding UP
 ; never chains; floors without portals park FloorPortL at 255.
+;
+; Act 4 puts doors and rifts on one floor, and the doors are only true
+; in world B: in world A this does nothing and ReadRift owns the press.
+; In world B a press that misses the doors stays armed for ReadRift, and
+; a press that hits one is spent on the door (the door wins where they
+; overlap). check_levels.py's DualSim models exactly that order.
 ReadPortal:
         SUBROUTINE
         ldy FloorSeq
         lda FloorPortL,y
         bmi .done               ; 255: no portal on this floor
+        lda FloorRiftL,y
+        bmi .open               ; no rift: the doors are always true
+        lda CurWorld
+        beq .done               ; world A: there are no doors
+.open:
         lda Pad
         and #%00010000          ; UP (active low)
         bne .release
@@ -1284,7 +1296,12 @@ ReadPortal:
         beq .done               ; held: already handled this press
         jsr PadChar
         jsr InPortal            ; carry set + Y = column index
-        bcc .clear
+        bcs .go
+        ldy FloorSeq            ; missed: on a rift floor the press is
+        lda FloorRiftL,y        ; ReadRift's to spend
+        bpl .done
+        bmi .clear
+.go:
         jsr DoTeleport
 .clear:
         jsr PadBit
@@ -1387,6 +1404,8 @@ DoTeleport:
 BlinkPortal:
         SUBROUTINE
         ldy FloorSeq
+        lda FloorRiftL,y        ; a rift floor's doors live in PF0 and
+        bpl .done               ; blink with its rifts (BlinkRifts)
         lda FloorPortL,y
         bmi .done
         sta CY                  ; the column's left edge selects the
@@ -1456,8 +1475,8 @@ BlinkPortal:
 
 ; ReadRift: UP (edge) while the ACTIVE character stands grounded in a
 ; rift column -> SwapWorld. Floors without rifts park FloorRiftL=255.
-; (Shares UpPrev with ReadPortal, but no floor in acts 2-3 has both
-; verbs, so the two never contend; Act 4 must merge the reads first.)
+; (Shares UpPrev with ReadPortal, which runs first: on a floor with
+; both, ReadPortal spends the press only when it takes a door.)
 ReadRift:
         SUBROUTINE
         ldy FloorSeq
@@ -1574,19 +1593,33 @@ SwapWorld:
 ; between the record's PF0 page and its OFF copy at +66. Same language
 ; as the portal blink (a beam that is only ever half-present), drawn a
 ; size thinner (4px) so the two verbs never share a silhouette.
+;
+; Act 4 (doors AND rifts): the doors stand in PF0 beside the rifts and
+; are only true in world B, so world B has a PF0 pair of its own after
+; the record — ON at +126, OFF at +138 — and PF0 stops being one plane
+; both worlds share. Doors and rifts blink together.
 BlinkRifts:
         SUBROUTINE
         ldy FloorSeq
         lda FloorRiftL,y
         bmi .done
+        ldx #0                  ; ON: the record's own PF0 page
         lda FrameCtr
         and #%00010000
-        beq .off
-        lda #0                  ; ON: the record's own PF0 page
+        bne .on
+        ldx #66                 ; OFF: the copy after the record
+.on:
+        lda FloorPortL,y
+        bmi .have               ; no doors: one PF0 pair
+        lda CurWorld
         beq .have
-.off:
-        lda #66                 ; OFF: the copy after the record
+        ldx #126                ; world B's ON page...
+        lda FrameCtr
+        and #%00010000
+        bne .have
+        ldx #138                ; ...and its OFF page
 .have:
+        txa
         clc
         adc RecPtr
         sta PF0Ptr
@@ -1608,28 +1641,28 @@ ClampBoxes:
         clc
         adc HeightTbl,x
         sta CYH
-        lda #NUM_PLATS-1
+        ; Only SOLID boxes block sideways, and every record lists them
+        ; first: box 0 is the ground (nobody's body is ever below it, so
+        ; it can't side-block), then FloorSolidN solid boxes, then the
+        ; one-way ledges and pads. Visiting just boxes 1..N, not all six,
+        ; is what lets two players move on Floor 5's walls inside the
+        ; vertical blank (check_levels.py audits the order per world).
+        ldy FloorSeq
+        lda FloorSolidN,y
+        beq .done
         sta BoxIdx
 .loop:
         ldy BoxIdx
         lda (PlatPtr),y         ; top
-        sta TopV
-        tya
-        clc
+        cmp CYH
+        bcs .next               ; top at/below the feet: no overlap
+        tya                     ; (carry clear: bcs not taken)
         adc #6
         tay
         lda (PlatPtr),y         ; bottom
-        sta BotV
-        cmp TopV
-        beq .next               ; one-way (or pad): never blocks
-        ; vertical overlap: CY < bottom and CYH > top
-        lda BotV
         cmp CY
-        bcc .next
+        bcc .next               ; bottom at/above the head: no overlap
         beq .next
-        lda TopV
-        cmp CYH
-        bcs .next
         ; horizontal overlap with the proposed position
         jsr FetchLR
         lda NewX
@@ -1654,7 +1687,8 @@ ClampBoxes:
         sta NewX
 .next:
         dec BoxIdx
-        bpl .loop
+        bne .loop
+.done:
         rts
 
 ; FetchLR: Y = box index + 6 (the bottom slot). Loads the box's
@@ -1925,7 +1959,7 @@ PrepSprites:
         bpl .tan
         ldx #NUM_CHARS-1
 .lamp:
-        lda MulNine,x           ; this character's lamp band here —
+        lda MulFloors,x           ; this character's lamp band here —
         clc                     ; char*NUM_FLOORS + floor. This was
         adc FloorSeq            ; MulThree (char*3 + floor), correct
         tay                     ; when there were three floors and
@@ -2447,21 +2481,27 @@ GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
 FloorRecLo:   .byte <Floor1Rec, <Floor2Rec, <Floor3Rec
         .byte <Floor4Rec, <Floor5Rec, <Floor6Rec
         .byte <Floor7Rec, <Floor8Rec, <Floor9Rec
+        .byte <Floor10Rec
 FloorRecHi:   .byte >Floor1Rec, >Floor2Rec, >Floor3Rec
         .byte >Floor4Rec, >Floor5Rec, >Floor6Rec
         .byte >Floor7Rec, >Floor8Rec, >Floor9Rec
+        .byte >Floor10Rec
 FloorHomeLo:  .byte <Floor1Home, <Floor2Home, <Floor3Home
         .byte <Floor4Home, <Floor5Home, <Floor6Home
         .byte <Floor7Home, <Floor8Home, <Floor9Home
+        .byte <Floor10Home
 FloorHomeHi:  .byte >Floor1Home, >Floor2Home, >Floor3Home
         .byte >Floor4Home, >Floor5Home, >Floor6Home
         .byte >Floor7Home, >Floor8Home, >Floor9Home
+        .byte >Floor10Home
 FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
         .byte 1, 1, 1                 ; (decision #18) — every act
         .byte 1, 1, 1
+        .byte 1
 FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+        .byte FLOOR1_SKY
 ; Act boundaries are a comment, not a table (the ROM never read it):
 ; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
 ; (world-swap), 10 = the finale (decision #18).
@@ -2474,24 +2514,29 @@ FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
 FloorRiftL:  .byte 255,255,255
         .byte 255,255,255
         .byte   4,  4,  4
+        .byte   4                     ; F10: the seam's rift
+; Solid boxes after the ground, per floor (ClampBoxes walks boxes
+; 1..N). The same in both worlds: what differs between them is always
+; one-way. check_levels.py audits it against every record.
+FloorSolidN: .byte 0, 2, 4, 1, 3, 1, 1, 0, 0, 0
 ; char*3 — indexes both FloorBandByChar (char*3 + floor) and each
 ; floor's Floor?Home table (three bytes per character).
 MulThree:     .byte 0, 3, 6
 ; char*NUM_FLOORS: the stride for the per-character band table, which
 ; is laid out a row per character (see .lamp). Distinct from MulThree,
 ; which strides the three-byte-per-character Floor?Home tables.
-MulNine:      .byte 0, 9, 18
-; The lamp band for each character on each floor (char*9 + floor,
-; indexed by MulNine); PrepSprites paints these bands as the
+MulFloors:    .byte 0, NUM_FLOORS, 2*NUM_FLOORS
+; The lamp band for each character on each floor (char*NUM_FLOORS +
+; floor, indexed by MulFloors); PrepSprites paints these bands as the
 ; colour-blind-safe home lamps. A band is a full-width 8du stripe and
 ; it is the DRAWN LEDGE a home sits on, so the value must contain the
 ; home's surface (homeY + height) — the feet's du, not the body's.
 ; check_levels.py audits both of those rules; the table's own comment
 ; used to claim them and nothing checked.
 FloorBandByChar:
-        .byte 8, 7, 6, 1, 2, 2, 3, 5, 5   ; Stella
-        .byte 9, 9, 8, 4, 9, 7, 5, 7, 7   ; Alex
-        .byte 7, 8, 10, 2, 5, 5, 4, 6, 6 ; Marcus
+        .byte 8, 7, 6, 1, 2, 2, 3, 5, 5, 5   ; Stella
+        .byte 9, 9, 8, 4, 9, 7, 5, 7, 7, 2   ; Alex
+        .byte 7, 8, 10, 2, 5, 5, 4, 6, 6, 7 ; Marcus
 
 ; ---------------------------------------------------------------
 ; PORTAL TABLES (Act 2). Per floor: two column LEFT edges (columns
@@ -2519,9 +2564,9 @@ FloorBandByChar:
 ; 429 to spare.
 ; --------------------------------------------------------------
 FloorPortL:  .byte 255,255,255, 32, 76,  40
-        .byte 255,255,255
+        .byte 255,255,255,   8        ; F10: the seam's doors, in PF0
 FloorPort2L: .byte 255,255,255,120,255, 112
-        .byte 255,255,255
+        .byte 255,255,255, 144
 FloorMouX:   .byte   0,  0,   0,  0,   0,   0
         .byte 124,  36                 ; F4: L col -> right column's
                                       ; shelf spot; R col -> left
@@ -2532,11 +2577,14 @@ FloorMouX:   .byte   0,  0,   0,  0,   0,   0
                                       ; Alex's right ledge; R col ->
                                       ; the shelf's left end
         .byte   0,  0,   0,   0,   0,   0 ; F7-F9: no portals, parked
+        .byte   4,  4                 ; F10: both doors -> the seam
+                                      ; ledge's left piece
 FloorMouY:   .byte   0,  0,   0,  0,   0,   0
         .byte  32, 88                 ; F4: shelf top / ground
         .byte  40,  0                 ; F5: shelf top
         .byte  62, 40                 ; F6: ledge top / shelf top
         .byte   0,  0,   0,   0,   0,   0 ; F7-F9
+        .byte  40, 40                 ; F10: the seam ledge's top
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
 ; plain-grey bands for the reveal (lamps start with player control)
@@ -3098,6 +3146,74 @@ Floor9Rec:
         .byte  96, 56, 56, 80, 72, 64      ; bottoms (one-way all)
         .byte   0,  4,140, 40, 24, 16      ; lefts
         .byte 160, 20,156, 56, 40, 32      ; rights (excl)
+
+; ===============================================================
+; ACT 4, FLOOR 10 — "The Seam"
+;
+; Every verb at once, at the one place they all meet: the screen's
+; edge. The wrap joins x=0 to x=160 there, the rift stands there, and
+; in world B a pair of doors stands beside it. Every home is in world
+; B (the floor finishes there: the swap is global and CheckGoal wants
+; all three home at once), and none of them can be reached with the
+; wrap, the doors or the swap taken away (check_levels.py's "seam"
+; proofs).
+;
+;   Stella (home: the seam ledge's right piece, 40): swap at the edge,
+;     take a door up to the seam ledge, jump across the seam.
+;   Marcus (home: the centre ledge, 56, only true in B): swap, door,
+;     drop from the seam ledge onto the centre.
+;   Alex (home: the high ledge, 16, only true in B) cannot get there
+;     alone, and cannot get there in world B at all. He swaps back to
+;     world A on the seam ledge, climbs Stella onto world A's ledge at
+;     24 (a stepping stone, nobody's home), and climbs her again where
+;     that ledge runs through the rift — and swaps from her head. The
+;     floor turns over: Alex lands on his ledge in B, and Stella drops
+;     out from under him straight onto her own home.
+;
+; Art: world B's doors ($C0, px 8-15) sit in PF0 beside the rift
+; ($20), so PF0 is per-world here (BlinkRifts: A at +0/+66, B at
+; +126/+138). World A's ledge at 24 runs through the rift column; the
+; OFF pages keep the ledge bits wherever a ledge is drawn.
+; ===============================================================
+
+Floor10Home:
+        .byte 31, 144, 160      ; Stella: the seam ledge's right piece (40), band 5
+        .byte 13, 132, 148      ; Alex: the high ledge (16, B only), band 2
+        .byte 50,  72,  88      ; Marcus: the centre ledge (56, B only), band 7
+
+Floor10Rec:
+;   PF0 world A, ON: rift b5; band 3 the ledge at 24 (px 4-15); band 5
+;   the seam ledge (px 0-15); floor
+        .byte $20,$20,$20,$E0,$20,$F0,$20,$20,$20,$20,$20,$F0
+;   PF1 world A: band 3 the ledge at 24's PF1 part (px 16-19); floor
+        .byte $00,$00,$00,$80,$00,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 world A: floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   boxes A: ground / the seam ledge (both worlds) / the ledge at 24
+        .byte  88, 40, 40, 24, 24,$FF      ; tops
+        .byte  96, 40, 40, 24, 24,$FF      ; bottoms (one-way but ground)
+        .byte   0,  0,144,  4,140,  0      ; lefts
+        .byte 160, 16,160, 20,156,  0      ; rights (excl)
+        .byte  40, 79                      ; Stella: ground
+        .byte  56, 85                      ; Alex: ground
+        .byte 100, 82                      ; Marcus: ground
+;   PF0 world A, OFF (+66): minus the rift bit (the ledges stay)
+        .byte $00,$00,$00,$E0,$00,$F0,$00,$00,$00,$00,$00,$F0
+;   PF1 world B (+78): band 2 the high ledge's PF1 part (px 16-27); floor
+        .byte $00,$00,$E0,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 world B (+90): band 7 the centre ledge (px 72-79, mirrored); floor
+        .byte $00,$00,$00,$00,$00,$00,$00,$C0,$00,$00,$00,$FF
+;   boxes B (+102): ground / the seam ledge / the high ledge / centre
+        .byte  88, 40, 40, 16, 16, 56      ; tops
+        .byte  96, 40, 40, 16, 16, 56      ; bottoms (one-way but ground)
+        .byte   0,  0,144, 12,132, 72      ; lefts
+        .byte 160, 16,160, 28,148, 88      ; rights (excl)
+;   PF0 world B, ON (+126): rift b5 + doors b6-b7 (px 8-15); band 2
+;   the high ledge's PF0 part (b7, under the door); band 5 the seam
+;   ledge; floor
+        .byte $E0,$E0,$E0,$E0,$E0,$F0,$E0,$E0,$E0,$E0,$E0,$F0
+;   PF0 world B, OFF (+138): minus rift and doors (the ledges stay)
+        .byte $00,$00,$80,$00,$00,$F0,$00,$00,$00,$00,$00,$F0
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py): ALL of it lives in

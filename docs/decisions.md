@@ -2319,3 +2319,60 @@ So Game 3 must teach it wordlessly:
   or make blocking the point.
 - Open for Game 3's design: whether a bumped friend can be pushed, and
   whether two-player mode keeps bodies solid.
+
+## 54. Game 2: Floor 10, "The Seam"
+
+**Status:** Accepted (2026-11-27). Act 4's first floor, made harder
+at the designer's request: Alex can only get home on Stella's head.
+
+**The floor.** Every verb meets at the screen's edge. The wrap joins
+x=0 to x=160 there, the rift stands there, and in world B a pair of
+doors stands beside it (world A has none). All three homes are in
+world B: Stella on the seam ledge's right piece (40), Marcus on a
+centre ledge (56), Alex on a high ledge (16) he cannot reach alone or
+from world B at all. He swaps back to world A on the seam ledge,
+climbs Stella onto world A's ledge at 24 (a stepping stone, nobody's
+home), climbs her again where that ledge runs through the rift, and
+swaps from her head. The floor turns over: he lands home, and Stella
+drops from under him onto hers. The solver (`swap+seam+coop+return`)
+proves everyone home in world B, nobody home with the doors or the
+swap taken away, Stella and Alex not home without the wrap, Alex not
+home alone or in one swap, and 52/38/114 ways in. The harness plays
+the boost, and the door rules, in the ROM. Narration: "IT WAS / ONE
+DOOR."
+
+**Engine.** Doors and rifts share a floor for the first time:
+- Doors are true only in world B (ReadPortal checks CurWorld). In B a
+  press that misses the doors is left for ReadRift; one that hits a door
+  is spent on it (the door wins where they overlap).
+- The doors stand in PF0 beside the rift, so world B has its own PF0
+  pair after the record (ON +126, OFF +138). BlinkRifts picks it and
+  blinks doors and rift together; BlinkPortal leaves rift floors alone.
+- `MulNine` became `MulFloors` (stride NUM_FLOORS).
+
+**The solver was wrong twice, and the first layout shown could not be
+finished.** It proved each character on its own. But SwapWorld flips
+the floor for everyone, and CheckGoal wants all three home at once, so
+a floor finishes only in a world where every home is standable; the
+first layout had Stella's home only in B and Marcus's only in A.
+`survey_dual` now judges every character in one shared finishing
+world. And a friend's head was only counted where the friend could
+walk without doors or swaps, so no boost on a door-reached ledge could
+ever be found; helpers now take their footing from their own two-world
+search. Floors 1–9 still prove under both.
+
+**Found on the way: a vertical-blank overrun on floor 5** (two
+players, both moving, on its four walls), in the shipped ROM too. The
+soak used to jump floors by writing FloorSeq without loading the floor
+(it now goes through STATE_LOAD), which hid it and then, on floor 10,
+produced a frame no game can reach. Overscan has only 2 ticks to
+spare, so the fix is cheaper code: ClampBoxes now visits only the
+solid boxes. Every record already lists the ground first, then its
+solid boxes, then the one-way ledges, so a 10-byte `FloorSolidN` table
+gives the count, and check_levels.py audits the order in both worlds.
+Vertical blank now keeps at least 5 ticks spare. The endless test also
+finishes floors after a seeded, varying time, so it tests the picker
+rather than the harness's fixed rhythm.
+
+**Cost:** bank 0 has 169 bytes free (from 387): the record is 150
+bytes, the tables and code the rest.
