@@ -12,6 +12,7 @@ sacrifice to hold the way open.
 - **Theme:** purpose & entropy — "Meaning wasn't about reaching an end, but in how you moved through the journey."
 - **Scope:** 12-15 levels, 4 characters (Flicker joins mid-game — see decisions.md #3)
 - **Key mechanics:** corruption zones as hazard, four parallel bank states (pending decisions.md #9), flicker as design element
+- **Bodies bump** (decisions.md #53): characters block each other sideways for the first time, taught by an early room and the eyes reacting — the awareness arc's step from sight to touch
 - **Dramatic turn:** the series' first true loss — see decisions.md #11
 
 **Status:** planned.

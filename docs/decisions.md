@@ -2258,3 +2258,64 @@ through all four games and across RESET. Every frame of all of it is
 
 **Cost:** bank 0 went from 459 to 387 bytes free; bank 1 from about
 1,980 to 1,307 (the digit font is aligned so it never crosses a page).
+
+## 53. Character Physics Across the Series: Pass Through, Then Touch
+
+**Question:** Characters can land on each other, but they walk through
+each other from the side, and a rider is never carried. Is that right?
+What should happen when the one underneath moves, and when does the
+series let bodies touch?
+
+**The rule today (Games 1 and 2), now written down:** a friend's head
+is a **one-way platform**, exactly like the one-way ledges. You land on
+it from above; from below and from the side you pass through. Nobody is
+carried: when the one underneath walks away, the rider stays where they
+are and drops (#29: "stand on a friend, and if the friend walks away,
+you fall").
+
+**Why it stays that way in Games 1 and 2:**
+- The solver proves every floor treating friends as surfaces, not
+  walls. Solid bodies would make it search all three characters moving
+  together, and every proof would have to be redone.
+- With two players (#47), solid bodies let one player block another in
+  a gap one body wide.
+- Game 1 is finished and proved; Game 2's floors are proved.
+- The honest objection, recorded: #17 made the world's collision honest
+  ("boxes span exactly what they draw"), and characters are honest only
+  from above.
+
+**Decision (author, 2026-11-26):** **bodies bump in Game 3**, as the next
+step of the awareness arc (#23): Game 1 is blind, in Game 2 they see each
+other, in Game 3 they *feel* each other. More memory, more alive.
+
+The condition is that it is **discoverable**, never a silent change.
+Pass-through is something players have learned, and #29's amendment
+forbids contradicting a learned rule without a channel to announce it.
+So Game 3 must teach it wordlessly:
+- an early room where a friend stands in the only corridor, so the
+  first thing the player does with a friend is walk into them and stop;
+- the eyes react to the touch (Game 3's eyes were already planned to
+  track and react, #23), so the bump reads as contact, not as a wall;
+- a narration line can name the moment after it happens, never before.
+
+**What bumping means, and what it doesn't:**
+- **Sideways, bodies block.** To get past a friend you jump on or over
+  them, or switch to them and move them. (Pushing a friend along is not
+  decided; blocking is the simpler rule and the easier one to prove.)
+- **Still no carrying for ordinary friends.** Standing on Stella, Alex
+  or Marcus works as it always has. Carrying stays Flicker's gift (#29):
+  a stack with Flicker in it fuses into one body.
+- **A fused stack meets an overhang as one shape.** It doesn't scrape a
+  rider off; it simply doesn't fit, and which characters are in the
+  stack, in what order, decides what fits (#29). The expected scrape-off
+  rule (a wall stops the rider, the base moves on, the rider drops) only
+  matters if a later game adds a carrier that isn't a fusion.
+
+**Consequences for Game 3:**
+- The solver must model bodies that block: joint positions where they
+  matter. It runs on a PC, so the search can grow; the 16K cartridge
+  only has to run the rule. This is real work, accepted.
+- Two players can now block each other. Rooms should give a way round,
+  or make blocking the point.
+- Open for Game 3's design: whether a bumped friend can be pushed, and
+  whether two-player mode keeps bodies solid.
