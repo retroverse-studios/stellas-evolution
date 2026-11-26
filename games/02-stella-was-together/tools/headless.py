@@ -389,6 +389,7 @@ class VCS(Machine):
         self.overrun_at = []                   # (State, pc) of each
         self.colubk = []
         self.tia_log = None                    # [(cycle, register, value)] when set
+        self.sprite_cols = set()               # {(State, COLUP0/1 value)}
         self.cur_cyc = 0
         self.in_kernel = False                 # between a blank's end and the next timer set
         self.kernel_late = 0                   # latest WSYNC write inside a kernel
@@ -452,6 +453,8 @@ class VCS(Machine):
                     self.in_kernel = False
             elif t == 0x09:
                 self.colubk.append((self.cycles, v))
+            elif t in (0x06, 0x07):            # COLUP0/1: who draws in what
+                self.sprite_cols.add((self.m[self.state_var], v))
             super().write(t, v)
             return
         if not a & 0x200:
@@ -998,6 +1001,14 @@ def main():
     c.that("two players: P1 hops when a pair separates", seen["hop"] > 0,
            f"{seen['hop']} of {seen['two']} play frames hop")
     print(f"  (two players: {seen['hop']} of {seen['two']} play frames draw everyone solid)")
+    # decision #49: in play every character draws in its own colour —
+    # never #27's dim tier (Marcus $82 vanished on the dark home blocks),
+    # never a flicker lift past it (Alex $CE+2 = $D0, a wrong hue at black)
+    palette = {0x38, 0xCE, 0x84}                # ColBriTbl, the series palette
+    stray = sorted({v for st, v in r.m.sprite_cols
+                    if st in (play, sym["STATE_DONE"])} - palette)
+    c.that("in play every character draws in its own colour, held or free",
+           not stray, ", ".join(f"${v:02X}" for v in stray))
     m = r.m
 
     from collections import Counter

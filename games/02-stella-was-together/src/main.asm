@@ -2223,7 +2223,7 @@ PrepSprites:
         sta P1Eye2
         lda NusizTbl,x
         sta P1Nu2
-        jsr CharColor
+        lda ColBriTbl,x
         sta P1Col2
 
 .p0:                            ; P0 = the odd one out, solid
@@ -2236,7 +2236,7 @@ PrepSprites:
         sta P0Eye
         lda NusizTbl,x
         sta NUSIZ0              ; may be Alex (double width)
-        jsr CharColor           ; held = bright luma
+        lda ColBriTbl,x
         sta COLUP0
 .position:
         ldx CYH
@@ -2307,32 +2307,21 @@ FillP1:
         sta P1XA
         lda NusizTbl,x
         sta NUSIZ1              ; Alex doubled, Marcus single
-        lda ColBriTbl,x         ; CharColor, inlined: as a call it was
-        cpx Active              ; the fourth level of the deepest chain
-        beq .lit                ; (WakeLogic/DoneLogic -> PrepSprites ->
-        cpx Active2             ; FillP1 -> CharColor), 8 bytes of stack
-        beq .lit                ; with 7 free: it wrote $32 into TimeDim
-        lda ColDimTbl,x         ; and the completion beat's sky went
-.lit:                           ; black. 6 bytes deep now (decision #46)
-        ldy RepoDU              ; 30Hz flicker dims the pair; lift
-        iny                     ; time-shared tenants ($FF -> 0) a
-        bne .noBoost            ; gentle 2 luma. More would whiten
-        clc                     ; the hue into pastel — saturation
-        adc #2                  ; lives at mid luma on the TIA
-.noBoost:
+        lda ColBriTbl,x         ; one colour per character in play
+                                ; (decision #49). Held vs free was a
+                                ; luma step (#27's +2), but in one
+                                ; player the free pair flickered and
+                                ; were lifted +2 back onto it, so the
+                                ; step never reached the screen; and
+                                ; in two players the solid free one
+                                ; drew dim — Marcus at $82 vanished
+                                ; on the dark home blocks — while a
+                                ; held Alex sharing P1 in a level
+                                ; frame was lifted $CE+2 = $D0, a
+                                ; wrong hue at black. The eyes carry
+                                ; "free" (squint), the flicker
+                                ; carries it in one player.
         sta COLUP1
-        rts
-
-; CharColor: X = char. A = its color, brighter luma when held.
-CharColor:
-        SUBROUTINE
-        lda ColBriTbl,x
-        cpx Active
-        beq .bright
-        cpx Active2
-        beq .bright
-        lda ColDimTbl,x
-.bright:
         rts
 
 ; A = x pixel (0-159), X = object (0=P0 1=P1)

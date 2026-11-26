@@ -47,7 +47,10 @@ Plus a per-floor mode proof that the floor's TEACHING is load-bearing:
       world bit: standing grounded in a rift column adds an edge to the
       same position in the other world (settles by gravity there). "swap"
       proves the floor unsolvable with swaps off; "swapboth" (the
-      interleave floors) proves EACH world alone is insufficient. Two
+      interleave floors) proves EACH world alone is insufficient;
+      "return" (Floor 9) proves one swap from world A is not enough,
+      so someone must cross back. Every swap floor prints who needs
+      the return. Two
       audits ride along: every box that differs between worlds is
       one-way (so no swap can embed a body in a new wall), and every
       grounded rift state swaps into clear air in the other world.
@@ -95,7 +98,7 @@ FLOOR_DEFS = [
     {"rec": "Floor6Rec", "home": "Floor6Home", "mode": "portal"},
     {"rec": "Floor7Rec", "home": "Floor7Home", "mode": "swap"},
     {"rec": "Floor8Rec", "home": "Floor8Home", "mode": "swapboth"},
-    {"rec": "Floor9Rec", "home": "Floor9Home", "mode": "swapboth"},
+    {"rec": "Floor9Rec", "home": "Floor9Home", "mode": "swapboth+return"},
 ]
 
 
@@ -499,7 +502,8 @@ class DualSim:
     per truth, and the static-helper approximation is unchanged."""
 
     def __init__(self, fl, phys, ci, wrap, helpers=(), swaps_on=True,
-                 start_world=0):
+                 start_world=0, max_swaps=None):
+        self.max_swaps = max_swaps         # None: as many as you like
         self.w = phys["w3"][ci]
         self.h = phys["h3"][ci]
         self.rifts = fl["rifts"] if swaps_on else []
@@ -517,33 +521,37 @@ class DualSim:
         parity rides along so half-step characters explore both of the
         step sizes the ROM alternates between."""
         sx, sy = start
-        seen, stack = set(), [(sx, sy + self.h, self.start_world, 0)]
+        # n = swaps made so far, counted only when they are capped
+        seen, stack = set(), [(sx, sy + self.h, self.start_world, 0, 0)]
         while stack:
-            x, feet, w, par = stack.pop()
-            if (x, feet, w, par) in seen:
+            st = stack.pop()
+            if st in seen:
                 continue
-            seen.add((x, feet, w, par))
+            seen.add(st)
+            x, feet, w, par, n = st
             sim = self.sims[w]
             np = par ^ 1
-            for (l, r) in self.rifts:      # the swap edge
-                if x < r and x + self.w > l:
-                    land = self.sims[1 - w].arc(x, feet, False, 0, par)
-                    if land is not None:
-                        stack.append((land[0], land[1], 1 - w, np))
+            if self.max_swaps is None or n < self.max_swaps:
+                n2 = n if self.max_swaps is None else n + 1
+                for (l, r) in self.rifts:  # the swap edge
+                    if x < r and x + self.w > l:
+                        land = self.sims[1 - w].arc(x, feet, False, 0, par)
+                        if land is not None:
+                            stack.append((land[0], land[1], 1 - w, np, n2))
             for d in (-1, 1):              # walk one step
                 nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
                     if sim.landing(feet, feet, nx) is not None:
-                        stack.append((nx, feet, w, np))
+                        stack.append((nx, feet, w, np, n))
                     else:
                         land = sim.arc(x, feet, False, d, par)
                         if land is not None:
-                            stack.append((land[0], land[1], w, np))
+                            stack.append((land[0], land[1], w, np, n))
             for d in (-1, 0, 1):           # jump left / straight / right
                 land = sim.arc(x, feet, True, d, par)
                 if land is not None:
-                    stack.append((land[0], land[1], w, np))
-        return seen
+                    stack.append((land[0], land[1], w, np, n))
+        return {st[:4] for st in seen}
 
     def can_home(self, start, hf, hl, hr):
         return any(feet == hf and x < hr and x + self.w > hl
@@ -585,19 +593,19 @@ class DualSim:
         return ways
 
 
-def survey_dual(fl, phys, swaps_on=True, start_world=0):
+def survey_dual(fl, phys, swaps_on=True, start_world=0, max_swaps=None):
     """Per character: (solo, helped-any-subset) across both worlds."""
     out = []
     for ci in range(3):
         solo = DualSim(fl, phys, ci, fl["wrap"], (),
-                       swaps_on, start_world)
+                       swaps_on, start_world, max_swaps)
         solo_ok = solo.can_home(fl["spawns"][ci],
                                 fl["homeY"][ci] + phys["h3"][ci],
                                 *fl["home_box"][ci])
         helped = solo_ok
         for sub in helper_subsets(ci):
             if DualSim(fl, phys, ci, fl["wrap"], sub,
-                       swaps_on, start_world).can_home(
+                       swaps_on, start_world, max_swaps).can_home(
                     fl["spawns"][ci], fl["homeY"][ci] + phys["h3"][ci],
                     *fl["home_box"][ci]):
                 helped = True
@@ -893,6 +901,16 @@ def check_floor_dual(fl, phys, name):
         if all(r[1] for r in res_b):
             fails.append("world B alone suffices — the handoff never "
                          "happens, the swap is one-sided")
+    # how many crossings the floor asks, from world A: proved for
+    # "return" (one swap is not enough: someone must come back),
+    # reported for every swap floor so twin floors read differently
+    one = survey_dual(fl, phys, max_swaps=1)
+    if "swap" in fl["mode"]:
+        short = [NAMES[ci] for ci in range(3) if not one[ci][1]]
+        margins.append("needs a return: " + (", ".join(short) or "nobody"))
+    if "return" in modes and all(r[1] for r in one):
+        fails.append("one swap gets everyone home — the way back is "
+                     "never needed")
 
     fails.extend(check_swap_safety(fl, phys))
     fails.extend(check_rift_art(fl))

@@ -37,11 +37,11 @@ puzzles, and a spatial toolkit that grows across the game.
   the variables and blacked out the sky at the end of every floor
   (very likely the flashing), and the untimed sky was four luma steps
   too dark.
-- **Bank 0 has 90 bytes free** (bank 1 has 2.4K).
-- **Not yet fixed:** with two players, the free character draws solid
-  in its dim colour, and dim Marcus ($82) is hard to see on dark
-  ground. One-player mode hides this with the flicker's brightness
-  boost.
+- **Bank 0 has 124 bytes free** (bank 1 has 2.4K).
+- **Fixed** (decision #49): with two players the free character drew
+  solid in its dim colour (dim Marcus vanished on dark ground), and a
+  held Alex sharing a sprite turned a dark wrong hue. In play every
+  character now draws in its own colour; the eyes say who is free.
 
 **Next:**
 1. ~~Reclaim RAM~~ done (decision #46).
@@ -50,9 +50,11 @@ puzzles, and a spatial toolkit that grows across the game.
 3. ~~Every frame 262 lines~~ done (decisions #47, #48).
 4. Then Act 4, per-act skies and the second sound voice.
 
-Also noted, not yet looked at: floors 8 and 9 print identical solver
-figures, and the solver warns that on one of them Alex can stand at his
-home's height just off its box.
+Floors 8 and 9 are the same two worlds with A and B exchanged, so their
+reach figures match; the solver now also proves floor 9's "there and
+back" (decision #50). Still noted: the solver warns that on both Alex
+can stand at his home's height just off its box (harmless: AtHome
+tests x).
 
 ## Current state (2026-08-13)
 

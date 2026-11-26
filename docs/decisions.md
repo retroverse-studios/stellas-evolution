@@ -2099,3 +2099,54 @@ the machine mid-frame by design.
 
 **Cost:** none. Bank 0 gained 20 bytes (90 free), because the kernel
 choice and `Bank0Entry` got simpler.
+
+## 49. Game 2: One Colour per Character in Play
+
+**Status:** Accepted (2026-11-26). Amends #27's "Active is +2" for play;
+#27's palette, luma order, lamps and shape echo are unchanged.
+
+**What was wrong:** #27 gave a held character its bright colour and a
+free one its colour two luma steps darker. In one player that step never
+reached the screen: the free pair flicker on P1, and flicker tenants were
+lifted +2, back onto the bright colour. Two players (#47) exposed it
+twice:
+- **The free character drew solid in its dim colour.** Dim Marcus ($82)
+  all but vanished on the dark home blocks.
+- **A held character sharing P1 in a level frame was lifted past its
+  colour.** Alex's $CE + 2 = $D0: hue $D at luma 0, a dark wrong colour.
+  Stella and Marcus drew $3A and $86, off the series palette.
+
+**Decision:** in play every character draws in its own colour
+(`ColBriTbl`), held or free. "This one is free" is carried by the eyes
+(the squint, #47) and, in one player, by the flicker. The dim table now
+only serves the waking opening, where Marcus is asleep. `CharColor` is
+gone and `FillP1` lost its lift.
+
+**Checked:** the harness records every sprite colour write; in play and
+in the end-of-floor pause every one must be $38, $CE or $84. The
+previous build fails that check with $36, $3A, $82, $86, $CC and $D0.
+
+**Cost:** none; bank 0 gained 34 bytes (124 free).
+
+## 50. Game 2: Floor 9 Proves Its Way Back
+
+**Status:** Accepted (2026-11-26).
+
+**Question:** floors 8 and 9 printed identical solver figures. Is one a
+copy of the other?
+
+**Finding:** no. They share their geometry with worlds A and B
+exchanged: floor 8 has the stairs in A and the homes in B, floor 9 the
+homes in A and the stairs in B. The solver's reach is over both worlds
+together, so the figures match. What floor 9 is for — "a door you may
+owe two crossings" — the solver never checked: `swapboth` only proves
+that neither world alone is enough, which is true of both floors.
+
+**Decision:** the dual-world solver can cap the number of swaps. A new
+`return` mode proves that one swap from world A gets at least one
+character short of home. Floor 9 is now `swapboth+return`, and every
+swap floor prints who needs the return: nobody on floors 7 and 8;
+Stella and Marcus on floor 9 (Alex's home is the perch both worlds
+share, so one crossing is enough for him).
+
+**Cost:** solver only; the ROM is unchanged.
