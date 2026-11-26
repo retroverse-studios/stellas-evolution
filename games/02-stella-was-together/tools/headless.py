@@ -573,7 +573,10 @@ class Run:
                              if idx > 75 and not wa]
         m.kernel_late = max(k0, m.kernel_late)
         cyc = m.cycles - c0
-        self.lines.append(round(cyc / 76))
+        # scanline boundaries crossed, VSYNC to VSYNC: what the TV
+        # counts. Rounding cycles/76 called a 262.54-line frame 263 and
+        # would call 262.45 262, whichever side of its line VSYNC fell
+        self.lines.append(m.cycles // 76 - c0 // 76)
         lw = [idx for _, idx, waited, _b in m.wsyncs[w0:] if not waited]
         self.late.append((self.frame, max(lw) if lw else 0))
         if reset:                              # the cold start's clear, not the game's stack
@@ -681,7 +684,7 @@ class Checks:
 # ---------------------------------------------------------------------
 # What must be true.
 # ---------------------------------------------------------------------
-STATES = ("TITLE", "PLAY", "STORY", "WAKE", "DONE", "LOAD", "OPEN")
+STATES = ("TITLE", "PLAY", "STORY", "WAKE", "DONE", "LOAD", "OPEN", "SCORE")
 
 
 def ram_top(asm_path):
@@ -744,7 +747,17 @@ def walkthrough(r, sym, c):
     c.that("with the clock off, the sky keeps its full ramp (brightest band luma 8+) "
            "in play and in the completion beat", getattr(r, "dim_frames", 0) == 0,
            f"{getattr(r, 'dim_frames', 0)} frames dimmed")
-    c.that("after the last narration, the title", r.r("State") == S["TITLE"])
+    c.that("after the last narration, the run's time", r.r("State") == S["SCORE"])
+    play_frames = sum(1 for a, b, n, rs in r.frames if a == S["PLAY"])
+    run = r.r("RunHi") * 256 + r.r("RunLo")
+    c.that("the run clock counted the played seconds (64 frames each)",
+           abs(run - play_frames / 64) <= nf, f"{run} s for {play_frames} play frames")
+    press(r, fire0=True)
+    c.that("fire in the score's first beat does nothing", r.r("State") == S["SCORE"])
+    settle(r, 70)
+    press(r, fire0=True)
+    settle(r, 2)
+    c.that("then fire, the title", r.r("State") == S["TITLE"])
 
 
 def two_players(r, sym, c):
@@ -755,14 +768,17 @@ def two_players(r, sym, c):
     settle(r, 10)
     c.that("the title starts at one player", r.r("State") == S["TITLE"] and r.r("Active2") == 0xFF,
            f"State {r.r('State')}, Active2 {r.r('Active2'):02X}")
-    press(r, select=True)
-    c.that("SELECT on the title chooses two players", r.r("Active2") < 3)
-    press(r, select=True)
-    c.that("SELECT again goes back to one", r.r("Active2") == 0xFF)
+    seen = []
+    for _ in range(4):
+        press(r, select=True)
+        seen.append((r.r("Mode"), r.r("Active2")))
+    c.that("SELECT steps two players, endless one, endless two, the story again",
+           seen == [(0x40, 1), (0x80, 0xFF), (0xC0, 1), (0x00, 0xFF)],
+           ", ".join(f"Mode {m:02X} Active2 {a:02X}" for m, a in seen))
     for _ in range(30):
         r.step_frame(select=True)
     settle(r)
-    c.that("holding SELECT toggles once", r.r("Active2") < 3)
+    c.that("holding SELECT steps once", r.r("Active2") < 3 and r.r("Mode") == 0x40)
     press(r, reset=True)
     settle(r, 10)
     c.that("the player count survives console RESET", r.r("State") == S["TITLE"] and r.r("Active2") < 3)
@@ -808,6 +824,9 @@ def opening_plays_out(rom, sym, c):
             phases.append(p)
         r.step_frame()
         n += 1
+    if r.r("State") == sym["STATE_LOAD"]:       # floor 1 loads in its own frame
+        r.step_frame()
+        n += 1
     c.that("left alone, the opening runs its five phases in order",
            phases == [0, 1, 2, 3, 4], f"phases {phases}")
     c.that("the opening hands over to floor 1",
@@ -815,6 +834,77 @@ def opening_plays_out(rom, sym, c):
            f"after {n} frames")
     long = [ln for a, b, ln, rs in r.frames if ln != 262 and not rs]
     c.that("every frame of the opening is 262 lines", not long, f"{long[:5]}")
+
+
+def endless(rom, sym, c):
+    """The endless game (decision #52): straight to a floor at random,
+    45 seconds less two a floor, no narration, never the same floor
+    twice running; the clock running out ends the run on the score."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    r = Run(rom, sym)
+    settle(r, 30)
+    press(r, select=True)
+    press(r, select=True)
+    c.that("two SELECTs: the endless game, one player",
+           r.r("Mode") == 0x80 and r.r("Active2") == 0xFF)
+    press(r, fire0=True)
+    states = set()
+    for _ in range(5):
+        r.step_frame()
+        states.add(r.r("State"))
+    c.that("fire starts a floor, without the opening",
+           r.r("State") == S["PLAY"] and S["WAKE"] not in states and S["OPEN"] not in states,
+           f"State {r.r('State')}, floor {r.r('FloorSeq') + 1}")
+    floors, clocks, stories = [r.r("FloorSeq")], [r.r("TimerSec")], 0
+    for n in range(18):
+        r.goto_homes()
+        if not r.homes_hold() and "SwapWorld" in sym:
+            r.call("SwapWorld")
+            r.goto_homes()
+        r.step_frame()
+        if r.r("State") != S["DONE"]:
+            break
+        for _ in range(200):
+            st = r.step_frame()
+            stories += st == S["STORY"]
+            if r.r("State") == S["PLAY"]:
+                break
+        floors.append(r.r("FloorSeq"))
+        clocks.append(r.r("TimerSec"))
+    want = [max(12, 45 - 2 * i) for i in range(len(clocks))]
+    c.that("each floor's clock: 45, two fewer a floor, never under 12",
+           clocks == want and len(clocks) == 19, f"{clocks}")
+    c.that("the count is the floors survived", r.r("Mode") & 0x3F == 18, f"Mode {r.r('Mode'):02X}")
+    c.that("no narration between endless floors", stories == 0)
+    c.that("never the same floor twice running",
+           all(a != b for a, b in zip(floors, floors[1:])), f"floors {[f + 1 for f in floors]}")
+    c.that("the floors are drawn from all of them", len(set(floors)) >= 6,
+           f"{len(set(floors))} different in {len(floors)}")
+    r.w("Mode", 0x80 | 62)
+    for _ in range(3):
+        r.goto_homes()
+        if not r.homes_hold() and "SwapWorld" in sym:
+            r.call("SwapWorld")
+            r.goto_homes()
+        r.step_frame()
+        for _ in range(200):
+            r.step_frame()
+            if r.r("State") == S["PLAY"]:
+                break
+    c.that("the count stops at 63", r.r("Mode") == 0x80 | 63, f"Mode {r.r('Mode'):02X}")
+    r.w("TimerSec", 0)
+    for _ in range(70):
+        r.step_frame()
+        if r.r("State") != S["PLAY"]:
+            break
+    c.that("when the clock runs out, the run ends on the score", r.r("State") == S["SCORE"])
+    settle(r, 70)
+    press(r, fire0=True)
+    settle(r, 2)
+    c.that("fire on the score: the title, still the endless game",
+           r.r("State") == S["TITLE"] and r.r("Mode") & 0xC0 == 0x80)
+    long = [ln for a, b, ln, rs in r.frames if ln != 262 and not rs]
+    c.that("every frame of the endless game is 262 lines", not long, f"{long[:5]}")
 
 
 def clock_runs_out(r, sym, c):
@@ -829,7 +919,6 @@ def clock_runs_out(r, sym, c):
     for _ in range(10):
         r.step_frame(stick0="R")
     moved = r.r("CharX", 0)
-    r.w("TimerOn", 0x40)
     r.w("TimerSec", 0)
     seen = set()
     for _ in range(70):                         # the clock ticks every 64 frames
@@ -1022,6 +1111,7 @@ def main():
     two_players(r, sym, c)
     clock_runs_out(r, sym, c)
     opening_plays_out(rom, sym, c)
+    endless(rom, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")

@@ -11,11 +11,12 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-26): two players, every frame 262 lines
+## Status (2026-11-26): two players, endless, every frame 262 lines
 
 - **One or two players** (decisions #44, #47). SELECT on the title
-  toggles the count, shown as the cast: Stella alone, or Stella with
-  Alex beside her. Power-on is one player and RESET keeps the count.
+  steps the count (and, since #52, the endless game), shown as the
+  cast: Stella alone, or Stella with Alex beside her. Power-on is the
+  story with one player, and RESET keeps the choice.
   Two players start on Stella and Alex, one per joystick, and
   DOWN+Fire takes the character nobody holds. One player is unchanged.
 - **Two-player sprites:** the mid-frame hop is back, so whichever pair
@@ -37,8 +38,13 @@ puzzles, and a spatial toolkit that grows across the game.
   the variables and blacked out the sky at the end of every floor
   (very likely the flashing), and the untimed sky was four luma steps
   too dark.
-- **Bank 0 has 459 bytes free** (bank 1 has about 2K): the waking
+- **Bank 0 has 387 bytes free** (bank 1 has about 1.3K): the waking
   opening's phases and the sound moved to bank 1 (decision #51).
+- **Endless and the run clock** (decision #52): SELECT steps through
+  one player, two, endless one, endless two (an ember title sky). The
+  endless game draws floors at random against a clock that tightens
+  from 45 seconds to 12; the score screen shows floors and time
+  (`14 312`), and the story ends on its run time.
 - **Fixed** (decision #49): with two players the free character drew
   solid in its dim colour (dim Marcus vanished on dark ground), and a
   held Alex sharing a sprite turned a dark wrong hue. In play every
@@ -52,8 +58,8 @@ puzzles, and a spatial toolkit that grows across the game.
 4. Act 4 as two floors: **the seam** (wrap, portal and swap meet at
    one screen edge), then **where they meet** (one shared home, each
    character arriving by a different verb). Room made (decision #51).
-5. Endless mode (one or two players) and the run clock, from Game 1;
-   SELECT steps through one player, two, endless one, endless two.
+5. ~~Endless mode and the run clock~~ done (decision #52). Not yet
+   seen on a screen or played by a person.
 6. Per-act skies (dawn for Act 4) and the second sound voice.
 
 Floors 8 and 9 are the same two worlds with A and B exchanged, so their

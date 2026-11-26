@@ -66,7 +66,7 @@
 ;   Fire        title: start ; opening: skip ; narration: continue ;
 ;               in play: jump
 ;   Down+Fire   cycle Stella -> Alex -> Marcus
-;   SELECT      reserved for future variation (no-op)
+;   SELECT      on the title: one player, two, endless one, endless two
 ;   RESET       return to the title
 ; ---------------------------------------------------------------
 
@@ -90,6 +90,7 @@ STATE_WAKE  = 3         ; the waking-Marcus opening (game kernel)
 STATE_DONE  = 4         ; floor complete: the beat before the narration
 STATE_LOAD  = 5         ; one frame: load floor FloorSeq, then PLAY
 STATE_OPEN  = 6         ; one frame: set up the opening, then WAKE
+STATE_SCORE = 7         ; the run's numbers (annex), fire for the title
                         ; (both do their setup inside a frame's vblank,
                         ; so a screen change is a 262-line frame too)
                         ; (game kernel — decision #26's closing image is
@@ -111,6 +112,7 @@ JOB_WAKESETUP = 0       ; annex jobs (GoAnnex, Y = job; decision #51)
 JOB_WAKEPRE   = 1
 JOB_WAKEPOST  = 2
 JOB_SOUND     = 3
+JOB_NEXTFLOOR = 4       ; endless: count the floor, draw the next one
 
 ; THE WORLD IS GREYSCALE; COLOUR MEANS AGENCY (decision #27).
 ; Hue 0 is the neutral ramp, so every hue on screen belongs to
@@ -129,6 +131,12 @@ JOB_SOUND     = 3
 ; in brightness from the ground it stands on, whoever it is.
 FLOOR1_SKY  = $00       ; Act 1 sky base; +GradOfs -> luma 0..8
 TITLE_SKY   = $00       ; the title shares Act 1's sky
+EMBER_SKY   = $20       ; ...or burns ember: the endless game (Game 1's
+                        ; ember title, decision #52)
+ENDLESS_T   = 45        ; endless: seconds on the first floor, two
+ENDLESS_MIN = 12        ; fewer each floor, never under twelve (Game 1)
+SCORE_TOP   = 88        ; the score: blank, 15 lines of digits (14 and
+SCORE_BOTTOM = 89       ; the clear), blank: 88 + 15 + 89 = 192
 PFA_COLOR   = $0A       ; platforms: the one luma no character owns
 COL_TEXT    = $0E       ; narration text: white
 COL_STELLA  = $38       ; == ColBriTbl (the annex can't read bank 0)
@@ -316,11 +324,20 @@ RecPtr      ds 2        ; -> this floor's record, fixed at LoadFloor.
 ; buy the clock back, and the stack still has eight bytes of headroom.
 ; Two bytes is all it takes: the frame counter is derived from the
 ; existing FrameCtr, so only the seconds need storing.
-TimerSec    ds 1        ; seconds left on this floor
-TimerOn     ds 1        ; the difficulty switch, sampled once at load
+TimerSec    ds 1        ; seconds left on this floor; bit 7 set =
+                        ; untimed ($FF). (TimerOn was its own byte: the
+                        ; switch, sampled at load. Decision #52.)
                         ; (TimeDim was here: a pure function of
                         ; TimerSec, so BuildSky works it out when it
                         ; paints. Decision #46)
+RunHi       ds 1        ; the run clock, high byte (decision #52)
+RunLo       = WakePhase ; ...and low: the opening's phase byte, dead
+                        ; once the opening hands over, which is when
+                        ; the clock is zeroed. A clock "second" is 64
+                        ; frames, as the floor clock's is
+Mode        ds 1        ; bit 7 endless, bit 6 two players (the title's
+                        ; SELECT, kept across RESET), bits 5-0 floors
+                        ; survived in the endless game (capped at 63)
 SkyDim      = LV        ; BuildSky's working copy of it. LV is physics
                         ; scratch, and BuildSky never runs inside physics
 
@@ -358,9 +375,9 @@ GoBackBank0:            ; jmp here from bank 1 to return to the caller
                         ; A is lost to the switch (and N/Z with it):
                         ; a job answers in X, Y or carry
 ColdStart:              ; RESET vector target in both banks:
-        ldy #$FF        ; power-on is one player (RAM is noise)
-WarmStart:              ; console RESET: jmp here with Y = Active2,
-        sei             ; so the player count survives it
+        ldy #0          ; power-on: the story, one player
+WarmStart:              ; console RESET: jmp here with Y = Mode, so
+        sei             ; the game the title chose survives it
         cld
         lda BANK0HOT    ; force bank 0 before touching anything
         jmp Bank0Init
@@ -373,23 +390,29 @@ STUB_SIZE = * - GoBank1
 
 Bank0Init:
         SUBROUTINE
-        ldx #0          ; Y = the player count to keep: $FF from
-        txa             ; power-on, Active2 from console RESET (a
-.clear:                 ; period game variation survives RESET)
+        ldx #0          ; Y = the Mode to keep: 0 from power-on,
+        txa             ; Mode from console RESET (a period game
+.clear:                 ; variation survives RESET)
         dex
         txs
         pha
         bne .clear      ; clears TIA + RAM, leaves SP=$FF
         tya
-        bmi .solo       ; one player stays $FF; two restart with
-        lda #1          ; joystick 2 on Alex
-.solo:  sta Active2
+        and #$C0        ; the choice, not the count
+        sta Mode
+        jsr SetPlayers  ; Active2 from Mode's bit 6
 
         lda #$80
         sta FirePrev
         lda #STATE_TITLE
         sta State       ; boot to the title (TitleLogic builds the sky
                         ; gradient + points the text kernel at the logo)
+        sta WSYNC       ; and reach its first VSYNC from a line start:
+                        ; ~38 cycles in, inside the 42 every frame
+                        ; writes it at. From wherever this code ended
+                        ; (cycle 74 once Mode was added), the frame
+                        ; after a console RESET spanned 263 lines; the
+                        ; old code made 262 by luck (decision #52)
 
 ; ---------------------------------------------------------------
 ; Frame loop. Same 262-line skeleton as game 1: 3 lines VSYNC,
@@ -422,21 +445,28 @@ Bank0Init:
 ; `sta VBLANK` needs its own `lda #0`.
 ; ---------------------------------------------------------------
 
-; Bank0Entry: the bank-1 annex (title + story) hands the frame back
-; here, with State = STATE_OPEN (the title's fire) or STATE_LOAD (the
-; next floor). Both are set up by the frame below, inside its vblank:
-; doing it here, between frames, made those frames 276-292 lines.
-Bank0Entry:
 MainLoop:
         SUBROUTINE
-        lda State               ; title and narration run entirely in
-        cmp #STATE_STORY        ; the bank-1 annex (neither ever shares
-        beq .annex              ; a frame with play): hand it the frame;
-        cmp #STATE_TITLE        ; it hands back on fire (Bank0Entry
-        bne .bank0frame         ; above)
+        lda State               ; title, narration and the score run
+        cmp #STATE_STORY        ; entirely in the bank-1 annex (none
+        beq .annex              ; ever shares a frame with play): hand
+        cmp #STATE_TITLE        ; it the frame; it hands back on fire
+        beq .annex
+        cmp #STATE_SCORE
+        bne Bank0Entry
 .annex:
         jmp GoBank1
-.bank0frame:
+
+; Bank0Entry: the bank-1 annex (title, narration) hands the frame back
+; here, with State = STATE_OPEN (the title's fire) or STATE_LOAD (the
+; next floor). Both are set up by the frame below, inside its vblank:
+; doing it here, between frames, made those frames 276-292 lines. It
+; lands past MainLoop's check, which is never needed from bank 1 (it
+; only hands back for a bank-0 state) and cost the time a handover
+; has: every frame writes VSYNC at cycle 38-42 of its line, and a
+; handover that pushes it past 75 has spilled into the next line, a
+; 263-line frame (decision #52).
+Bank0Entry:
         lda #2
         sta VBLANK
         sta VSYNC
@@ -456,7 +486,7 @@ MainLoop:
         lda SWCHB       ; console RESET returns to the title
         lsr
         bcs .noReset
-        ldy Active2
+        ldy Mode
         jmp WarmStart
 .noReset:
         lda State
@@ -618,11 +648,13 @@ WakeLogic:
 .awake:
         rts
 .finish:
-        jsr LoadFloor           ; clean re-arm; positions = spawns
-        lda #STATE_PLAY
-        sta State
-        jmp PrepSprites         ; lamps + sprite slots valid THIS
-                                ; frame (PFColRam was still text)
+        lda #0                  ; the run clock starts with floor 1
+        sta RunLo               ; (RunLo was the phase byte until now)
+        sta RunHi
+        lda #STATE_LOAD         ; floor 1 loads clean next frame, in
+        sta State               ; its own vblank: loading it here as
+        jmp PrepSprites         ; well, after the opening's physics,
+                                ; ran this frame to 263 lines (#52)
 
 ; ===============================================================
 ; FLOOR FRAMEWORK — walk the FloorTable in order
@@ -718,17 +750,32 @@ LoadFloor:
         lda #0                  ; every floor begins in world A
         sta CurWorld
 
+        lda Mode                ; the endless game is always timed,
+        bmi .endless            ; and tighter every floor
         lda SWCHB               ; left difficulty A arms the clock (#22:
         and #$40                ; switch-driven, no menu). Sampled here
-        sta TimerOn             ; so a mid-floor flip doesn't reset it.
+        beq .untimed            ; so a mid-floor flip doesn't reset it.
         lda #45                 ; 45 seconds: G1's endless opening,
-        sta TimerSec            ; which is where a player meets a clock.
-                                ; Set untimed too: BuildSky's dim reads
-                                ; it, and it used to stay 0 there, so
-                                ; "no time left" dimmed the untimed sky
-                                ; by its full 4 luma (decision #45).
-                                ; ClockTick still only counts when
-                                ; TimerOn
+        bne .setClock           ; which is where a player meets a clock.
+.untimed:                       ; Untimed is $FF: bit 7 tells ClockTick
+        lda #$FF                ; not to count, and BuildSky's dim reads
+        bne .setClock           ; none (16 - $FF borrows to no dim; a
+                                ; zero here once dimmed the untimed sky
+                                ; by its full 4 luma, decision #45)
+.endless:
+        and #$3F                ; floors survived: 45 - 2 each, to 12
+        asl
+        sta Temp
+        lda #ENDLESS_T
+        sec
+        sbc Temp
+        bcc .min
+        cmp #ENDLESS_MIN
+        bcs .setClock
+.min:
+        lda #ENDLESS_MIN
+.setClock:
+        sta TimerSec
         lda #0
         sta Temp                ; no breath on a fresh floor
         jsr BuildSky            ; world A's sky (CurWorld was just zeroed)
@@ -825,12 +872,15 @@ ClockTick:
         lda State               ; a floor that completed THIS frame has
         cmp #STATE_PLAY         ; already won: don't reload it out from
         bne .out                ; under the player on the same frame
-        lda TimerOn
-        beq .out                ; untimed floor: nothing to do
         lda FrameCtr            ; already incremented this frame by
         and #%00111111          ; MainLoop, so counting its low bits
         bne .out                ; gives one tick every 64 frames and
-        lda TimerSec            ; stays in phase with no extra state
+        inc RunLo               ; stays in phase with no extra state.
+        bne .runDone            ; The run clock counts every played
+        inc RunHi               ; second, timed or not (decision #52)
+.runDone:
+        lda TimerSec
+        bmi .out                ; untimed floor ($FF): nothing more
         beq .expired
         dec TimerSec
         lda TimerSec            ; does this tick change the light? The
@@ -845,9 +895,14 @@ ClockTick:
         rts
 .expired:
         lda #STATE_LOAD         ; out of time: the floor starts over,
-        sta State               ; exactly as Game 1's story mode does.
-        rts                     ; Next frame's vblank reloads it: here,
-                                ; after physics in overscan, it can't fit
+        bit Mode                ; exactly as Game 1's story mode does
+        bpl .setState           ; (next frame's vblank reloads it: here,
+        lda #60                 ; after physics in overscan, it can't
+        sta StateTimer          ; fit) — or the endless run is over:
+        lda #STATE_SCORE        ; the score, a beat before fire counts
+.setState:
+        sta State
+        rts
 
 ; ---------------------------------------------------------------
 ; AtHome: X = character. Carry SET if that character is standing on
@@ -963,11 +1018,27 @@ DoneLogic:
         beq .advance
         rts
 .advance:
+        bit Mode                ; the endless game: no narration, the
+        bpl .story              ; annex counts it and draws a floor,
+        ldy #JOB_NEXTFLOOR      ; and its return goes straight back to
+        jmp GoAnnex             ; our caller
+.story:
         inc FloorSeq            ; the lamps are finished. The annex shows
         lda #STATE_STORY        ; screen FloorSeq (the narration after
                                 ; floor n is screen n), and goes back to
                                 ; the title once FloorSeq is NUM_FLOORS
         sta State
+        rts
+
+; SetPlayers: Active2 from Mode's bit 6: $FF one player, 1 two (joystick
+; 2 starts on Alex). Bank 1 keeps its own copy for the title's SELECT.
+SetPlayers:
+        SUBROUTINE
+        ldx #$FF
+        bit Mode
+        bvc .one
+        ldx #1
+.one:   stx Active2
         rts
 
 ; ---------------------------------------------------------------
@@ -3070,7 +3141,7 @@ Bank1Top:
         jmp AnnexJob
         lda BANK0HOT            ; GoBackBank0
         rts
-        ldy #$FF                ; ColdStart
+        ldy #0                  ; ColdStart
         sei                     ; WarmStart
         cld
         lda BANK0HOT
@@ -3103,6 +3174,10 @@ Bank1Entry:
         lda State
         cmp #STATE_TITLE
         beq TitleFrame
+        cmp #STATE_SCORE
+        bne .story
+        jmp ScoreFrame
+.story:
         jmp StoryFrame          ; STATE_STORY
 
 ; ---------------------------------------------------------------
@@ -3128,11 +3203,15 @@ TitleFrame:
         lda SWCHB               ; console RESET (cold start, as bank 0)
         lsr
         bcs .noReset
-        ldy Active2
+        ldy Mode
         jmp WarmStart
 .noReset:
         lda #TITLE_SKY          ; the dusk gradient, banded (the annex
-        sta Temp                ; has its own copy of GradOfs — the
+        bit Mode                ; has its own copy of GradOfs — the
+        bpl .dusk               ; two banks can't read each other's
+        lda #EMBER_SKY          ; ROM); ember for the endless game
+.dusk:
+        sta Temp
         ldx #11                 ; two banks can't read each other's ROM)
 .grad:
         lda GradOfs1,x
@@ -3143,21 +3222,19 @@ TitleFrame:
         bpl .grad
         lda #0                  ; screen 0 = the logo + the game's word
         jsr LoadStory1
-        lda SWCHB               ; SELECT: one player or two (#47) —
-        and #2                  ; a period game variation, shown in the
-        bne .selUp              ; game's own picture, not a menu
-        bit UpPrev
-        bpl .selDone            ; held: one toggle per press
-        lda #0
+        lda SWCHB               ; SELECT steps through four games (#47,
+        and #2                  ; #52): one player, two, endless one,
+        bne .selUp              ; endless two — period game variations,
+        bit UpPrev              ; shown in the game's own picture (the
+        bpl .selDone            ; figures, the ember sky), not a menu.
+        lda #0                  ; Held: one step per press
         sta UpPrev
-        lda Active2
-        bmi .toTwo
-        lda #$FF
-        bne .setCount
-.toTwo:
-        lda #1
-.setCount:
-        sta Active2
+        lda Mode
+        clc
+        adc #$40
+        and #$C0
+        sta Mode
+        jsr SetPlayers1
         jmp .selDone
 .selUp:
         lda #$80
@@ -3192,8 +3269,21 @@ TitleFrame:
         bpl .inputDone
         lda #0
         sta FirePrev
+        sta RunHi               ; a fresh run: the clock and the count
+        lda Mode                ; (the story zeroes RunLo after the
+        and #$C0                ; opening, whose phase byte it is)
+        sta Mode
+        bmi .endless
+        lda #0
         sta FloorSeq            ; start at the first floor
         lda #STATE_OPEN         ; bank 0 sets the opening up next frame
+        bne .begin
+.endless:
+        lda #0                  ; the endless game skips the opening
+        sta RunLo               ; and the narration: a floor at random,
+        jsr PickFloor           ; loaded by bank 0 next frame
+        lda #STATE_LOAD
+.begin:
         sta State
         jmp .inputDone
 .release:
@@ -3239,7 +3329,7 @@ StoryFrame:
         lda SWCHB               ; console RESET returns to the title
         lsr
         bcs .noReset
-        ldy Active2
+        ldy Mode
         jmp WarmStart           ; this bank's own copy: maps bank 0
 .noReset:
         lda FloorSeq            ; after floor n, screen n (bank 0 has
@@ -3259,7 +3349,9 @@ StoryFrame:
         sta State
         jmp .inputDone
 .toTitle:
-        lda #STATE_TITLE
+        lda #60                 ; the run's time, a beat before fire
+        sta StateTimer          ; counts (Game 1's epilogue)
+        lda #STATE_SCORE
         sta State
         jmp .inputDone
 .release:
@@ -3282,7 +3374,268 @@ StoryFrame:
                                 ; cost a line (every narration frame
                                 ; was 263)
         beq StoryFrame
+        cmp #STATE_SCORE        ; the last narration gives way to the
+        bne .toBank0            ; score: same bank, straight there. Via
+        jmp ScoreFrame          ; bank 0's handover its VSYNC fell past
+.toBank0:                       ; cycle 42, and the frame ran 263
         jmp GoBank0
+
+; ---------------------------------------------------------------
+; ScoreFrame: the run's numbers (decision #52), held until fire, then
+; the title. The story shows its time ("  312 "); the endless game its
+; floors and time ("14 312"). Game 1's epilogue digits: six glyphs of
+; 48px sprite text, the same positions and the same kernel. A clock
+; "second" is 64 frames, as everywhere in this game. Over the
+; ember sky when the run was endless, the black of the story's end
+; otherwise.
+; ---------------------------------------------------------------
+
+ScoreFrame:
+        SUBROUTINE
+        lda #2
+        sta VBLANK
+        sta VSYNC
+        sta WSYNC
+        sta WSYNC
+        sta WSYNC
+        lda #0
+        sta VSYNC
+        lda #49
+        sta TIM64T
+        inc FrameCtr
+        lda SWCHB               ; console RESET returns to the title
+        lsr
+        bcs .noReset
+        ldy Mode
+        jmp WarmStart
+.noReset:
+        ; --- the six glyphs, into SkyGrad+0..5 (the title rebuilds it)
+        lda RunLo               ; seconds, capped at 999
+        sta CY
+        lda RunHi
+        sta CYH
+        ldy #0                  ; hundreds
+.hund:
+        cpy #10
+        bcs .cap
+        lda CY
+        sec
+        sbc #100
+        tax
+        lda CYH
+        sbc #0
+        bcc .hDone
+        sta CYH
+        stx CY
+        iny
+        bne .hund
+.cap:
+        ldy #9
+        lda #99
+        sta CY
+.hDone:
+        lda #10                 ; blank
+        sta SkyGrad+0
+        sta SkyGrad+1
+        sta SkyGrad+2
+        sta SkyGrad+5
+        tya
+        ldx #2                  ; the story: "  HTO "
+        bit Mode
+        bpl .place
+        ldx #3                  ; endless:   "FF HTO"
+.place:
+        sta SkyGrad,x
+        lda CY
+        jsr Tens1
+        sty SkyGrad+1,x
+        sta SkyGrad+2,x
+        bit Mode
+        bpl .glyphs
+        lda Mode                ; floors survived, no leading zero
+        and #$3F
+        jsr Tens1
+        sta SkyGrad+1
+        tya
+        bne .tens
+        lda #10
+.tens:
+        sta SkyGrad+0
+.glyphs:
+        ldx #10
+.glyph:
+        txa
+        lsr
+        tay
+        lda SkyGrad,y
+        jsr SetGlyph1
+        dex
+        dex
+        bpl .glyph
+        ; --- the 48px setup: Game 1's EnterWin
+        lda #$03
+        sta NUSIZ0              ; three close copies of each player
+        sta NUSIZ1
+        lda #1
+        sta VDELP0
+        sta VDELP1
+        lda #48
+        ldx #0
+        jsr SetHorizPos1
+        lda #56
+        ldx #1
+        jsr SetHorizPos1
+        sta WSYNC
+        sta HMOVE
+        lda #0                  ; the story's black, or ember
+        bit Mode
+        bpl .bg
+        lda #EMBER_SKY
+.bg:
+        sta COLUBK
+        ; --- fire, after a beat
+        lda StateTimer
+        beq .armed
+        dec StateTimer
+        jmp .inputDone
+.armed:
+        lda INPT4
+        and #$80
+        bne .release
+        bit FirePrev
+        bpl .inputDone
+        lda #0
+        sta FirePrev
+        lda #STATE_TITLE
+        sta State
+        bne .inputDone
+.release:
+        lda #$80
+        sta FirePrev
+.inputDone:
+        sta HMCLR
+.wv:
+        bit TIMINT
+        bpl .wv
+        lda #0
+        sta WSYNC
+        sta VBLANK
+        ldx #SCORE_TOP
+        jsr BlankLines1
+        jsr DigitBlock1         ; 15 lines
+        ldx #SCORE_BOTTOM
+        jsr BlankLines1
+        jsr AnnexOverscan
+        lda State
+        cmp #STATE_SCORE
+        bne .out
+        jmp ScoreFrame
+.out:
+        jmp Bank1Entry          ; the title, in this bank
+
+; Tens1: A = 0..99. Returns Y = tens, A = ones.
+Tens1:
+        SUBROUTINE
+        ldy #0
+.t:
+        cmp #10
+        bcc .done
+        sbc #10
+        iny
+        bne .t
+.done:
+        rts
+
+; SetGlyph1: A = glyph (10 = blank), X = TPtr slot offset. Game 1's
+; SetGlyph.
+SetGlyph1:
+        SUBROUTINE
+        sta Temp
+        asl
+        asl
+        asl
+        sec
+        sbc Temp                ; A = glyph * 7
+        clc
+        adc #<DigitFont1
+        sta TPtr,x
+        lda #>DigitFont1
+        adc #0
+        sta TPtr+1,x
+        rts
+
+; BlankLines1: X = how many scanlines of nothing
+BlankLines1:
+        SUBROUTINE
+.b:
+        sta WSYNC
+        dex
+        bne .b
+        rts
+
+; DigitBlock1: fourteen scanlines of six-glyph 48px sprite text (VDEL
+; cascade, three close copies per player), rows from the TPtr glyph
+; pointers. Game 1's DigitBlock, verbatim: its stores land where the
+; copies are drawn only at Game 1's positions (48 and 56).
+DigitBlock1:
+        SUBROUTINE
+        lda #$0E
+        sta COLUP0
+        sta COLUP1
+        lda #6
+        sta BoxIdx              ; glyph row (stored bottom-up)
+.drow:
+        ldy BoxIdx
+        lda (TPtr),y
+        sta GRP0                ; VDEL: pending until GRP1 write
+        sta WSYNC               ; ---- row, first scanline
+        lda (TPtr+2),y
+        sta GRP1
+        lda (TPtr+4),y
+        sta GRP0
+        lda (TPtr+6),y
+        sta Temp
+        lda (TPtr+8),y
+        tax
+        lda (TPtr+10),y
+        tay
+        lda Temp
+        sta GRP1
+        stx GRP0
+        sty GRP1
+        sta GRP0
+        ldy BoxIdx
+        lda (TPtr),y
+        sta GRP0
+        sta WSYNC               ; ---- row, second scanline
+        lda (TPtr+2),y
+        sta GRP1
+        lda (TPtr+4),y
+        sta GRP0
+        lda (TPtr+6),y
+        sta Temp
+        lda (TPtr+8),y
+        tax
+        lda (TPtr+10),y
+        tay
+        lda Temp
+        sta GRP1
+        stx GRP0
+        sty GRP1
+        sta GRP0
+        dec BoxIdx
+        bpl .drow
+        lda #0
+        sta WSYNC               ; end the last row's line here (@~65):
+        sta GRP0                ; Game 1 clears and returns first and
+        sta GRP1                ; its next WSYNC lands late, a 263rd
+        sta GRP0                ; line. The clear is in hblank now.
+        rts                     ; GRP0 twice: with VDEL on, P1 shows its
+                                ; old copy, which only a GRP0 write
+                                ; updates. Game 1's sixth glyph is always
+                                ; blank, so it never showed; "FF HTO"
+                                ; ends on a digit, and left three white
+                                ; stripes down the screen
 
 ; ---------------------------------------------------------------
 ; AnnexOverscan: the shared blank-and-wait tail of both annex frames.
@@ -3303,6 +3656,8 @@ AnnexOverscanNow:               ; (or already into the next: blanking
         sta PF0
         sta PF1
         sta PF2
+        sta VDELP0              ; the score's digits delay both players;
+        sta VDELP1              ; nothing else may inherit that
         lda #28
         sta TIM64T
 .waitOS:
@@ -3598,7 +3953,55 @@ AnnexJob:
 .2:     dey
         bne .3
         jmp WakePost            ; JOB_WAKEPOST  = 2
-.3:     jmp UpdateSound         ; JOB_SOUND     = 3
+.3:     dey
+        bne .4
+        jmp UpdateSound         ; JOB_SOUND     = 3
+.4:                             ; JOB_NEXTFLOOR = 4: the endless game's
+        lda Mode                ; floor is done. Count it (to 63), draw
+        and #$3F                ; another, and bank 0 loads it next frame
+        cmp #$3F
+        bcs .capped
+        inc Mode
+.capped:
+        jsr PickFloor
+        lda #STATE_LOAD
+        sta State
+        jmp GoBackBank0
+
+; PickFloor: FloorSeq = a floor at random, never the one just played.
+; The frame counter is the dice: when a floor ends, or fire is pressed
+; on the title, depends on the player to the frame.
+PickFloor:
+        SUBROUTINE
+        lda FrameCtr
+        eor RunLo
+.mod:
+        cmp #NUM_FLOORS
+        bcc .got
+        sbc #NUM_FLOORS         ; carry set by the cmp
+        bcs .mod
+.got:
+        cmp FloorSeq
+        bne .new
+        tax                     ; the same floor again: the next one
+        inx
+        txa
+        cmp #NUM_FLOORS
+        bcc .new
+        lda #0
+.new:
+        sta FloorSeq
+        rts
+
+; SetPlayers1: bank 0's SetPlayers, for the title's SELECT.
+SetPlayers1:
+        SUBROUTINE
+        ldx #$FF
+        bit Mode
+        bvc .one
+        ldx #1
+.one:   stx Active2
+        rts
 
 ; ---------------------------------------------------------------
 ; UpdateSound: game 1's one-channel effect engine — jump, land, and
@@ -3843,6 +4246,23 @@ WakePost:
         ldx #2
 .done:
         jmp GoBackBank0
+
+; Game 1's digit font (rows bottom-up), for the score. 77 bytes in
+; one page: a page-crossing (TPtr),y costs a cycle and would push the
+; 48px stores off their pixels.
+        ALIGN 128
+DigitFont1:
+        .byte $3C,$66,$66,$66,$66,$66,$3C   ; 0
+        .byte $7E,$18,$18,$18,$18,$38,$18   ; 1
+        .byte $7E,$60,$30,$0C,$06,$66,$3C   ; 2
+        .byte $3C,$66,$06,$1C,$06,$66,$3C   ; 3
+        .byte $0C,$0C,$7E,$6C,$3C,$1C,$0C   ; 4
+        .byte $3C,$66,$06,$06,$7C,$60,$7E   ; 5
+        .byte $3C,$66,$66,$7C,$60,$66,$3C   ; 6
+        .byte $30,$30,$30,$18,$0C,$06,$7E   ; 7
+        .byte $3C,$66,$66,$3C,$66,$66,$3C   ; 8
+        .byte $3C,$66,$06,$3E,$66,$66,$3C   ; 9
+        .byte $00,$00,$00,$00,$00,$00,$00   ; 10: blank
 
 ; ---------------------------------------------------------------
 ; Annex data: the logo (ported from Game 1; 8-byte tables must not

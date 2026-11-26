@@ -2186,3 +2186,75 @@ stack is still 6 bytes deep at most.
 
 **Cost:** bank 0 went from 124 to 459 bytes free; bank 1 from about
 2,120 to 1,979.
+
+## 52. Game 2: Endless, Its Score, and the Run Clock
+
+**Status:** Accepted (2026-11-26). Game 1's endless game and run clock
+come to Game 2, with one addition: the endless score shows floors
+survived *and* time survived.
+
+**What a player sees:**
+- **SELECT on the title steps through four games:** one player, two
+  players, endless with one, endless with two. The figures under the
+  title show the player count, as before. The endless games turn the
+  title sky ember, which is how Game 1 marks its endless game.
+- **The endless game** skips the opening and the narration. Each floor
+  is drawn at random from all nine, never the same one twice running.
+  The clock starts at 45 seconds and loses two a floor, never going
+  under 12 (Game 1's numbers). When it runs out, the run is over.
+- **The run clock** counts every second played, timed or not, from
+  floor 1 to the end.
+- **The score screen** follows the story's last narration, or the end
+  of an endless run. It uses Game 1's six-character digits: the story
+  shows its time (`  312 `), the endless game its floors and time
+  (`14 312`), over black or the ember sky. Fire returns to the title
+  after a one-second beat, and the chosen game survives console RESET.
+
+**RAM:** one byte. `Mode` holds the endless flag, the player count and
+the floor count (bit 7, bit 6, bits 5-0, the count stopping at 63).
+RESET passes it in Y, as it passed `Active2` before. The run clock's
+low byte is the opening's phase byte, which is dead once the opening
+hands over; that is when the clock is zeroed. The floor clock no longer
+needs its own on/off byte: an untimed floor keeps `TimerSec` at `$FF`.
+Spare RAM went from 4 bytes to 3. A clock "second" is 64 frames, as the
+floor clock's is.
+
+**Found on the way:**
+- **Game 1's digit routine has a latent fault.** With VDEL on, P1 shows
+  a delayed copy that only a `GRP0` write updates, and the routine
+  clears `GRP0` before `GRP1`, so P1 keeps the last row of the sixth
+  character. Game 1's sixth character is always blank, so it never
+  showed; `14 312` ends on a digit and drew three white stripes down
+  the screen. The routine also returns after its line has ended, so
+  its next WSYNC lands late. Both are fixed in Game 2's copy, and the
+  picture renderer now models VDEL, which is how the stripes showed.
+- **The harness rounded frame lengths.** It divided a frame's cycles by
+  76 and rounded, so a 262.54-line frame read 263 and a 262.45-line one
+  would read 262. It now counts scanline boundaries between VSYNCs,
+  which is what the TV sees. That exposed three handovers that really
+  were 263 lines: the frame after console RESET (start-up now ends on a
+  WSYNC), the last narration into the score (it now jumps there
+  directly), and the narration into the next floor. Bank 1 now hands
+  frames back past bank 0's check of which bank a state belongs to,
+  which is never needed on that path and cost the time it didn't have.
+  Every frame writes VSYNC at cycle 38-42 of its line; across a long
+  random run the latest any screen change writes it is cycle 65.
+- **The opening's last frame** loaded floor 1 as well as running the
+  opening's physics, and ran to 263 lines. It now goes through
+  `STATE_LOAD`, like every other screen change.
+- **The level checker's table-length test** could not tell bank 0's
+  labels from bank 1's (both banks sit at `$F000`) and had been
+  comparing against both. It now reads which labels the source puts in
+  bank 1, including its include files.
+
+**Checked:** a new endless test plays nineteen floors and checks the
+clock (45, 43, … 13, 12, 12), the count, that no floor repeats back to
+back, that six or more different floors come up, that no narration
+appears, that the count stops at 63, and that the run ends on the
+score and returns to the title. The walkthrough now ends on the score
+and checks the run clock against the frames played. SELECT is checked
+through all four games and across RESET. Every frame of all of it is
+262 lines.
+
+**Cost:** bank 0 went from 459 to 387 bytes free; bank 1 from about
+1,980 to 1,307 (the digit font is aligned so it never crosses a page).

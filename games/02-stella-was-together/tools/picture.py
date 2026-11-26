@@ -8,7 +8,7 @@ cycle it lands on; this replays that log onto a 160x192 picture. It
 models the playfield (both halves, repeated or mirrored), both players
 (position from RESPx and HMOVE, NUSIZ copies and double width, REFPx)
 and the colour registers, which is all Game 2 draws with. It does not
-model missiles, the ball, VDEL or HMOVE's comb, and colours are an
+model missiles, the ball or HMOVE's comb, and colours are an
 approximate NTSC palette.
 
     python3 tools/picture.py ROM SYM OUTDIR
@@ -53,6 +53,7 @@ def render(log):
     """log: one frame of (cycle, register, value); -1 marks a line start."""
     reg = [0] * 64
     reg[0x01] = 2                               # a frame starts in VBLANK
+    new, old = [0, 0], [0, 0]                   # GRPx and its VDEL copy
     pos = [3, 3]
     marks = [c for c, r, _ in log if r == -1]
     starts = []                                 # a line every 76 cycles,
@@ -81,6 +82,10 @@ def render(log):
                 _, r, v = cc_events[k]
                 k += 1
                 reg[r] = v
+                if r == 0x1B:                    # GRP0: P1's delayed copy
+                    new[0], old[1] = v, new[1]   # takes P1's pending byte
+                elif r == 0x1C:
+                    new[1], old[0] = v, new[0]
                 if r in (0x10, 0x11):            # RESP0 / RESP1
                     pos[r - 0x10] = 3 if cc < 68 else (cc - 68 + 5) % 160
                 elif r == 0x2A:                  # HMOVE
@@ -120,7 +125,8 @@ def render(log):
                         bit = d // w
                         if reg[0x0B + p] & 8:
                             bit = 7 - bit
-                        if reg[0x1B + p] >> (7 - bit) & 1:
+                        g = old[p] if reg[0x25 + p] & 1 else new[p]
+                        if g >> (7 - bit) & 1:
                             col = reg[0x06 + p]
             line.append(col)
         if drawn:
@@ -173,13 +179,34 @@ def main():
     log2 = frame(r)
     save(render(log2), os.path.join(out, "play-2p-next.png"))
     H.press(r, reset=True)
-    H.press(r, select=True)
+    H.press(r, select=True)                     # two -> endless one
+    save(render(frame(r)), os.path.join(out, "title-endless.png"))
+    H.press(r, select=True)                     # -> endless two
+    H.press(r, select=True)                     # -> the story, one player
     H.press(r, fire0=True)
     while r.r("State") != sym["STATE_PLAY"]:
         H.press(r, fire0=True)
     H.settle(r, 40)
     save(render(frame(r)), os.path.join(out, "play-1p.png"))
-
+    # the score screens, reached as the game reaches them: an endless
+    # run's clock runs out (State can't be poked at a frame boundary:
+    # bank 0 has already chosen its bank by the VSYNC that starts one)
+    H.press(r, reset=True)
+    H.press(r, select=True)                     # -> endless one
+    H.press(r, fire0=True)
+    while r.r("State") != sym["STATE_PLAY"]:
+        r.step_frame()
+    r.w("Mode", 0x80 | 14)
+    r.w("RunLo", 312 & 255)
+    r.w("RunHi", 312 >> 8)
+    r.w("TimerSec", 0)
+    while r.r("State") != sym["STATE_SCORE"]:
+        r.step_frame()
+    H.settle(r, 2)
+    save(render(frame(r)), os.path.join(out, "score-endless.png"))
+    r.w("Mode", 0)                              # the story's layout
+    H.settle(r, 2)
+    save(render(frame(r)), os.path.join(out, "score-story.png"))
 
 if __name__ == "__main__":
     main()

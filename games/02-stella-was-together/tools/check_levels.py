@@ -73,6 +73,7 @@ tops out at feet 18) hold regardless.
 Usage: python3 tools/check_levels.py build/stella-was-together.bin \
                 build/main.sym src/main.asm
 """
+import os
 import re
 import sys
 
@@ -130,14 +131,20 @@ def load(bin_path, sym_path, asm_path):
     # on three floors. This asserts the property for every such table
     # at once, so the next one added is checked for free.
     #
-    # Both banks map at $F000, so symbols are compared within a bank:
-    # a bank-0 symbol at $fabc and a bank-1 symbol at $f010 are 4096
-    # apart, not 0.
+    # Both banks are placed at $F000, so their addresses overlap and a
+    # symbol's value can't say which bank it is in (this once tested
+    # bit $1000, which both banks share). The source can: every label
+    # defined after `SEG BANK1` is bank 1's, and those never bound a
+    # bank-0 table.
+    b1src = asm[asm.index("SEG BANK1"):]
+    for inc in re.findall(r'^\s+include\s+"([^"]+)"', b1src, re.M):
+        b1src += open(os.path.join(os.path.dirname(asm_path), inc)).read()
+    bank1 = set(re.findall(r"^([A-Za-z_]\w*):?\s", b1src, re.M))
     def span(name):
-        """Bytes available to `name` before the next symbol in its bank."""
+        """Bytes available to `name` before the next bank-0 symbol."""
         base = syms[name]
-        bank = base & 0x1000
-        nxt = [a for a in syms.values() if (a & 0x1000) == bank and a > base]
+        nxt = [a for n, a in syms.items()
+               if n not in bank1 and 0xF000 <= a and a > base]
         return min(nxt) - base if nxt else 0x1000
 
     def need(name, count, why):
