@@ -11,7 +11,28 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-27): two voices
+## Status (2026-11-27): release candidate 1
+
+- **v1.0-rc1** is on the series page:
+  `downloads/stella-was-together-v1.0-rc1.bin`, built from this source.
+  Not yet played on hardware or by a second person: two players,
+  endless, the music and the floor 1-9 walkthroughs want a hand check.
+
+## Earlier (2026-11-27): the manual
+
+- **The manual** (decision #59): [`MANUAL.md`](MANUAL.md) and the
+  printable booklet [`manual/manual.html`](manual/manual.html), in Game
+  1's form: the story, the cast, the tower's tricks, every floor, the
+  sky, the music, the switches, how it links to Game 1, "Made the 8K
+  way", how it was made, then Behind the Design and a walkthrough
+  printed upside down.
+- **`make pictures`** draws its 28 pictures from the ROM's own frames
+  (`tools/manual_pictures.py`).
+- The harness now plays Marcus's way home on floor 10 (from Stella's
+  head; the bare ledge is too far), so both Act 4 walkthroughs are
+  played in the ROM.
+
+## Earlier (2026-11-27): two voices
 
 - **Music** (decision #58): Game 1's lament on channel 1, note for
   note, with a low root held under each phrase on channel 0. The
@@ -115,7 +136,8 @@ puzzles, and a spatial toolkit that grows across the game.
    seen on a screen or played by a person.
 6. ~~Per-act skies~~ done (decision #57); ~~the second sound voice~~
    done (#58). Not yet heard in an emulator or on hardware.
-7. A manual, as Game 1 has; #57 drafts its sky section.
+7. ~~A manual~~ done (decision #59): `MANUAL.md` and the booklet
+   `manual/manual.html`, pictures by `make pictures`.
 
 Floors 8 and 9 are the same two worlds with A and B exchanged, so their
 reach figures match; the solver now also proves floor 9's "there and
@@ -236,7 +258,7 @@ world-swap re-attaches in Act 3.
       for the controlled character — and hold steady when their owner
       stands home), and Floor 1's shape echo (Alex's ledge is double-wide,
       like him)
-- [x] **The completion beat** (`STATE_DONE`): Game 1's goal fanfare and its
+- [x] **The completion beat** (`STATE_DONE`): the homecoming chord (#58; was Game 1's goal fanfare) and its
       90-frame hold, so a floor's closing image — all three standing home
       together, which is what decision #26 exists for — gets seen instead of
       cut straight to text. The dusk sky takes a gentle 2-luma breath (Game 1

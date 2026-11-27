@@ -135,7 +135,8 @@ def render(log):
 
 
 def save(rows, path):
-    img = Image.new("RGB", (160 * SCALE, len(rows) * SCALE))
+    width = min(160, max(len(line) for line in rows))   # a crop is narrower
+    img = Image.new("RGB", (width * SCALE, len(rows) * SCALE))
     px = img.load()
     for y, line in enumerate(rows):
         for x, c in enumerate(line[:160]):

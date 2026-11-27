@@ -2640,3 +2640,61 @@ then the two-voice chord; the narration is silent.
 
 **Cost:** bank 0, 5 bytes (71 free); bank 1, about 300 bytes (805
 free).
+
+## 59. Game 2: The Manual
+
+**Status:** DECIDED (2026-11-27).
+
+Game 2 gets a manual in Game 1's form: `MANUAL.md` (the text, readable
+on GitHub) and `manual/manual.html` (the booklet, with a cover, figures
+and print styles). Same sections in the same order, so the two read as
+a set: the world, the cast, getting started, how a floor works, the
+story game, endless, the clock, switches, tips, about this cartridge,
+a spoiler warning, Behind the Design, and the walkthrough.
+
+**New sections for this game.** "The Tower's Tricks" (the edges, doors,
+two truths: one act each, never taken away), "The Sky" (#57's story:
+the hour before dawn), "The Music" (#58, told without music theory),
+"Two Players", and under About This Cartridge, "From the First Game"
+(Marcus is Game 1's stranger; same sizes and colours to the byte; the
+lament, with a voice under it; what changed).
+
+**Made the 8K way.** Game 1's page says it keeps to 1977's rules. Game
+2's says it takes the next step the real 2600 took: Atari's first 8K
+cartridge was *Asteroids* in 1981, which did not fit in 4K and carried
+two banks switched by the F8 scheme this cartridge uses
+([Wikipedia](https://en.wikipedia.org/wiki/Asteroids_(video_game)),
+[Atari Compendium](https://ataricompendium.com/archives/articles/longevity/longevity.html)).
+The room went on what a game of 1981 would spend it on, and the
+console, its 128 bytes and its switches are unchanged.
+
+**How it was made.** The same disclosure as Game 1: generative AI
+models, no vendor named, and that Michael reviewed, edited and approved
+all of it. It names what the build's programs check, now including the
+ROM playing floors 10 and 11 move by move and listening to the music.
+
+**The walkthrough, hidden (sort of).** As in Game 1: behind a spoiler
+page, printed upside down in the booklet with a "Turn it over" button,
+and in `<details>` in the markdown. Floors 1-9 are written from the
+floor records and the solver's proofs; floors 10 and 11 are the orders
+the harness plays in the ROM.
+
+**Floor 10's Marcus, found while writing it.** The record's comment
+said Marcus drops from the seam ledge onto the centre ledge. #55 had
+already found that he can't, and the harness never played his part.
+Tested in the ROM: from the bare seam ledge no leap lands (he is 50 px
+short of the centre with about 46 px of airtime); from Stella's head at
+the inner end of her home he lands with room to spare. `the_seam` now
+checks both, and the walkthrough gives the real order: Alex swaps from
+Stella's head, which drops her home; then Marcus leaps from her head.
+
+**Pictures.** `make pictures` (`tools/manual_pictures.py`) renders 28
+real frames through `tools/picture.py`. Two frames are merged for each,
+keeping coloured pixels, because the two characters you don't control
+take turns on screen; every hue is a character or a lamp (#27), so the
+merge can't invent anything. Lamps are caught in their lit phase.
+
+**Not done.** The landing page still lists Game 2 as coming soon, so
+the manual isn't linked from it. Game 2's floor names in the source
+(one comment still said "His Own Truth" for floor 9) were brought into
+line with the manual.

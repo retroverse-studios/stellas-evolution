@@ -17,8 +17,8 @@ awareness of their world.
 
 | # | Title | Tech | Theme | Status |
 |---|-------|------|-------|--------|
-| 1 | **Stella Was Alone** | 4K, no bankswitching | Existence & isolation | In design |
-| 2 | **Stella Was Together** | 8K, F8 bankswitching | Connection & difference | Planned |
+| 1 | **Stella Was Alone** | 4K, no bankswitching | Existence & isolation | Release candidate ([v1.0-rc2.1](downloads/stella-was-alone-v1.0-rc2.1.bin), [manual](games/01-stella-was-alone/MANUAL.md)) |
+| 2 | **Stella Was Together** | 8K, F8 bankswitching | Connection & difference | Release candidate ([v1.0-rc1](downloads/stella-was-together-v1.0-rc1.bin), [manual](games/02-stella-was-together/MANUAL.md)) |
 | 3 | **Stella's Journey** | 16K, F6 bankswitching | Purpose & complexity | Planned |
 | 4 | **Stella Was Aware** | ARM coprocessor (Harmony/Melody-class) | Meta-awareness & transcendence | Planned |
 

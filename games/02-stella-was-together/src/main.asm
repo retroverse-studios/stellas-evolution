@@ -40,7 +40,7 @@
 ;         "Two Truths" (the approach ladder is only true in B), F8
 ;         "The Handoff" (neither world alone suffices), F9 "The Way
 ;         Home" (the stairs are in B, the homes in A: swap back).
-;   * boot flow: title -> wake-up -> floors 1-10 (each followed by its
+;   * boot flow: title -> wake-up -> floors 1-11 (each followed by its
 ;     narration) -> back to the title.
 ;
 ; Adding a floor is: one row in each Floor* table + one record (with
@@ -103,7 +103,7 @@ NUM_FLOORS  = 11        ; Act 1 (wrap):   Together Again / The Low Door
                         ; Act 2 (portal): The Fold / The High Door / The
                         ;   Cross
                         ; Act 3 (worlds): Two Truths / The Handoff /
-                        ;   His Own Truth
+                        ;   The Way Home
                         ; Act 4 (finale): The Seam / Where They
                         ;   Meet
 

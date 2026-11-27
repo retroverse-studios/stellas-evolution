@@ -51,10 +51,18 @@ ram: $(ROM)
 picture: $(ROM)
 	python3 tools/picture.py $(ROM) build/main.sym build/pictures
 
+# The manual's pictures (manual/pictures), real frames of the game drawn
+# by tools/manual_pictures.py: the title, the waking, every floor (both
+# worlds from floor 7), the cast, narration and the score. Needs Pillow.
+# Not part of `make`: a picture is documentation, and it changes only
+# when the game does.
+pictures: $(ROM)
+	python3 tools/manual_pictures.py $(ROM) build/main.sym manual/pictures
+
 run: $(ROM)
 	stella $(ROM)
 
 clean:
 	rm -rf build
 
-.PHONY: headless ram picture all check run clean
+.PHONY: headless ram picture pictures all check run clean

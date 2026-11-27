@@ -984,6 +984,28 @@ def the_seam(rom, sym, c):
            r.r("CurWorld") == 1 and at[1][0] == h[1][0] and at[0][0] == h[0][0]
            and h[0][1] <= at[0][1] < h[0][2] and h[1][1] <= at[1][1] < h[1][2],
            f"world {r.r('CurWorld')}, Stella {at[0]}, Alex {at[1]}")
+    # Marcus last (the solver's order: Alex, Marcus, Stella). From the
+    # bare seam ledge the centre is out of reach; from Stella's head at
+    # the ledge's inner edge, still home, he leaps left onto it.
+    r._place(2, 140, 34)
+    r.w("Active", 2)
+    settle(r, 3)
+    c.that("the seam: Marcus can't leap to the centre from the bare seam ledge",
+           find_leap(r, 2, 56, 72, 88, dirs=("L",)) is None)
+    r.w("Active", 0)
+    for _ in range(12):                      # Stella walks to the inner edge
+        if r.r("CharX", 0) <= 144:
+            break
+        r.step_frame(stick0="L")
+    settle(r, 2)
+    r._place(2, 137, r.r("CharY", 0) - 6)    # Marcus up on her head
+    r.w("Active", 2)
+    settle(r, 3)
+    leap = find_leap(r, 2, 56, 72, 88, dirs=("L",))
+    settle(r, 2)
+    c.that("the seam: Marcus leaps from Stella's head onto the centre, and the floor is done",
+           leap is not None and r.r("State") == r.sym["STATE_DONE"],
+           f"leap {leap}, Stella x {r.r('CharX', 0)}, State {r.r('State')}")
 
 
 def find_leap(r, ci, feet, left, right, tries=70, dirs=("L", "R")):

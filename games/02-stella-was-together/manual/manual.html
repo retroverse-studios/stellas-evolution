@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stella Was Together — Game Program Instructions</title>
+<style>
+  :root{
+    --paper:#F7F3EA; --ink:#1C1A17; --red:#C8341F; --green:#2E7D46;
+    --blue:#3A5FA8; --amber:#E8A020; --cover:#141210; --desk:#CFC9BC;
+    --rule:#B9B2A2;
+  }
+  @media (prefers-color-scheme: dark){ :root{ --desk:#25221E; } }
+  :root[data-theme="dark"]{ --desk:#25221E; }
+  :root[data-theme="light"]{ --desk:#CFC9BC; }
+
+  body{ background:var(--desk); font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;
+        color:var(--ink); margin:0; padding:3rem 1rem 5rem; }
+  .page{ background:var(--paper); max-width:44rem; margin:0 auto 2.5rem;
+         padding:3.25rem 3.5rem 3.75rem; box-shadow:0 2px 4px rgba(0,0,0,.25), 0 12px 30px rgba(0,0,0,.18); }
+  @media (max-width:640px){ .page{ padding:2rem 1.4rem; } }
+
+  /* ---------- cover ---------- */
+  .cover{ background:var(--cover); color:#F2EEE4; padding:0; overflow:hidden; }
+  .cover-band{ display:flex; align-items:center; justify-content:space-between;
+               padding:1.1rem 1.6rem; border-bottom:1px solid #3a352e; }
+  .cover-band .brand{ font-size:.78rem; letter-spacing:.28em; font-weight:700; }
+  .badge{ width:2.4rem; height:2.4rem; border:2px solid #F2EEE4; display:grid; place-items:center;
+          font-weight:700; font-size:1.25rem; }
+  .cover h1{ font-weight:800; letter-spacing:-.01em; line-height:.95; margin:0;
+             font-size:clamp(2.6rem,7vw,4.2rem); font-stretch:condensed; text-transform:uppercase;
+             text-wrap:balance; }
+  .cover .title-block{ padding:2.6rem 1.6rem 0; }
+  .cover .title-block .over{ color:var(--amber); font-size:.8rem; letter-spacing:.3em;
+                             font-weight:700; margin:0 0 .8rem; }
+  .cover .art{ display:block; width:100%; margin-top:2.2rem; }
+  .cover-foot{ display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+               padding:1.1rem 1.6rem 1.4rem; font-size:.72rem; letter-spacing:.14em;
+               color:#B8B1A3; border-top:1px solid #3a352e; }
+
+  /* ---------- interior ---------- */
+  h2{ display:flex; align-items:baseline; gap:.7rem; font-size:1.15rem; letter-spacing:.12em;
+      font-weight:800; text-transform:uppercase; margin:2.6rem 0 .9rem;
+      border-bottom:4px solid var(--red); padding-bottom:.45rem; }
+  h2:first-child{ margin-top:0; }
+  h2 .num{ color:var(--red); font-size:1.5rem; }
+  h3{ font-size:.82rem; letter-spacing:.2em; text-transform:uppercase; font-weight:800;
+       color:var(--red); margin:2rem 0 .6rem; }
+  p{ line-height:1.55; margin:.7rem 0; max-width:62ch; }
+  .lede{ font-size:1.02rem; }
+  em{ font-style:italic; }
+  ul{ padding-left:1.2rem; max-width:62ch; line-height:1.55; }
+  li{ margin:.45rem 0; }
+  table{ border-collapse:collapse; margin:1rem 0; width:100%; font-size:.92rem; }
+  th{ text-align:left; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase;
+      border-bottom:2px solid var(--ink); padding:.4rem .6rem .35rem; }
+  td{ border-bottom:1px solid var(--rule); padding:.5rem .6rem; vertical-align:top; }
+  td:first-child{ font-weight:700; white-space:nowrap; }
+  .kbd{ font-weight:700; }
+  .fig{ margin:1.4rem 0; }
+  .fig svg{ display:block; max-width:100%; height:auto; }
+  .shot{ border:6px solid var(--ink); background:#000; }
+  .shot img{ display:block; width:100%; height:auto; image-rendering:pixelated; }
+  .page > .fig > .shot{ max-width:24rem; }       /* a lone frame, not a wall */
+  .page > .fig > .shot.wide{ max-width:none; }
+  .figcap{ font-size:.72rem; letter-spacing:.16em; text-transform:uppercase;
+           color:#6f6858; margin-top:.5rem; line-height:1.5; }
+  .cols{ display:flex; gap:2rem; flex-wrap:wrap; align-items:flex-start; }
+  .cols > div{ flex:1 1 16rem; }
+  .duo{ display:flex; gap:1.4rem; flex-wrap:wrap; align-items:flex-start; }
+  .duo > div{ flex:1 1 14rem; }
+  .callout{ border:2px solid var(--ink); padding: .9rem 1.1rem; margin:1.2rem 0; max-width:62ch; }
+  .callout p{ margin:.2rem 0; }
+
+  /* the ten rooms: picture and text, two to a row */
+  .rooms{ display:grid; grid-template-columns:1fr 1fr; gap:1.5rem 1.6rem; margin:1.4rem 0; }
+  .room{ display:grid; grid-template-columns:10rem 1fr; gap:.9rem; align-items:start; }
+  .room p{ font-size:.84rem; line-height:1.45; margin:0; }
+  .room p b{ color:var(--red); }
+  @media (max-width:720px){ .rooms{ grid-template-columns:1fr; } }
+
+  .footer-note{ margin-top:2.8rem; padding-top:1rem; border-top:1px solid var(--rule);
+                font-size:.8rem; color:#6f6858; }
+  .footer-note p{ margin:.35rem 0; }
+
+
+  /* the back of the book: a warning, the notes, and the answers upside down */
+  .warn{ border-top:10px solid var(--amber); }
+  .warn h2{ border-bottom-color:var(--amber); }
+  .warn h2 .num{ color:var(--amber); }
+  .answers{ transform:rotate(180deg); }
+  .answers.righted{ transform:none; }
+  .answers p{ font-size:.88rem; line-height:1.5; }
+  .turn{ font:inherit; font-size:.72rem; letter-spacing:.16em; text-transform:uppercase;
+         font-weight:700; background:transparent; color:var(--ink);
+         border:2px solid var(--ink); padding:.3rem .7rem; margin-left:.5rem; cursor:pointer; }
+  @media print{ .turn{ display:none; } .answers{ transform:rotate(180deg) !important; } }
+
+  @media print{
+    body{ background:#fff; padding:0; }
+    .page{ box-shadow:none; margin:0; max-width:none; page-break-after:always; }
+    .room, .fig, .duo, tr{ break-inside:avoid; }
+  }
+</style>
+
+<!-- ============================ COVER ============================ -->
+<section class="page cover">
+  <div class="cover-band">
+    <span class="brand">RETROVERSE&nbsp;STUDIOS</span>
+    <span class="badge">2</span>
+  </div>
+  <div class="title-block">
+    <p class="over">GAME PROGRAM™ INSTRUCTIONS</p>
+    <h1>Stella<br>Was Together</h1>
+  </div>
+  <svg class="art" viewBox="0 0 640 320" role="img" aria-label="Cover art: under a grey sky that lightens toward the horizon, a tall red rectangle stands on a ledge with a wide green rectangle on her head and a small blue square on his">
+    <!-- the sky: Act 4's ramp, black overhead to light grey at the horizon -->
+    <rect width="640" height="320" fill="#141210"/>
+    <rect y="0"   width="640" height="40" fill="#141210"/>
+    <rect y="40"  width="640" height="30" fill="#2B2925"/>
+    <rect y="70"  width="640" height="30" fill="#45423C"/>
+    <rect y="100" width="640" height="40" fill="#615D55"/>
+    <rect y="140" width="640" height="180" fill="#7E796F"/>
+    <!-- the tower's ledges -->
+    <rect x="0"   y="276" width="640" height="44" fill="#B9B2A2"/>
+    <rect x="404" y="150" width="236" height="12" fill="#B9B2A2"/>
+    <rect x="0"   y="196" width="150" height="12" fill="#B9B2A2"/>
+    <!-- the lamps: one per colour, on the high ledge -->
+    <rect x="446" y="138" width="40" height="12" fill="#C8341F"/>
+    <rect x="510" y="138" width="56" height="12" fill="#2E7D46"/>
+    <rect x="590" y="138" width="30" height="12" fill="#3A5FA8"/>
+    <!-- Stella, Alex on her head, Marcus on his -->
+    <rect x="286" y="164" width="46" height="112" fill="#C8341F"/>
+    <rect x="286" y="164" width="46" height="9" fill="#E05A3E"/>
+    <rect x="262" y="138" width="94" height="26" fill="#2E7D46"/>
+    <rect x="262" y="138" width="94" height="7" fill="#4BA268"/>
+    <rect x="288" y="98" width="40" height="40" fill="#3A5FA8"/>
+    <rect x="288" y="98" width="40" height="7" fill="#5B7FC4"/>
+    <!-- eyes -->
+    <rect x="318" y="180" width="5" height="5" fill="#F2EEE4"/>
+    <rect x="340" y="146" width="5" height="5" fill="#F2EEE4"/>
+    <rect x="314" y="110" width="5" height="5" fill="#F2EEE4"/>
+  </svg>
+  <div class="cover-foot">
+    <span>VIDEO GAME CARTRIDGE · 8K</span>
+    <span>FOR THE ATARI® 2600™ VIDEO COMPUTER SYSTEM™</span>
+  </div>
+</section>
+
+<!-- ============================ WORLD / CAST ============================ -->
+<section class="page">
+  <h2><span class="num">1</span> The World</h2>
+  <p class="lede">The world had changed. Expanded. Stella could feel it.</p>
+  <p>There were no more rows of small rooms. There was a tower, one floor
+     standing on another, and a sky over it that went on further than she
+     could jump. The grey was still grey. The lights were gone, and in
+     their place were ledges, each one lit in somebody’s colour, each one
+     somebody’s home.</p>
+  <p>Alex was still there. Low, wide, green, quick, and still not sure
+     about any of it.</p>
+  <p>And the small blue square from the end of the last world was there
+     too. In the dark, before anything else had arrived, it opened its
+     eyes.</p>
+  <p>Its name was Marcus. He was square, and he sat between them in every
+     way: not as tall as Stella, not as wide as Alex, a jump that was
+     neither the highest nor the lowest. He fitted places neither of them
+     could. Alex didn’t trust him. Too perfect, he thought. Too… square.</p>
+  <p>The tower did not care what Alex thought. Its floors were built for
+     three. Some of its ledges only Stella could climb to, some only Alex
+     could slip onto, and some only Marcus fitted. Most of them nobody
+     could reach alone at all.</p>
+  <p><em>Not every climb is made alone. Sometimes standing on someone else
+     is the only way up.</em></p>
+  <div class="fig">
+    <div class="shot"><img src="pictures/story-not-every-climb.png" alt="Text screen reading: not every climb is made alone"></div>
+    <p class="figcap">Between floors, Stella thinks. Press fire when you have read her thoughts</p>
+  </div>
+
+  <h2><span class="num">2</span> The Cast</h2>
+  <div class="fig">
+    <div class="shot wide"><img src="pictures/the-cast.png" alt="Stella, a tall red rectangle; Alex, a wide flat green rectangle; and Marcus, a small blue square, standing on one grey floor"></div>
+    <p class="figcap">Stella, Alex and Marcus, drawn to scale</p>
+  </div>
+  <h3>Stella</h3>
+  <p>Tall. Red. The highest jumper in the tower and the slowest walker. A
+     friend standing on her head reaches higher than anyone. She is the one
+     who wonders what is past the walls, and the words between floors are
+     hers.</p>
+  <p>Her jump lifts her a little over twice her own height. Under a low
+     ceiling that is no help at all.</p>
+  <h3>Alex</h3>
+  <p>Flat. Wide. Green. The fastest of the three and the lowest jumper by
+     a long way: his jump is less than half of Stella’s. A friend’s head
+     turns that into something. He is the practical one, and the last to
+     trust anybody new.</p>
+  <h3>Marcus</h3>
+  <p>A square. Blue. The newcomer. He walks faster than Stella and slower
+     than Alex, and jumps higher than Alex and lower than Stella. He is
+     shorter than Stella, so he fits under things she can’t. He is
+     narrower than Alex, so he fits into gaps Alex can’t. Game 1 ended on
+     him, breathing quietly under a number. This game opens on him.</p>
+</section>
+
+<!-- ============================ START / FLOORS ============================ -->
+<section class="page">
+  <h2><span class="num">3</span> Getting Started</h2>
+  <p>Insert the cartridge with the power OFF, then switch the console ON.
+     Use the <strong>left joystick controller</strong>, or both joysticks
+     for two players. Press the <strong>red controller button</strong> at
+     the title screen to begin.</p>
+
+  <div class="fig">
+    <svg viewBox="0 0 620 230" role="img" aria-label="Joystick diagram: left and right walk, up takes a door or changes the world, fire jumps, down plus fire changes who you control">
+      <rect x="230" y="130" width="160" height="70" rx="8" fill="none" stroke="#1C1A17" stroke-width="3"/>
+      <rect x="296" y="50" width="28" height="84" fill="none" stroke="#1C1A17" stroke-width="3"/>
+      <ellipse cx="310" cy="50" rx="24" ry="14" fill="#1C1A17"/>
+      <circle cx="256" cy="150" r="9" fill="#C8341F"/>
+      <g stroke="#1C1A17" stroke-width="3" fill="#1C1A17">
+        <line x1="185" y1="92" x2="240" y2="92"/><polygon points="180,92 194,85 194,99"/>
+        <line x1="380" y1="92" x2="435" y2="92"/><polygon points="440,92 426,85 426,99"/>
+        <line x1="310" y1="30" x2="310" y2="10"/><polygon points="310,4 303,18 317,18"/>
+      </g>
+      <g font-family="Helvetica Neue,Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#1C1A17" letter-spacing="1.5">
+        <text x="70" y="80">WALK</text><text x="450" y="80">WALK</text>
+        <text x="70" y="98">LEFT</text><text x="450" y="98">RIGHT</text>
+        <text x="335" y="18">UP = DOOR / CHANGE WORLD</text>
+        <text x="150" y="222">FIRE = JUMP</text>
+        <text x="320" y="222">DOWN + FIRE = CHANGE WHO</text>
+      </g>
+      <line x1="256" y1="156" x2="210" y2="206" stroke="#C8341F" stroke-width="2"/>
+    </svg>
+    <p class="figcap">Fig. 1. Your joystick controller</p>
+  </div>
+
+  <table>
+    <tr><th>Control</th><th>Action</th></tr>
+    <tr><td>Joystick LEFT / RIGHT</td><td>Walk</td></tr>
+    <tr><td>Fire button</td><td>Jump. On the title, start. On a screen of Stella’s thoughts, go on</td></tr>
+    <tr><td>DOWN + Fire</td><td>Change who you control: Stella, then Alex, then Marcus, then Stella again</td></tr>
+    <tr><td>UP</td><td>Go through a door, or change the world (see The Tower’s Tricks)</td></tr>
+  </table>
+  <p>The character you control is the one that never flickers. The other
+     two take turns on the screen, a frame each, so they shimmer a little.
+     That is the cartridge sharing out its sprites, and nothing is wrong.</p>
+  <p>The joystick steers in the air. A jump that is going to miss can often
+     be pulled back.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/title.png" alt="Title screen: STELLA in tall grey letters, the word TOGETHER beneath, on a grey sky, Stella standing alone below"></div>
+      <p class="figcap">The title screen. Press fire to begin</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/waking.png" alt="The waking: a dark sky, a grey totem and Marcus, a small blue square, with his eyes open"></div>
+      <p class="figcap">The story begins in the dark, with Marcus. Fire skips it</p>
+    </div>
+  </div>
+
+  <h2><span class="num">4</span> How a Floor Works</h2>
+  <p>Every character has a <strong>home</strong>: a ledge lit in their own
+     colour. The floor is finished when all three are standing on their own
+     homes <strong>at the same time</strong>. Nobody goes on ahead and
+     nobody is left behind.</p>
+  <div class="callout">
+    <p><strong>A blinking home is an empty one.</strong> The home of the
+       character you control blinks fast. The other empty homes blink
+       slowly. When its owner stands on it, a home holds steady and sounds
+       that character’s note. When the third one arrives, the three notes
+       play together and the floor is done.</p>
+  </div>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-01-together-again.png" alt="Floor 1: a three-step totem in the middle of a grey floor, its steps lit green, red and blue; Stella and Alex on the floor, Marcus on the lowest step"></div>
+      <p class="figcap">Floor 1: green for Alex at the bottom, red for Stella in the middle, blue for Marcus at the top</p>
+    </div>
+    <div>
+      <p>Four things a floor will not tell you:</p>
+      <ul>
+        <li><strong>Heads are steps.</strong> Anyone can stand on anyone.
+          Land on a friend from above; you pass through them from below or
+          from the side. A friend does not carry you when they walk, so step
+          off before they go.</li>
+        <li><strong>The edges join.</strong> Walk off the left of the screen
+          and you come in on the right. A ledge cut by the edge of the screen
+          is one ledge.</li>
+        <li><strong>Nothing kills you.</strong> There is nothing to fall into
+          and nothing to die of. A bad jump costs you a walk back.</li>
+        <li><strong>The sky is never solid.</strong> Everything you can stand
+          on is lighter than the sky behind it.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ TRICKS ============================ -->
+<section class="page">
+  <h2><span class="num">5</span> The Tower’s Tricks</h2>
+  <p>The tower teaches you three things, one act at a time, and never takes
+     one away once you have it.</p>
+  <h3>The edges (Act 1)</h3>
+  <p>The screen wraps round. In the first act the way to a home is sometimes
+     off the side of the screen and back in on the other.</p>
+  <h3>Doors (Act 2)</h3>
+  <p>A <strong>door</strong> is a thin column that blinks on and off. Stand in
+     it and push <strong>UP</strong>, and you come out at the door’s other
+     end, standing still. Only the character you control goes through. Doors
+     work in the air as well as on the ground. A door does not always go up:
+     some go across, and some come back down.</p>
+  <h3>Two truths (Act 3)</h3>
+  <p>At the very edges of the screen, from the third act on, there are two
+     thin beams that blink: <strong>rifts</strong>. Stand in one, on the
+     ground or on a friend’s head, and push <strong>UP</strong>, and the world
+     changes. The tower has two truths, and a rift swaps one for the
+     other.</p>
+  <p>You don’t move. The world does. Some ledges are true in both worlds and
+     some in only one. When a ledge stops being true, whoever was standing
+     on it falls. It happens to everyone at once, wherever they are, so look
+     before you swap.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-07-two-truths.png" alt="Floor 7 in the first world: a totem on a shelf, with nothing to climb to it"></div>
+      <p class="figcap">Floor 7 in the first world: dark above, light below</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-07-two-truths-b.png" alt="Floor 7 in the second world: the same totem, two rungs on the left, and the sky running the other way"></div>
+      <p class="figcap">And in the second: the sky runs the other way</p>
+    </div>
+  </div>
+  <p>You can always tell which world you are in from the sky. In one world
+     it is dark above and light near the ground. In the other it runs the
+     other way.</p>
+  <h3>Act 4</h3>
+  <p>The last two floors use everything at once.</p>
+</section>
+
+<!-- ============================ STORY ============================ -->
+<section class="page">
+  <h2><span class="num">6</span> The Story Game</h2>
+  <p>Eleven floors in four acts. Between floors Stella thinks; press fire
+     to go on.</p>
+  <p>It starts in the dark. Marcus is there first, alone. The sky arrives a
+     band at a time, then he opens his eyes, and then the others come.
+     Press fire if you want to skip it.</p>
+  <div class="rooms">
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-01-together-again.png" alt="Floor 1, Together Again"></div>
+      <p><b>1. Together Again.</b> A totem of three steps. Marcus wakes on the
+         lowest. Alex’s home is the bottom step, drawn wide like him;
+         Stella’s is the middle; Marcus’s is the top.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-02-the-low-door.png" alt="Floor 2, The Low Door"></div>
+      <p><b>2. The Low Door.</b> A wide block with a slab on top and a low gap
+         between them. Stella’s home is the slab, Alex’s the block, and
+         Marcus’s is a little ledge inside the gap.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-03-the-wall.png" alt="Floor 3, The Wall"></div>
+      <p><b>3. The Wall.</b> A wall from the sky to the floor down the middle
+         of the screen, and stairs on both sides of it. Alex wakes alone on
+         one side.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-04-the-fold.png" alt="Floor 4, The Fold"></div>
+      <p><b>4. The Fold.</b> A shelf across the whole screen, too high for
+         anyone. Two doors. Every home is on the shelf or above it.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-05-the-high-door.png" alt="Floor 5, The High Door"></div>
+      <p><b>5. The High Door.</b> One door, standing in a slot between two
+         walls.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-06-the-cross.png" alt="Floor 6, The Cross"></div>
+      <p><b>6. The Cross.</b> Two doors again. Doors don’t have to go up.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-07-two-truths.png" alt="Floor 7, Two Truths"></div>
+      <p><b>7. Two Truths.</b> The homes are in plain sight from the start, on
+         a totem on a shelf, and nothing in this world reaches them. The
+         rifts arrive.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-08-the-handoff.png" alt="Floor 8, The Handoff"></div>
+      <p><b>8. The Handoff.</b> Stairs climb to a perch at the edge of the
+         screen, standing in the rift.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-09-the-way-home.png" alt="Floor 9, The Way Home"></div>
+      <p><b>9. The Way Home.</b> The same tower, but something has been
+         exchanged.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-10-the-seam.png" alt="Floor 10, The Seam"></div>
+      <p><b>10. The Seam.</b> Everything happens at the edge of the screen,
+         where the two sides meet. The doors stand in only one world.</p>
+    </div>
+    <div class="room">
+      <div class="shot"><img src="pictures/floor-11-where-they-meet.png" alt="Floor 11, Where They Meet"></div>
+      <p><b>11. Where They Meet.</b> The first floor’s totem again, upside
+         down, true in only one world. The hardest floor in the game.</p>
+    </div>
+  </div>
+  <p>When the last floor is done there is a number. It is your time, in
+     seconds, for the whole climb. Lower is better. The clock only runs
+     while a floor is on the screen; reading Stella’s thoughts and watching
+     the opening are free.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/story-stella-was-together.png" alt="Text screen reading: Stella was together."></div>
+      <p class="figcap">The last of Stella’s thoughts</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/score-story.png" alt="The end screen: the number 312 in white on black"></div>
+      <p class="figcap">The number is yours. This one is an example</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ SKY / MUSIC ============================ -->
+<section class="page">
+  <h2><span class="num">7</span> The Sky</h2>
+  <p>The tower has a sky, and it is never quite the same twice.</p>
+  <p>When the three of them set out, it is nearly all dark: black overhead,
+     a little grey at the edge of the world. Stella took it for the end of a
+     day. She had only ever known the end of things.</p>
+  <p>It was not dusk. Every time they climb higher together, the grey
+     climbs too. By the top of the tower the light has nearly filled the
+     sky, and the dark is a thin strip overhead. It had been the hour before
+     dawn all along.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-01-together-again.png" alt="Floor 1: mostly dark sky"></div>
+      <p class="figcap">The first act</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-10-the-seam.png" alt="Floor 10: mostly light sky"></div>
+      <p class="figcap">The last</p>
+    </div>
+  </div>
+  <p class="lede">Nobody will tell you how high you are. Look up.</p>
+
+  <h2><span class="num">8</span> The Music</h2>
+  <p>In the last world Stella had one tune and one voice to play it. It is
+     still here. Underneath it now there is a second voice, holding up each
+     phrase.</p>
+  <p>Each of them has a note. Marcus’s is the lowest, then Stella’s, then
+     Alex’s. Get somebody home and you hear theirs. Get all three home and
+     you hear them together.</p>
+  <p>You can hear who jumped, too.</p>
+</section>
+
+<!-- ============================ ENDLESS / CLOCK / SWITCHES ============================ -->
+<section class="page">
+  <h2><span class="num">9</span> The Endless Game</h2>
+  <p>At the title screen, press <span class="kbd">SELECT</span> until the sky
+     glows ember. Then press fire.</p>
+  <p>Floors arrive at random from all eleven, never the same one twice
+     running, with no thoughts in between. The first has 45 seconds. Every
+     floor you finish takes two seconds off the next, and the clock never
+     drops below twelve. When the clock wins, the screen shows how many
+     floors you finished and how long you lasted.</p>
+
+  <h2><span class="num">10</span> The Clock</h2>
+  <p>The story game has no clock. Switch the <strong>left difficulty</strong>
+     to A and every floor gets 45 seconds, starting from the next floor.
+     Nothing on the screen counts down. In the last sixteen seconds the
+     music plays twice as fast and the sky goes dark, a step at a time. At
+     zero the floor starts again from the beginning, and the time of your
+     climb keeps counting.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/clock-low.png" alt="Floor 4 with its sky darkened: a few seconds left"></div>
+      <p class="figcap">A few seconds left. The sky goes dark, not red: in this tower, colour belongs to the three of them</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/title-endless.png" alt="The title screen with an ember sky"></div>
+      <p class="figcap">The ember sky: the endless game</p>
+    </div>
+  </div>
+  <p>With the switch at B there is no limit.</p>
+
+  <h2><span class="num">11</span> Two Players</h2>
+  <p>Press <span class="kbd">SELECT</span> at the title once and Alex appears
+     beside Stella: that is the two-player game. The second player uses the
+     right joystick. Player one starts each floor as Stella and player two
+     as Alex. <strong>DOWN + Fire</strong> takes Marcus, or whoever nobody
+     is holding. Both players’ homes blink fast.</p>
+  <p>Two players can do something one cannot: two people can move at once.
+     Nothing in the tower needs it. All of it can be done alone, one
+     character at a time.</p>
+
+  <h2><span class="num">12</span> Console Switches</h2>
+  <table>
+    <tr><th>Switch</th><th>Effect</th></tr>
+    <tr><td>SELECT <em>(title screen)</em></td><td>Steps through four games: one player, two players, endless with one player, endless with two. Stella stands alone for one player and Alex joins her for two; the sky turns ember for endless</td></tr>
+    <tr><td>RESET</td><td>Back to the title screen, keeping the game you chose</td></tr>
+    <tr><td>LEFT DIFFICULTY → A</td><td>A 45-second clock on each floor of the story game</td></tr>
+    <tr><td>LEFT DIFFICULTY → B</td><td>No clock</td></tr>
+    <tr><td>RIGHT DIFFICULTY, COLOR / B-W</td><td>Not used</td></tr>
+  </table>
+  <p>The tower is grey and only the characters and their homes have colour,
+     so it plays on a black-and-white set. Alex is always the brightest of
+     the three, Stella in the middle, Marcus the darkest, and their homes
+     match.</p>
+
+  <h2><span class="num">13</span> Tips from the Programmer</h2>
+  <ul>
+    <li>Stuck? The fast-blinking home is the one belonging to whoever you
+        are controlling. Every answer is at the back, behind a warning.</li>
+    <li>A home above its owner’s jump wants a friend underneath. Ask who has
+        to stand still, and for how long.</li>
+    <li>Steer. A jump can be pulled in the air, and a long jump off a
+        friend’s head goes further than it looks.</li>
+    <li>Before you change worlds, look at where everybody is standing. A swap
+        takes everyone with it.</li>
+    <li>The edge of the screen is not a wall. On the last two floors it is
+        the middle of everything.</li>
+  </ul>
+</section>
+
+<!-- ======================= ABOUT THIS CARTRIDGE ===================== -->
+<section class="page">
+  <h2><span class="num">14</span> About This Cartridge</h2>
+  <h3>Made the 8K way</h3>
+  <p>Game 1 kept to the rules of 1977: 4,096 bytes and nothing else. This
+     game is the next step the real 2600 took. In 1981 Atari could not fit
+     its home version of <em>Asteroids</em> into 4K, so the cartridge carried
+     8K in two halves and switched between them. That trick is called bank
+     switching, and this cartridge uses the same scheme, F8.</p>
+  <p>So there is twice the room. It went on the things a game of 1981 would
+     spend it on: a title screen, a story told between floors, a second
+     player, a second voice in the music, and a world that joins at the
+     edges and has two truths. The console is the same one. It still has 128
+     bytes of memory, and the options are still the console’s own switches,
+     as they were.</p>
+  <p>One half of the cartridge plays the game. The other holds the words, the
+     title, the music and the sky. The game calls on it every frame for the
+     music, and whenever the sky needs painting.</p>
+  <h3>From the first game</h3>
+  <p>The blue square under the number at the end of <em>Stella Was Alone</em>
+     is Marcus. This game opens on the same square, in the dark, and wakes
+     it.</p>
+  <p>Stella and Alex are the same size and the same colours as before, down
+     to the byte. Standing on a friend’s head works as it did. The music is
+     the first game’s tune, note for note, with a second voice under it now.
+     The endless game keeps the first game’s ember title and its clock, 45
+     seconds falling to twelve.</p>
+  <p>What changed: a lit pad became a home you stand on, the rooms became a
+     tower, the edges join, there are doors and two worlds, and the world got
+     a sky that changes as you climb.</p>
+  <h3>How this game was made</h3>
+  <p>The story, the characters and the series are Michael Borck’s. The code,
+     the floor designs, the test tools and much of the writing in this
+     booklet were developed with the help of generative AI models, working
+     under his direction. He reviewed, edited and approved all of it, and
+     decided what went into the game.</p>
+  <p>Programs written for this project check the game on every build. One
+     replays the game’s own physics to prove that every floor can be
+     finished, and that each floor’s trick can’t be skipped. One runs the
+     cartridge in a software model of the console: it plays the story
+     through, plays the hardest floors move by move, listens to the music,
+     and checks the timing of every line the television draws. One draws
+     this booklet’s pictures from the cartridge’s own frames. None of them
+     is inside the cartridge.</p>
+  <p>This page is here because a player should be able to know how a thing
+     they enjoy was made. The tools did a great deal of the work. The
+     choices, and the responsibility for them, are his.</p>
+  <h3>The source</h3>
+  <p>The whole game is open: the source, the tools, the design documents,
+     and a record of every design decision and why it was made, at
+     <a href="https://github.com/retroverse-studios/stellas-evolution">github.com/retroverse-studios/stellas-evolution</a>.</p>
+</section>
+
+<!-- ======================= SPOILER WARNING ======================= -->
+<section class="page warn">
+  <h2><span class="num">!</span> Past This Point: Spoilers</h2>
+  <p class="lede">Everything after this page gives the game away.</p>
+  <p class="lede">Behind the Design explains what the cartridge does without
+     telling you, and why. The Walkthrough is every floor’s answer.</p>
+  <p class="lede">Play first if you would like to find these things
+     yourself. Read on if you would rather know. Both are good ways to meet
+     a game, and the second is not cheating.</p>
+</section>
+
+<!-- ======================= BEHIND THE DESIGN ===================== -->
+<section class="page">
+  <h2><span class="num">15</span> Behind the Design</h2>
+  <h3>Colour means somebody</h3>
+  <p>The tower is grey. The sky is grey, the ledges are grey, the doors and
+     rifts are grey. The only colours on the screen are the three characters
+     and their homes. A home is in colour because a home is what someone
+     wants. When the series’ third game needs something to be wrong, it will
+     break this rule.</p>
+  <p>The order of brightness never changes either: Alex brightest, Stella in
+     the middle, Marcus darkest, whoever you are controlling. On a
+     black-and-white set, or to a player who can’t tell red from green, the
+     three are still three.</p>
+  <h3>The hour before dawn</h3>
+  <p>Each act has its own sky, a little lighter than the last. The black at
+     the top never quite goes. In the other world the sky runs backwards, and
+     the black that was overhead ends up at your feet; if it were any lighter
+     there, Marcus would vanish against it.</p>
+  <h3>Every floor is proved before it ships</h3>
+  <p>A program replays the game’s physics, steering in the air as you can,
+     and must find a way home for every character on every floor or the
+     build fails. It also proves the negatives: that floor 3 can’t be done
+     without the edges, floor 4 without the doors, floor 7 without the second
+     world, and so on. A floor’s trick is never optional.</p>
+  <p>That program can be too generous. It imagines a friend standing
+     wherever that friend could ever get to, all at once. For floors 10 and
+     11 that isn’t good enough, so a second program plays them in the
+     cartridge itself, a move at a time, and checks that the order in the
+     walkthrough is real. It also checks that the shortcuts don’t work.</p>
+  <h3>Floor 11 is in order</h3>
+  <p>The world swap is for everyone. On the last floor the totem is true only
+     in the first world, so once anybody is home another swap would drop
+     them off it. All the swapping comes first, and after the last swap the
+     three of them are standing on one small stone. From there Stella can
+     only get up from Alex’s head, so she goes while he is still on the
+     stone. Alex can make his leap alone. Marcus can only get in from Alex’s
+     head once Alex is home. Stella, Alex, Marcus: one order.</p>
+  <div class="duo">
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-11-where-they-meet.png" alt="Floor 11 in the first world: the upside-down totem and the small stone at the edge"></div>
+      <p class="figcap">Floor 11 in the first world: the totem and the stone</p>
+    </div>
+    <div class="fig">
+      <div class="shot"><img src="pictures/floor-11-where-they-meet-b.png" alt="Floor 11 in the second world: no totem, a walkway high at the edges"></div>
+      <p class="figcap">And in the second: the walkway, and no totem</p>
+    </div>
+  </div>
+  <h3>The edges</h3>
+  <p>The screen has always wrapped round in this game. Act 1 makes you use
+     it. By Act 4 a ledge, a rift and a door all stand on the seam at once,
+     and the seam is where the floor is.</p>
+  <h3>Two halves</h3>
+  <p>The cartridge is two 4K banks. Play runs in one. The other holds the
+     title, every word Stella thinks, the music, the sky painter and most of
+     the opening. During play the game switches over to it for the music once
+     a frame, and for the sky whenever it changes, and straight back.</p>
+  <h3>Eight kilobytes</h3>
+  <p>All of it fits in 8,192 bytes. There are 71 bytes to spare in the half
+     that plays the game, and 805 in the other.</p>
+</section>
+
+<!-- ========================== WALKTHROUGH ========================= -->
+<section class="page">
+  <h2><span class="num">16</span> Walkthrough</h2>
+  <p>Printed upside down, so you only read it on purpose.
+     <button type="button" class="turn" aria-pressed="false">Turn it over</button></p>
+  <div class="answers" id="answers">
+    <p><em>Heights are the tower’s: up is up. “The rift” means the thin beam
+       at either edge of the screen.</em></p>
+    <p><b>1. Together Again.</b> Stella stands under the totem and jumps onto the middle step. Marcus hops up the steps to the top. Alex can’t reach the bottom step alone: he jumps onto a friend’s head on the floor and from there onto the step.</p>
+    <p><b>2. The Low Door.</b> Stella jumps onto the block, then onto the slab. Alex jumps onto the block from a friend’s head. Marcus climbs onto the block, walks into the gap, and hops up onto the little ledge inside. Stella is too tall for the gap.</p>
+    <p><b>3. The Wall.</b> Alex can’t reach his stair alone, and his friends are on the other side of the wall. Walk one of them off the edge of the screen; they come in on Alex’s side. They stand on the bottom stair and Alex climbs them to his. Stella climbs her stairs one at a time, and Marcus hops onto the bottom one.</p>
+    <p><b>4. The Fold.</b> Everyone stands in the left door on the floor and pushes UP. It lets out on the shelf, which is Alex’s home. Marcus jumps onto the short ledge nearest the door. Stella jumps up to the high ledge in the middle. The right door comes back down to the floor.</p>
+    <p><b>5. The High Door.</b> Alex’s home is the top of a wall beside the door; he gets there from a friend’s head and never uses the door. Stella and Marcus jump onto a wall, drop into the slot, and push UP. The door lets out on the shelf, which is Marcus’s home. Stella jumps from the shelf to her ledge.</p>
+    <p><b>6. The Cross.</b> The doors cross over. Alex takes the left door, which puts him straight onto his ledge. Marcus takes the right door onto the shelf, his home. Stella takes the right door too, and jumps from the shelf up to her perch.</p>
+    <p><b>7. Two Truths.</b> Walk into the rift on the floor and push UP. In the other world there are two rungs on the left. Climb them to the shelf, and from the shelf the totem: Marcus to the middle step, Stella to the top. Alex’s home is the shelf, but every rung is too high for him: he climbs a friend at each one.</p>
+    <p><b>8. The Handoff.</b> Everyone climbs the stairs to the perch at the edge. When all three are up, one of them stands in the rift and pushes UP. The stairs are gone in the other world, which is why nobody can be left on them. The perch is Alex’s home. Marcus and Stella climb the new ledges above it.</p>
+    <p><b>9. The Way Home.</b> Push UP in the rift on the floor. The stairs are in the other world this time, and so is the perch, but the homes are not: when you get there they vanish. Climb to the perch anyway, all three, and swap back from it. The homes come back around you. Alex is home; Marcus and Stella climb to theirs.</p>
+    <p><b>10. The Seam.</b> All three homes are in the second world. On the floor, walk into the rift and push UP. In the second world the doors are there: stand in one and push UP, for everyone. You come out on the seam ledge, the ledge cut in half by the edge of the screen. Swap back from the seam ledge: stand at its far right end, in the rift but past the door, or UP takes the door instead. In the first world there is a high ledge above the seam ledge. Alex climbs onto Stella’s head and from there onto it, and Stella jumps up after him. Marcus waits on the seam ledge, at its right-hand end. Stella walks to the right along the high ledge, nearly to its end. Alex climbs onto her head so that he sticks out past her into the rift, and pushes UP. Stella drops home onto the seam ledge, and Alex lands on his. Stella stays at the left end of her home. Marcus climbs onto her head, then takes a long jump left, steering all the way, onto the ledge in the middle. From the bare seam ledge it can’t be done.</p>
+    <p><b>11. Where They Meet.</b> The totem is true only in the first world. Walk into the rift on the floor and push UP. In the second world, each of them takes the left door. It lets out on a walkway high on the right. All three walk right to the very end, into the rift. Push UP. The walkway vanishes and everyone lands together on the small stone at the edge. Now the order matters. Alex stands at the inner end of the stone. Stella climbs onto his head and leaps left onto the top of the totem. Alex leaps left onto the bottom step, his home, on his own. Alex walks to the right end of his step. Marcus leaps from the stone onto Alex’s head, then hops up to the middle step. Stella’s ledge is in the way from anywhere else.</p>
+  </div>
+  <div class="footer-note">
+    <p><em>Every floor in this cartridge is checked by a program before the
+    cartridge is built. If you are stuck, the floor is not the problem.</em></p>
+    <p><em>The pictures in this booklet are not photographs of a television.
+    They are frames of the game, drawn from what the cartridge itself sends
+    to the screen.</em></p>
+    <p><em>STELLA’S EVOLUTION continues in</em> STELLA’S JOURNEY.</p>
+    <p>Source: <a href="https://github.com/retroverse-studios/stellas-evolution">github.com/retroverse-studios/stellas-evolution</a></p>
+    <p>Story, characters and text © Michael Borck, CC BY-NC-SA 4.0. An homage
+    to Mike Bithell’s “Thomas Was Alone.” Game 2 of the four-part series
+    STELLA’S EVOLUTION. Atari® and Video Computer System™ are trademarks of
+    their respective owners; this is an unaffiliated homebrew work.</p>
+  </div>
+</section>
+<script>
+  (function () {
+    var b = document.querySelector(".turn"), a = document.getElementById("answers");
+    if (!b || !a) return;
+    b.addEventListener("click", function () {
+      var on = a.classList.toggle("righted");
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+      b.textContent = on ? "Turn it back" : "Turn it over";
+    });
+  })();
+</script>
