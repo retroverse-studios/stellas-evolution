@@ -1114,6 +1114,78 @@ def the_meeting(rom, sym, c):
            r.homes_hold())
 
 
+
+def the_music(rom, sym, c):
+    """Decision #58, read from the TIA writes of real play: channel 1
+    plays the lament table, channel 0 holds the bass between effects,
+    a jump is pitched by who jumped, an arrival home sounds its owner's
+    note, the last arrival plays the homecoming on both voices, and the
+    narration is silent."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    r = Run(rom, sym)
+    regs, log = [0] * 64, []
+
+    def step(**kw):
+        r.m.tia_log = []
+        r.step_frame(**kw)
+        for _, reg, v in r.m.tia_log:
+            if 0x15 <= reg <= 0x1A:
+                regs[reg] = v
+        r.m.tia_log = None
+        log.append(tuple(regs[0x15:0x1B]))       # C0 C1 F0 F1 V0 V1
+        return log[-1]
+    settle(r, 30)
+    press(r, fire0=True)
+    for _ in range(900):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    lament = r.bank1("Lament", 32)
+    bass = r.bank1("Bass", 8)
+    notes = {a[3] for a in (step() for _ in range(32 * 16)) if a[5]}
+    c.that("the music: channel 1 plays the lament's notes, pure tone",
+           notes == {b for b in lament if b < 0x80} and all(a[1] == 4 for a in log),
+           f"{sorted(notes)}")
+    c.that("the music: with no effect, channel 0 holds the bass, div 6",
+           {a[2] for a in log if a[0] == 12} == set(bass) and all(a[4] == 3 for a in log if a[0] == 12),
+           f"{sorted({a[2] for a in log if a[0] == 12})}")
+    firsts = []
+    for who in range(3):
+        r.w("Active", who)
+        step()
+        firsts.append(step(fire0=True))
+        for _ in range(50):
+            step()
+    base = r.bank1("JumpBase", 3)
+    c.that("each character's jump has its own pitch (#58 E)",
+           [f[2] for f in firsts] == [b + 9 for b in base] and all(f[0] == 4 for f in firsts),
+           f"{firsts}")
+    homes, notes = [r.home(ci) for ci in range(3)], r.bank1("HomeNote", 3)
+    heard = []
+    for ci in (2, 0):
+        y, lo, _ = homes[ci]
+        r._place(ci, lo, y)
+        heard.append([step() for _ in range(3)][-1])
+        for _ in range(60):
+            step()
+    c.that("an arrival home sounds its owner's note (#58 D)",
+           [h[2] for h in heard] == [notes[2], notes[0]], f"{heard}")
+    y, lo, _ = homes[1]
+    r._place(1, lo, y)
+    beat = [step() for _ in range(70)]
+    arp = [a[2] for a in beat if a[0] == 4 and a[1] == 4 and a[4]]
+    chord = [a for a in beat if a[1] == 12 and a[5]]
+    c.that("the last arrival plays the homecoming: Eb, G, Bb, then both voices",
+           r.r("State") == S["DONE"] and [k for i, k in enumerate(arp) if i == 0 or arp[i - 1] != k] == [23, 18, 15]
+           and chord and all(a[2] == 11 and a[3] == 31 for a in chord),
+           f"State {r.r('State')}, {arp[:3]}..., chord {chord[:1]}")
+    for _ in range(300):
+        if r.r("State") == S["STORY"]:
+            break
+        step()
+    a = step()
+    c.that("the narration is silent", r.r("State") == S["STORY"] and a[4] == a[5] == 0, f"{a}")
+
 def clock_runs_out(r, sym, c):
     """A timed floor whose clock reaches zero starts over: through
     STATE_LOAD, so the reload runs in the next frame's vblank."""
@@ -1329,6 +1401,8 @@ def main():
         the_seam(rom, sym, c)
     if sym["NUM_FLOORS"] >= 11:
         the_meeting(rom, sym, c)
+    if "Lament" in sym:
+        the_music(rom, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")

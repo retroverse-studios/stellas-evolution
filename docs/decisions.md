@@ -2563,3 +2563,80 @@ check now measures a bank-1 table against bank-1 symbols; it had been
 measuring `FloorSkyTbl` against bank 0's, and passed by luck.
 
 **Cost:** bank 0, 4 bytes (76 free); bank 1, 36 bytes (1,107 free).
+
+## 58. Game 2: Two Voices — the Lament, Held Up
+
+**Status:** DECIDED (2026-11-27), chosen by ear from five rendered
+drafts: B for the music, plus D and E.
+
+Game 1 is one voice: the lament (#16, amended). Game 2 had no music at
+all. It now has two voices, and the second one is the point.
+
+**B, the music.** Channel 1 plays Game 1's lament, note for note,
+at Game 1's speed (a step every 16 frames, twice as fast while the
+clock is under 16 seconds). Channel 0 holds a low root under each half
+phrase: C minor, Eb, Ab, Bb, and home to Eb. It is Stella's song from
+when she was alone, with someone else holding it up. Where Game 1's
+lament ended on its lowest note, unresolved, the bass under it now
+goes home.
+
+**D, homecoming.** Each character has a note, dark to bright as their
+colours are: Marcus Eb, Stella G, Alex Bb, an Eb major chord between
+them. Each arrival home sounds its owner's note. The last arrival
+plays the homecoming: the three notes in turn, then low Eb under high
+Eb on both voices, fading. It replaces Game 1's two-note fanfare,
+which #26 had kept as "one sound of completion" for the series. Game
+2's completion is three characters, so it gets a chord.
+
+**E, who jumped.** The jump keeps its rising tone, pitched by the
+jumper: Alex high, Stella where Game 1 had her, Marcus low. You hear
+who moved, which matters most with two players.
+
+**Effects share channel 0.** They take it when they speak (jump, land,
+portal, swap, home notes) and give the bass back when they finish:
+the 2600's usual way of sharing a voice. The lament on channel 1 is
+never cut off.
+
+**Tuning.** A TIA pure tone can't play every note in tune. The notes
+used are one family the chip plays equally sharp (Eb, G, Ab, Bb, C,
+within about 6 cents of each other in both registers), so the voices
+stay in tune with each other whatever the absolute pitch. The bass's
+Bb is the exception (about 50 cents off the family); it was in the
+draft that was chosen, and stays.
+
+**A finding about Game 1, not acted on.** Game 1's `tune_preview.py`
+renders AUDC 12 as a pure tone dividing the audio clock by 2, from a
+30.1 kHz clock. The TIA's AUDC 12 divides by 6 ([masswerk][m],
+[retroisle][r]), and the audio clock is about 31.4 kHz (two per
+scanline, 3,579,545 / 114; [AtariAge][a]). If so, Game 1's lament
+sounds an octave and a fifth lower on the console than its previews,
+with the same intervals. Confirm in Stella before changing anything.
+Game 2 plays its melody on AUDC 4 (divide by 2), which matches what
+the drafts sounded like, and its bass on AUDC 12.
+
+[m]: https://masswerk.at/rc2018/04/12.html
+[r]: https://retroisle.com/atari/vcs/Technical/Firmware/sound.php
+[a]: https://forums.atariage.com/topic/257526-musicsound-programming-question-atari-2600/
+
+**How.** `UpdateSound` (bank 1) runs the lament from a 32-byte
+`Lament` table and the bass from an 8-byte `Bass` table, both counted
+by `TuneStep`. Arrivals come from the home lamps: PrepSprites' lamp
+loop already asks `AtHome` of each character every frame, and now
+also rotates the answer into `HomeNow`; the sound job compares it with
+last frame's `HomePrev`. Jumps set `SoundId` to 8 + the character, home
+notes to $10 + the character. `Bank1Entry` silences both channels, so
+the title, narration and score are quiet.
+
+**RAM:** none new. `TuneStep` shares `WakeT` (the completion beat
+counts it down to 0, so each floor's tune starts on its first note),
+and `HomeNow`/`HomePrev` share the narration's `TextEnd`/`TextTop`,
+dead during play.
+
+**Checks.** `make headless` plays floor 1 and reads the TIA writes:
+channel 1 plays the lament's notes on a pure tone; channel 0 holds the
+bass between effects; each jump starts at its character's pitch; an
+arrival sounds its owner's note; the last arrival plays Eb, G, Bb and
+then the two-voice chord; the narration is silent.
+
+**Cost:** bank 0, 5 bytes (71 free); bank 1, about 300 bytes (805
+free).

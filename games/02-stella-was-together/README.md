@@ -11,7 +11,20 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-27): the sky climbs with them
+## Status (2026-11-27): two voices
+
+- **Music** (decision #58): Game 1's lament on channel 1, note for
+  note, with a low root held under each phrase on channel 0. The
+  effects share channel 0 and give the bass back when they finish.
+- **Home notes:** Marcus Eb, Stella G, Alex Bb. Each arrival home
+  sounds its owner's note; the last plays all three, then the chord
+  on both voices.
+- **Jumps are pitched by who jumped:** Alex high, Stella middle,
+  Marcus low.
+- Title, narration and score are silent. No new RAM; bank 0 has 71
+  bytes free, bank 1 805.
+
+## Earlier (2026-11-27): the sky climbs with them
 
 - **Per-act skies** (decision #57): one grey ramp per act, each
   brighter than the last. Act 1's black zenith ("dusk", Stella
@@ -100,7 +113,8 @@ puzzles, and a spatial toolkit that grows across the game.
    they meet (#56).
 5. ~~Endless mode and the run clock~~ done (decision #52). Not yet
    seen on a screen or played by a person.
-6. ~~Per-act skies~~ done (decision #57); the second sound voice.
+6. ~~Per-act skies~~ done (decision #57); ~~the second sound voice~~
+   done (#58). Not yet heard in an emulator or on hardware.
 7. A manual, as Game 1 has; #57 drafts its sky section.
 
 Floors 8 and 9 are the same two worlds with A and B exchanged, so their
@@ -255,7 +269,6 @@ world-swap re-attaches in Act 3.
 - [x] Act 4, floor 10 "The Seam" (wrap + portal + swap at one edge)
 - [x] Act 4, floor 11 "Where They Meet"
 - [x] Per-act sky palettes (altitude as the progress bar; decision #57)
-- [ ] Two-voice audio
-      (channel 1 is entirely unused — Game 1 has a level drone and Game 2
-      has silence, which is another axis that shrank rather than grew)
+- [x] Two-voice audio (decision #58): Game 1's lament, with a bass
+      under it, home notes and a homecoming chord
 - [ ] Dual-gravity variation floors where Act 4 wants them (decision #25)

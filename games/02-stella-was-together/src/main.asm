@@ -209,7 +209,8 @@ Active2     ds 1        ; joystick 2's character; $FF = one player
 FirePrev    ds 1        ; fire armed (released): bit 7 joystick 1,
                         ; bit 6 joystick 2
 FrameCtr    ds 1
-SoundId     ds 1        ; 1=jump 2=land 3=floor fanfare
+SoundId     ds 1        ; 2=land 3=homecoming 4=portal 5=swap
+                        ; 8+char jump, $10+char home note (#58)
 SoundT      ds 1
 
 PF0Ptr      ds 2        ; -> level record base (PF0 bands)
@@ -294,12 +295,17 @@ TPtr        ds 12       ; six playfield plane pointers
 ; on STATE_PLAY so a floor-completion frame (whose CheckGoal has
 ; already pointed TPtr at the narration) is never clobbered.
 PFColRam    = TPtr      ; 12 bytes, one COLUPF per band
+HomeNow     = TextEnd   ; PLAY/DONE: who stands home (#58), a bit per
+HomePrev    = TextTop   ; character; the text's bytes, dead in play
 
 ; --- wake-up opening -------------------------------------------
 WakePhase   ds 1        ; 0 black / 1 sky builds / 2 eyes / 3 Stella
                         ; drops / 4 Alex slides in
 WakeT       ds 1        ; frame counter within the phase
 
+TuneStep    = WakeT      ; PLAY: the lament's step (decision #58).
+                        ; DONE counts StateTimer down to 0, so each
+                        ; floor's tune starts from its first note
 StateTimer  = WakeT      ; STATE_DONE: frames left in the completion
                         ; beat. Shares WakeT's byte: the opening and the
                         ; beat never run together, and each sets its own
@@ -941,8 +947,8 @@ CheckGoal:
         ; narration pointers would trample the lamps we are drawing.
         lda #3
         sta SoundId
-        lda #16
-        sta SoundT
+        lda #60                 ; the homecoming (#58): three notes and
+        sta SoundT              ; the chord, inside the 90-frame beat
         lda #STATE_DONE
         sta State
         lda #90
@@ -1152,7 +1158,8 @@ ReadInput:
         sta CharVYLo,x
         lda #0
         sta OnGround,x
-        lda #1
+        txa                     ; the jump, pitched by who (#58)
+        ora #8
         sta SoundId
         lda #10
         sta SoundT
@@ -1932,7 +1939,9 @@ PrepSprites:
         lda FloorBandByChar,y   ; wrong the moment there were nine: the
         sta Temp                ; table is authored a row per character
         jsr AtHome              ; (Stella's nine, then Alex's, then
-        bcc .vac                ; Marcus's), so char*3+floor walked off
+        ror HomeNow             ; Marcus's), so char*3+floor walked off
+        bit HomeNow             ; [home, a bit per character, for the
+        bpl .vac                ; homecoming notes (#58)]
         lda ColBriTbl,x         ; Stella's row and into Alex's. Stella
         bne .put                ; read her own values by luck — her row
 .vac:                           ; occupies indices 0-8 — while Alex and
@@ -3319,6 +3328,9 @@ Bank1Top:
 ; ---------------------------------------------------------------
 
 Bank1Entry:
+        lda #0                  ; title, narration, score: silence
+        sta AUDV0               ; (UpdateSound runs only in play and
+        sta AUDV1               ; the completion beat)
         lda State
         cmp #STATE_TITLE
         beq TitleFrame
@@ -4213,53 +4225,170 @@ SetPlayers1:
         rts
 
 ; ---------------------------------------------------------------
-; UpdateSound: game 1's one-channel effect engine — jump, land, and
-; the floor fanfare. Nothing can cut the fanfare off: STATE_DONE runs
-; neither ReadInput nor UpdatePhysics, so no jump or landing happens
-; while it plays (game 1 needs an explicit guard for this; here the
-; state machine gives it for free).
+; UpdateSound (decision #58): two voices, where Game 1 had one.
+;
+; Channel 1 plays Game 1's lament, note for note — Stella's song from
+; when she was alone (B). Channel 0 holds the chord's root under each
+; phrase (C minor, Eb, Ab, Bb, home to Eb): the same sigh, held up by
+; someone else. The effects take channel 0 when they speak and give
+; the bass back when they're done, the way the 2600 shares a voice.
+;
+; The effects say who: a jump is pitched by who jumped (E: Alex high,
+; Stella middle, Marcus low), and each arrival home sounds its owner's
+; note (D: Marcus Eb, Stella G, Alex Bb, dark to bright as their
+; colours are). The floor's completion plays the three in turn, then
+; holds them as one: low Eb under high Eb, both voices.
+;
+; Nothing can cut the homecoming off: STATE_DONE runs neither
+; ReadInput nor UpdatePhysics. Title, narration and score are silenced
+; at Bank1Entry.
 ; ---------------------------------------------------------------
 
 UpdateSound:                    ; JOB_SOUND, in the annex since
         SUBROUTINE              ; decision #51: RAM and TIA only
+        lda #0
+        sta AUDV1               ; channel 1 speaks only when told to
+        lda State
+        cmp #STATE_PLAY
+        bne .effects
+        ; --- D: a note for each arrival home. HomeNow is PrepSprites'
+        ; lamp loop's AtHome, a bit per character (7 Stella, 6 Alex,
+        ; 5 Marcus); a bit that wasn't set last frame is an arrival.
+        lda HomePrev
+        eor #$FF
+        and HomeNow
+        and #$E0
+        beq .noArr
+        ldx #$FF                ; X = the first new arrival
+.find:
+        inx
+        asl
+        bcc .find
+        txa
+        ora #$10                ; SoundId $10+char: home note
+        sta SoundId
+        lda #20
+        sta SoundT
+.noArr:
+        lda HomeNow
+        sta HomePrev
+        ; --- B: the lament, channel 1. A step is 16 frames (8 while
+        ; the clock is low: when the music runs, run with it); a note
+        ; is struck loud for its first two frames, then held soft.
+        lda #4                  ; pure tone, div 2
+        sta AUDC1
+        lda FrameCtr
+        ldy TimerSec            ; untimed is $FF: never low
+        cpy #16
+        bcs .calm
+        asl
+.calm:
+        and #15                 ; 0 on the first frame of a step
+        tax
+        bne .same
+        inc TuneStep
+.same:
+        lda TuneStep
+        and #31
+        tay
+        lda Lament,y
+        bmi .effects            ; top bit: a rest (AUDV1 is already 0)
+        sta AUDF1
+        cpx #2
+        lda #5
+        bcc .v1
+        lda #2
+.v1:
+        sta AUDV1
+.effects:
         lda SoundT
         bne .active
-        lda #0
+        sta SoundId             ; A = 0: no effect
         sta AUDV0
-        sta SoundId
+        lda State
+        cmp #STATE_PLAY
+        bne .out
+        lda #12                 ; B: the held root, pure tone div 6,
+        sta AUDC0               ; one per half phrase
+        lda TuneStep
+        and #31
+        lsr
+        lsr
+        tay
+        lda Bass,y
+        sta AUDF0
+        lda #3
+        sta AUDV0
+.out:
         jmp GoBackBank0
 .active:
         dec SoundT
         lda SoundId
-        cmp #1
-        beq .jump
+        cmp #$10
+        bcs .home
+        cmp #8
+        bcs .jump
         cmp #2
         beq .land
         cmp #4
         beq .blip
         cmp #5
-        beq .chime
-        ; floor fanfare: low note then high note. Game 1's two notes
-        ; verbatim — decision #26 gives the series one goal mechanic,
-        ; so it gets one sound of completion too.
-        lda #12
+        bne .coming
+        jmp .chime              ; (out of a branch's reach)
+.coming:
+        ; 3, the homecoming: Eb, G, Bb (Marcus, Stella, Alex) a dozen
+        ; frames each, then the chord, fading: low Eb under high Eb.
+        lda #4
         sta AUDC0
-        lda SoundT
-        cmp #8
-        bcs .note1
-        lda #11
-        bne .setf
-.note1:
-        lda #15
-.setf:
+        ldx SoundT
+        cpx #24
+        bcc .chord
+        lda #23                 ; Eb5
+        cpx #48
+        bcs .arp
+        lda #18                 ; G5
+        cpx #36
+        bcs .arp
+        lda #15                 ; Bb5
+.arp:
         sta AUDF0
-        lda #8
+        lda #6
+        sta AUDV0
+        jmp GoBackBank0
+.chord:
+        lda #11                 ; Eb6
+        sta AUDF0
+        lda #12
+        sta AUDC1
+        lda #31                 ; Eb3, div 6
+        sta AUDF1
+        txa
+        lsr
+        lsr                     ; 5 down to 0 as it fades
+        sta AUDV0
+        sta AUDV1
+        jmp GoBackBank0
+.home:
+        and #3                  ; D: the arriving character's note
+        tax
+        lda #4
+        sta AUDC0
+        lda HomeNote,x
+        sta AUDF0
+        lda SoundT
+        cmp #14                 ; struck, then held soft
+        lda #6
+        bcs .hv
+        lda #3
+.hv:
         sta AUDV0
         jmp GoBackBank0
 .jump:
-        lda #4                  ; jump: rising pure tone
+        and #3                  ; E: a rising tone, pitched by who
+        tax                     ; jumped (SoundId 8+char)
+        lda #4
         sta AUDC0
-        lda #8
+        lda JumpBase,x
         clc
         adc SoundT
         sta AUDF0
@@ -4514,6 +4643,19 @@ GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; Act 1 (and the title and
             .byte 0,0,2,2,4,4,6,6,8,8,8,8  ; Act 3
             .byte 0,0,2,4,6,6,8,8,8,8,8,8  ; Act 4: dawn, a strip of
                                             ; the void left
+
+; The music (decision #58). Pitches are AUDF values: higher = lower.
+; Everything is from one family the chip plays equally sharp (Eb, G,
+; Ab, Bb, C), so the two voices stay in tune with each other.
+; Lament: Game 1's tune (its src/tune.inc), verbatim; $80 a rest.
+Lament:     .byte 28, 28,$80, 23, 23,$80, 18, 18   ; C  Eb  G
+            .byte 15, 15,$80, 17, 17,$80, 18, 18   ; Bb Ab  G
+            .byte 20, 20,$80, 23, 23,$80, 28, 28   ; F  Eb  C
+            .byte $80,$80, 31, 31, 31,$80,$80,$80  ; Bb, unresolved
+; Bass: the root under each four steps, pure tone div 6.
+Bass:       .byte 18, 18, 31, 31, 23, 23, 21, 31   ; C C Eb Eb Ab Ab Bb Eb
+HomeNote:   .byte 18, 15, 23    ; Stella G, Alex Bb, Marcus Eb
+JumpBase:   .byte 8, 3, 14      ; Stella (Game 1's), Alex up, Marcus down
 
 ; The title's player count: Stella (tall, facing right) and, with two
 ; players, Alex (flat, facing left), feet on the same line, so the
