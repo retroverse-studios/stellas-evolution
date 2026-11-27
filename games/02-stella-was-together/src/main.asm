@@ -114,6 +114,7 @@ JOB_WAKEPRE   = 1
 JOB_WAKEPOST  = 2
 JOB_SOUND     = 3
 JOB_NEXTFLOOR = 4       ; endless: count the floor, draw the next one
+JOB_SKY       = 5       ; BuildSky: paint the 12-band sky (SkyJob)
 
 ; THE WORLD IS GREYSCALE; COLOUR MEANS AGENCY (decision #27).
 ; Hue 0 is the neutral ramp, so every hue on screen belongs to
@@ -789,52 +790,14 @@ LoadFloor:
         rts
 
 ; ---------------------------------------------------------------
-; BuildSky: rebuild the 12-band sky gradient for the CURRENT world.
-; The which-world tell (kickoff rule 2, adapted to the greyscale
-; world of #27): in world A the sky brightens toward the horizon; in
-; world B the ramp runs BACKWARDS. Hue never changes — the world is
-; neutral — but no two adjacent bands keep their order, so the swap
-; reads on the whole screen for every kind of colour vision.
+; BuildSky: rebuild the 12-band sky gradient for the CURRENT world
+; (the which-world tell). The painter is SkyJob in the annex; see it
+; for the rule. Clobbers A, X, Y.
 ; ---------------------------------------------------------------
 
-BuildSky:
-        SUBROUTINE
-        ldx FloorSeq
-        lda FloorSkyTbl,x
-        clc
-        adc Temp                ; Temp is the caller's breath: 0 during
-        sta Temp                ; play, +2 on the completion beat
-        lda #16                 ; the clock's shadow, from the seconds
-        sec                     ; left: none until the last sixteen,
-        sbc TimerSec            ; then a luma step every four, to four
-        bcs .dimmed             ; as it hits zero. Untimed floors keep
-        lda #0                  ; TimerSec at 45: none. Dimming must
-.dimmed:                        ; GROW as the seconds fall
-        lsr
-        lsr
-        sta SkyDim
-        ldx #11
-.loop:
-        lda GradOfs,x
-        ldy CurWorld
-        beq .fwd
-        lda GradOfsR,x          ; world B: the ramp reversed
-.fwd:
-        clc
-        adc Temp
-        sec
-        sbc SkyDim              ; the clock's shadow (0 untimed)
-        bcc .black              ; never borrow into the hue nibble
-        sta SkyGrad,x
-        dex
-        bpl .loop
-        rts
-.black:
-        lda #0                  ; the clock can take the sky to black
-        sta SkyGrad,x           ; but not one luma step further
-        dex
-        bpl .loop
-        rts
+BuildSky:                       ; the painter lives in the annex
+        ldy #JOB_SKY            ; (SkyJob) with the ramps and the sky
+        jmp GoAnnex             ; bases; its return is our caller's
 
 ; ---------------------------------------------------------------
 ; THE FLOOR CLOCK (decision #22's UI axis, restored to Game 2).
@@ -2466,9 +2429,6 @@ OtherATbl:  .byte 1, 0, 0           ; the two possible head-perches
 OtherBTbl:  .byte 2, 2, 1           ; for each character
 
 
-; per-band gradient shape: brighter toward the horizon (5 shades)
-GradOfs:    .byte 0,0,0,2,2,2,4,4,6,6,8,8
-GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
 
 ; ===============================================================
 ; FLOOR TABLE — the game walks this in order (FloorSeq).
@@ -2498,10 +2458,7 @@ FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
         .byte 1, 1, 1                 ; (decision #18) — every act
         .byte 1, 1, 1
         .byte 1
-FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
-        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
-        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
-        .byte FLOOR1_SKY
+; (The sky bases, FloorSkyTbl, live in the annex beside SkyJob.)
 ; Act boundaries are a comment, not a table (the ROM never read it):
 ; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
 ; (world-swap), 10 = the finale (decision #18).
@@ -4072,7 +4029,9 @@ AnnexJob:
 .3:     dey
         bne .4
         jmp UpdateSound         ; JOB_SOUND     = 3
-.4:                             ; JOB_NEXTFLOOR = 4: the endless game's
+.4:     dey
+        bne .5
+                                ; JOB_NEXTFLOOR = 4: the endless game's
         lda Mode                ; floor is done. Count it (to 63), draw
         and #$3F                ; another, and bank 0 loads it next frame
         cmp #$3F
@@ -4083,6 +4042,62 @@ AnnexJob:
         lda #STATE_LOAD
         sta State
         jmp GoBackBank0
+.5:     jmp SkyJob              ; JOB_SKY = 5
+
+; ---------------------------------------------------------------
+; SkyJob (JOB_SKY): bank 0's BuildSky, moved to the annex for Act 4's
+; room. It touches only RAM and its own tables. Rebuild the 12-band
+; sky gradient for the CURRENT world. The which-world tell (kickoff
+; rule 2, adapted to the greyscale world of #27): in world A the sky
+; brightens toward the horizon; in world B the ramp runs BACKWARDS.
+; Hue never changes — the world is neutral — but no two adjacent bands
+; keep their order, so the swap reads on the whole screen for every
+; kind of colour vision.
+; ---------------------------------------------------------------
+SkyJob:
+        SUBROUTINE
+        ldx FloorSeq
+        lda FloorSkyTbl,x
+        clc
+        adc Temp                ; Temp is the caller's breath: 0 during
+        sta Temp                ; play, +2 on the completion beat
+        lda #16                 ; the clock's shadow, from the seconds
+        sec                     ; left: none until the last sixteen,
+        sbc TimerSec            ; then a luma step every four, to four
+        bcs .dimmed             ; as it hits zero. Untimed floors keep
+        lda #0                  ; TimerSec at 45: none. Dimming must
+.dimmed:                        ; GROW as the seconds fall
+        lsr
+        lsr
+        sta SkyDim
+        ldx #11
+.loop:
+        lda GradOfs1,x
+        ldy CurWorld
+        beq .fwd
+        lda GradOfsR,x          ; world B: the ramp reversed
+.fwd:
+        clc
+        adc Temp
+        sec
+        sbc SkyDim              ; the clock's shadow (0 untimed)
+        bcc .black              ; never borrow into the hue nibble
+        sta SkyGrad,x
+        dex
+        bpl .loop
+        jmp GoBackBank0
+.black:
+        lda #0                  ; the clock can take the sky to black
+        sta SkyGrad,x           ; but not one luma step further
+        dex
+        bpl .loop
+        jmp GoBackBank0
+
+GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
+FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
+        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+        .byte FLOOR1_SKY
 
 ; PickFloor: FloorSeq = a floor at random, never the one just played.
 ; The frame counter is the dice: when a floor ends, or fire is pressed
@@ -4404,8 +4419,9 @@ LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
 ; transposed into the channel every player can see.
 LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 
-GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; == GradOfs (bank 0's copy
-                                            ; lives beside BuildSky)
+GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; per-band gradient shape:
+                                            ; brighter toward the horizon
+                                            ; (the title and SkyJob)
 
 ; The title's player count: Stella (tall, facing right) and, with two
 ; players, Alex (flat, facing left), feet on the same line, so the

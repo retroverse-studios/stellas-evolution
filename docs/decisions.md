@@ -2376,3 +2376,43 @@ rather than the harness's fixed rhythm.
 
 **Cost:** bank 0 has 169 bytes free (from 387): the record is 150
 bytes, the tables and code the rest.
+
+*Corrected by #55:* with mid-air steering in the solver, Marcus can't
+get home alone either. The floor proves with Alex, then Marcus, then
+Stella, who comes home last and alone. Its ways in are now 202/46/80.
+
+## 55. Game 2: The Solver Learns to Steer in the Air
+
+**Status:** Accepted (2026-11-27).
+
+**The bug.** ReadInput reads the stick on every frame, in the air too,
+so a player can turn round or stop mid-jump. The solver held one
+direction from take-off to landing. Anything it called unreachable
+might still be reachable by steering, so every "can't" proof was
+unsound. A ROM test found one: on a draft of floor 11, Stella stepped
+off a ledge, steered back under, and landed on a home the solver said
+she could never reach. A second bug pointed the other way. `arc`
+worked out Marcus's frame parity once and never flipped it, so in the
+air he moved 2 px a frame, not 1.5, and the solver gave him reach he
+doesn't have.
+
+**The fix.** `Char1.lands` follows every steering choice (left, none,
+right) on every frame of a fall or jump. Bodies at the same height and
+speed are grouped, so the search stays tractable. Parity flips every
+frame. Walking off a ledge, jumping, landing from a door, and landing
+from a swap all go through it. A full `make` now takes about 3 minutes.
+
+**What changed.** Floors 1-9 still prove, with new margins. Floor 10
+didn't: it had only one solo finisher, and the coop rule asked for
+two. That rule was a stand-in for the real question: can the three
+finish in some order? Friends who are already home can't come back out
+to boost. `booster_order_dual` asks that question directly. Someone
+has to get home using only friends who are still out, and the last
+one home has to get there alone. Floor 10 passes: Alex, then Marcus,
+then Stella.
+
+**The sky moved to the annex.** BuildSky's body, its two ramps, and
+FloorSkyTbl are now bank 1's `JOB_SKY`. Bank 0 keeps a three-byte stub.
+That frees 86 bytes for the finale (bank 0: 255 free). Frame timing is
+unchanged (vertical blank at least 5 ticks spare, overscan 2).
+

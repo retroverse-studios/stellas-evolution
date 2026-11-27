@@ -380,9 +380,12 @@ class Char1:
         return None
 
     def arc(self, x, feet, jump, direction, par=0):
+        """One arc with the stick held one way throughout. Reachability
+        uses lands() (the stick can change every frame); this survives
+        for the swap-safety audit, which asks where a body that does
+        nothing falls."""
         y256 = (feet - self.h) << 8
         vy = self.jump if jump else 0
-        np = par ^ 1
         for _ in range(600):
             if direction:
                 x = self.clamp_x(x, x + direction * self.fstep(par),
@@ -406,18 +409,100 @@ class Char1:
                 top = self.landing(prev_feet, y + self.h, x)
                 if top is not None:
                     return (x, top)
+            par ^= 1                # was `par = np`: the step size
+        return None                 # alternated once, then stuck
+
+    def lands(self, x, feet, jump, par=0):
+        """Every (x, feet, parity) an airborne body can land on, choosing
+        left, right or neither afresh on every frame: ReadInput reads the
+        stick every frame, airborne or not, so a player can steer a jump
+        and stop over a ledge mid-fall. The solver used to hold one
+        direction from take-off, which could only under-count where a
+        body lands, so its "can't get home without X" proofs were not
+        proofs (decision #55: on floor 11 Stella simply stepped off one
+        ledge and let go onto her own). Vertical motion is the same for
+        every x until a ceiling bonk, so the search keeps one set of x
+        per (y256, vy) and steps them together."""
+        key = (x, feet, jump, par)
+        memo = self.__dict__.setdefault("_lands", {})
+        if key in memo:
+            return memo[key]
+        h, w = self.h, self.w
+        solids = list(self.solids())
+        surfaces = list(self.surfaces())
+        groups = {((feet - h) << 8, self.jump if jump else 0): {x}}
+        out = set()
+        for _ in range(600):
+            if not groups:
+                break
+            step = self.fstep(par)
+            np = par ^ 1
+            nxt = {}
+            for (y256, vy), xs in groups.items():
+                y0 = y256 >> 8
+                walls = [b for b in solids if not (b[1] <= y0 or b[0] >= y0 + h)]
+                moved = set()
+                for x0 in xs:
+                    moved.add(x0)
+                    for d in (-1, 1):
+                        if walls:
+                            moved.add(self.clamp_x(x0, x0 + d * step, y0, d))
+                        else:
+                            nx = (x0 + d * step) & 0xFF
+                            if self.wrap:
+                                if nx >= self.wrap_hi:
+                                    nx = (nx + self.wrap_w) & 0xFF
+                                elif nx >= self.wrap_w:
+                                    nx = (nx - self.wrap_w) & 0xFF
+                            else:
+                                nx = min(max(nx, self.min_x), self.maxx)
+                            moved.add(nx)
+                prev_feet = y0 + h
+                vy2 = min(vy + self.grav, self.maxfall)
+                y2 = y256 + vy2
+                if y2 < 0:
+                    y2, vy2 = 0, 0
+                y = y2 >> 8
+                if y > 120:
+                    continue
+                if vy2 < 0:
+                    rest = moved
+                    for top, bot, l, r in solids:
+                        if y0 >= bot > y:
+                            hit = {x1 for x1 in rest if x1 < r and x1 + w > l}
+                            if hit:
+                                nxt.setdefault((bot << 8, 0), set()).update(hit)
+                                rest = rest - hit
+                    if rest:
+                        nxt.setdefault((y2, vy2), set()).update(rest)
+                else:
+                    rest = moved
+                    for top, l, r in surfaces:
+                        if prev_feet <= top <= y + h:
+                            hit = {x1 for x1 in rest if x1 < r and x1 + w > l}
+                            for x1 in hit:
+                                out.add((x1, top, np))
+                            rest = rest - hit
+                            if not rest:
+                                break
+                    if rest:
+                        nxt.setdefault((y2, vy2), set()).update(rest)
+            groups = nxt
             par = np
-        return None
+        memo[key] = out
+        return out
 
     def portal_edge(self, x, par=0):
-        """If x overlaps a column, the standing state the teleport
-        delivers: arrive at the mouth with zero velocity and let the
-        same gravity everyone lives by seat them (a mouth over open air
-        would fall; the shipped floors all mouth onto a surface)."""
+        """If x overlaps a column, the standing states the teleport
+        delivers: arrive at the mouth with zero velocity and fall under
+        the same gravity (and the same mid-air steering) as everyone
+        else. A mouth on a surface yields the spot itself; a mouth over
+        air yields every landing the fall can steer to. Empty set if x
+        touches no column."""
         for (l, r), (mx, mfeet) in self.portals:
             if x < r and x + self.w > l:
-                return self.arc(mx, mfeet, False, 0, par)
-        return None
+                return self.lands(mx, mfeet, False, par)
+        return set()
 
     def footing(self, start):
         """BFS over standing states; returns {feet: set(x)}. The state
@@ -434,22 +519,18 @@ class Char1:
             foot.setdefault(feet, set()).add(x)
             np = par ^ 1
             if self.portals:       # the Act-2 verb: UP in a column
-                land = self.portal_edge(x, par)
-                if land is not None:
-                    stack.append((land[0], land[1], np))
+                stack.extend(self.portal_edge(x, par))
+            edge = False
             for d in (-1, 1):      # walk one step
                 nx = self.clamp_x(x, x + d * self.fstep(par), feet - self.h, d)
                 if nx != x:
                     if self.landing(feet, feet, nx) is not None:
                         stack.append((nx, feet, np))
                     else:
-                        land = self.arc(x, feet, False, d, par)
-                        if land is not None:
-                            stack.append((land[0], land[1], np))
-            for d in (-1, 0, 1):   # jump left / straight / right
-                land = self.arc(x, feet, True, d, par)
-                if land is not None:
-                    stack.append((land[0], land[1], np))
+                        edge = True
+            if edge:               # step off, steering all the way down
+                stack.extend(self.lands(x, feet, False, par))
+            stack.extend(self.lands(x, feet, True, par))   # jump
         return foot
 
     def can_home(self, start, home_feet, home_l, home_r):
@@ -585,9 +666,8 @@ class DualSim:
             sim = self.sims[w]
             np = par ^ 1
             if sim.portals:                # UP in a column, this world's
-                land = sim.portal_edge(x, par)
-                if land is not None:
-                    stack.append((land[0], land[1], w, np, n))
+                for lx, lf, lp in sim.portal_edge(x, par):
+                    stack.append((lx, lf, w, lp, n))
             # the ROM reads the door before the rift, and a teleport
             # spends the UP press: overlapping both, you go through
             # the door and never swap
@@ -597,22 +677,21 @@ class DualSim:
                 n2 = n if self.max_swaps is None else n + 1
                 for (l, r) in self.rifts:  # the swap edge
                     if x < r and x + self.w > l:
-                        land = self.sims[1 - w].arc(x, feet, False, 0, par)
-                        if land is not None:
-                            stack.append((land[0], land[1], 1 - w, np, n2))
+                        for lx, lf, lp in self.sims[1 - w].lands(x, feet, False, par):
+                            stack.append((lx, lf, 1 - w, lp, n2))
+            edge = False
             for d in (-1, 1):              # walk one step
                 nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
                     if sim.landing(feet, feet, nx) is not None:
                         stack.append((nx, feet, w, np, n))
                     else:
-                        land = sim.arc(x, feet, False, d, par)
-                        if land is not None:
-                            stack.append((land[0], land[1], w, np, n))
-            for d in (-1, 0, 1):           # jump left / straight / right
-                land = sim.arc(x, feet, True, d, par)
-                if land is not None:
-                    stack.append((land[0], land[1], w, np, n))
+                        edge = True
+            if edge:                       # step off, steering down
+                for lx, lf, lp in sim.lands(x, feet, False, par):
+                    stack.append((lx, lf, w, lp, n))
+            for lx, lf, lp in sim.lands(x, feet, True, par):   # jump
+                stack.append((lx, lf, w, lp, n))
         return {st[:4] for st in seen}
 
     def can_home(self, start, hf, hl, hr):
@@ -640,15 +719,15 @@ class DualSim:
                 # one parity is enough for a whole-pixel character (and
                 # its mirror world's twin) — see entry_moves
                 par = 0
+            def any_home(ls):
+                return any(is_home(lx, lf) for lx, lf, _p in ls)
             for (l, r) in self.rifts:
                 if x < r and x + self.w > l:
-                    land = self.sims[1 - w].arc(x, feet, False, 0, par)
-                    if land and is_home(land[0], land[1]):
+                    if any_home(self.sims[1 - w].lands(x, feet, False, par)):
                         ways.append(((x, feet, w), "swap"))
-            if sim.portals:
-                land = sim.portal_edge(x, par)
-                if land and is_home(land[0], land[1]):
-                    ways.append(((x, feet, w), "door"))
+            if sim.portals and any_home(sim.portal_edge(x, par)):
+                ways.append(((x, feet, w), "door"))
+            edge = False
             for d in (-1, 1):
                 nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                 if nx != x:
@@ -656,13 +735,11 @@ class DualSim:
                         if is_home(nx, feet):
                             ways.append(((x, feet, w), "walk"))
                     else:
-                        land = sim.arc(x, feet, False, d, par)
-                        if land and is_home(land[0], land[1]):
-                            ways.append(((x, feet, w), "step off"))
-            for d in (-1, 0, 1):
-                land = sim.arc(x, feet, True, d, par)
-                if land and is_home(land[0], land[1]):
-                    ways.append(((x, feet, w), "jump"))
+                        edge = True
+            if edge and any_home(sim.lands(x, feet, False, par)):
+                ways.append(((x, feet, w), "step off"))
+            if any_home(sim.lands(x, feet, True, par)):
+                ways.append(((x, feet, w), "jump"))
         return ways
 
 
@@ -692,6 +769,42 @@ def survey_dual(fl, phys, swaps_on=True, start_world=0, max_swaps=None,
     best = max((0, 1), key=lambda w: (sum(w in h for _s, h in per),
                                       sum(w in s for s, _h in per)))
     return [(best in s, best in h) for s, h in per]
+
+def booster_order_dual(fl, phys, wrap=None):
+    """A finishing order for a dual-world coop floor, or None. Friends
+    who are already home can't come back out to boost, so the order
+    must run: each character gets home with a stepstool subset drawn
+    only from those still out, and the last one home goes alone. All
+    of it in one finishing world (the swap is global). The Act-1 rule
+    ("two solo finishers") was a shortcut for this; with mid-air
+    steering in the solver, the honest floor 10 has ONE solo finisher
+    who boosts the other two in turn, which this proves."""
+    wrap = fl["wrap"] if wrap is None else wrap
+    from itertools import permutations
+    cache = {}
+
+    def homes(ci, sub):
+        if (ci, sub) not in cache:
+            home = (fl["spawns"][ci], fl["homeY"][ci] + phys["h3"][ci],
+                    *fl["home_box"][ci])
+            cache[ci, sub] = DualSim(fl, phys, ci, wrap, sub, True, 0,
+                                     None, True).home_worlds(*home)
+        return cache[ci, sub]
+
+    for world in (0, 1):
+        for order in permutations(range(3)):
+            ok = True
+            for i, ci in enumerate(order):
+                out = tuple(sorted(order[i + 1:]))
+                subs = [()] + [tuple(sorted(s)) for s in
+                               ([(c,) for c in out] + ([out] if len(out) == 2 else []))]
+                if not any(world in homes(ci, s) for s in subs):
+                    ok = False
+                    break
+            if ok:
+                return order
+    return None
+
 
 def boxes_of(b):
     """The floor's six boxes as (top, bottom, left, right) tuples —
@@ -812,10 +925,11 @@ def entry_moves(sim, start, hf, hl, hr):
             if is_home(x, feet):
                 continue
             for par in pars:
-                if sim.portals:      # arriving by door is a way in too
-                    land = sim.portal_edge(x, par)
-                    if land and is_home(*land):
-                        ways.append(((x, feet), "portal"))
+                def any_home(ls):
+                    return any(is_home(lx, lf) for lx, lf, _p in ls)
+                if sim.portals and any_home(sim.portal_edge(x, par)):
+                    ways.append(((x, feet), "portal"))   # by door
+                edge = False
                 for d in (-1, 1):
                     nx = sim.clamp_x(x, x + d * sim.fstep(par), feet - sim.h, d)
                     if nx != x:
@@ -823,13 +937,11 @@ def entry_moves(sim, start, hf, hl, hr):
                             if is_home(nx, feet):
                                 ways.append(((x, feet), "walk"))
                         else:
-                            land = sim.arc(x, feet, False, d, par)
-                            if land and is_home(*land):
-                                ways.append(((x, feet), "step off"))
-                for d in (-1, 0, 1):
-                    land = sim.arc(x, feet, True, d, par)
-                    if land and is_home(*land):
-                        ways.append(((x, feet), "jump"))
+                            edge = True
+                if edge and any_home(sim.lands(x, feet, False, par)):
+                    ways.append(((x, feet), "step off"))
+                if any_home(sim.lands(x, feet, True, par)):
+                    ways.append(((x, feet), "jump"))
     return ways
 
 
@@ -1025,8 +1137,12 @@ def check_floor_dual(fl, phys, name):
         # others finish alone (they are the stepstools)
         if all(r[0] for r in res):
             fails.append("no cooperative beat: everyone finishes alone")
-        if sum(r[0] for r in res) < 2:
-            fails.append("fewer than 2 solo finishers — no booster order")
+        order = booster_order_dual(fl, phys)
+        if order is None:
+            fails.append("no booster order: nobody can be the last one "
+                         "home with only friends still out as stepstools")
+        else:
+            margins.append("order: " + " > ".join(NAMES[c] for c in order))
     if "return" in modes and all(r[1] for r in one):
         fails.append("one swap gets everyone home — the way back is "
                      "never needed")
@@ -1166,13 +1282,18 @@ def main():
     bin_path, sym_path, asm_path = sys.argv[1:4]
     floors, phys, num_chars = load(bin_path, sym_path, asm_path)
     failed = False
+    only = os.environ.get("FLOORS")   # e.g. FLOORS=10,11 to iterate
+    pick = {int(n) for n in only.split(",")} if only else None
     for i, fl in enumerate(floors):
+        if pick and i + 1 not in pick:
+            continue
         if not check_floor(fl, phys, "F%d" % (i + 1)):
             failed = True
     if failed:
         print("check-levels: FAILED")
         sys.exit(1)
-    print("check-levels: all %d real floor(s) proved" % len(floors))
+    print("check-levels: %s proved" % ("floor(s) %s" % only if pick else
+                                        "all %d real floor(s)" % len(floors)))
 
 
 if __name__ == "__main__":

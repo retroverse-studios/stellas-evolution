@@ -22,6 +22,13 @@ puzzles, and a spatial toolkit that grows across the game.
   friends boost from wherever doors and swaps take them.
 - Fixed a vertical-blank overrun on floor 5 with two players (also in
   the previous build): ClampBoxes visits only solid boxes.
+- The solver now steers in the air (decision #55): the stick is read
+  every frame, mid-jump too, and the old solver held one direction, so
+  its "can't" proofs weren't safe. Floors 1-10 re-prove under it. Floor
+  10 now proves a finishing order (Alex, then Marcus, then Stella, home
+  alone) in place of "two solo finishers".
+- The sky painter moved to the bank-1 annex: bank 0 has 255 bytes free
+  for the finale.
 
 ## Earlier (2026-11-26): two players, endless, every frame 262 lines
 
@@ -135,7 +142,9 @@ teaching load-bearing (wrap-off / portal-off / swap-off / each-world-alone
 negative proofs), playability margins, and the art audits (portal and rift
 columns: the ON/OFF plane copies must differ by exactly the column mask the
 input tables claim). Adding a floor is one row in each floor table + a
-record + a narration string + a proof row.
+record + a narration string + a proof row. `FLOORS=10,11` (env) limits
+the proof to some floors while iterating; a full run takes about 3
+minutes.
 
 **The bank-1 annex.** The title and narration states never share a frame
 with play, so both live in bank 1 now (frame loops, kernels, logic, all
