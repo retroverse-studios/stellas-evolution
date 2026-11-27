@@ -2698,3 +2698,56 @@ merge can't invent anything. Lamps are caught in their lit phase.
 the manual isn't linked from it. Game 2's floor names in the source
 (one comment still said "His Own Truth" for floor 9) were brought into
 line with the manual.
+
+## 60. A 2K Prologue, After the Series
+
+**Status:** OPEN (raised 2026-11-28). Come back to it after Game 3.
+Nothing is built and nothing in Games 1 to 4 depends on it.
+
+**Question:** The series starts at 4K. The console's first cartridges in
+1977 were 2K, *Combat* among them. Should there be a 2K game before
+Game 1?
+
+**The idea.** A prologue, a Game 0, and a bonus to the four games:
+
+- **Stella is alone in it.** Game 1 is called "Stella Was Alone" and has
+  Alex in it. A 2K game would be the only one where she is the only
+  shape on the screen.
+- **One or two rooms.** No narration on the cartridge. The story is in
+  the manual, as 1977 cartridges did it.
+- **The second room is a trailer** (author, 2026-11-28). A short wordless
+  scene that shows what is coming: the other shapes, and a look at the
+  later worlds. It gives a player a reason to go on to the series.
+
+**Considerations:**
+
+- The series does not need it. The four games are four chosen steps, and
+  the brief maps its four stages onto them. Game 1's story is built on
+  "four kilobytes of existence". A prologue must not change that line.
+- It is not needed for completeness either. The series already skips
+  32K. See the note below.
+- It would be the natural free sample: the smallest ROM, the shortest
+  play, and it ends by pointing at Game 1.
+- 2,048 bytes is small. Game 1's drawing loop, one or two rooms and a
+  trailer have to fit, with no text and little or no sound. The trailer
+  can reuse the one sprite in the other characters' colours and shapes,
+  which costs a few bytes each. Budget it before promising it.
+- A cut scene is not a 1977 thing. If the trailer stays, the manual
+  should say so, as #42 does for Game 1's limits.
+- Whatever the trailer shows of Games 3 and 4 has to match what they
+  ship. Game 3's closing image, static that falls, is the candidate
+  (see `games/03-stellas-journey/DESIGN-KICKOFF.md`). So the prologue is
+  built last, when those images are fixed.
+
+**Note: why the series skips sizes.** A bigger ROM adds room and does
+not add power. The processor, the 128 bytes of RAM and the TIA's two
+sprites are the same at 2K and at 32K, and the program still has to
+keep up with the beam on every line. More ROM buys more rooms, more
+text, and more drawing loops, each written for one kind of screen. It
+also buys tables that trade bytes for time. 16K cartridges were fewer
+than 8K, and 32K fewer again. What changed the machine was hardware on
+the cartridge: extra RAM on the Superchip, the custom chip in
+*Pitfall II* (1984), and today an ARM processor. So Game 3's new things,
+the fourth character and the tall rooms, come from design and not from
+its 16K, and a 32K game would be Game 3 with more rooms. Even with an
+ARM the picture still goes through the TIA a line at a time.
