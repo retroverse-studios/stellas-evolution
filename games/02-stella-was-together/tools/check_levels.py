@@ -101,6 +101,7 @@ FLOOR_DEFS = [
     {"rec": "Floor8Rec", "home": "Floor8Home", "mode": "swapboth"},
     {"rec": "Floor9Rec", "home": "Floor9Home", "mode": "swapboth+return"},
     {"rec": "Floor10Rec", "home": "Floor10Home", "mode": "swap+seam+coop+return"},
+    {"rec": "Floor11Rec", "home": "Floor11Home", "mode": "swap+seam+coop+return"},
 ]
 
 

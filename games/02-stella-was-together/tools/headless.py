@@ -961,6 +961,134 @@ def the_seam(rom, sym, c):
            f"world {r.r('CurWorld')}, Stella {at[0]}, Alex {at[1]}")
 
 
+def find_leap(r, ci, feet, left, right, tries=70, dirs=("L", "R")):
+    """A jump that lands character ci standing at `feet` overlapping
+    [left, right): fire with the stick held one way for n frames, then
+    let go and fall. Tried on copies of the machine; on success the
+    machine is left where the leap ends and (dir, n) comes back."""
+    import copy
+    h = (9, 3, 6)[ci]
+    w = r.bank0("WidthTbl", 3)[ci]
+    saved = r.m
+    for d in dirs:
+        for n in range(0, tries, 2):
+            r.m = copy.deepcopy(saved)
+            mark = (r.frame, len(r.lines), len(r.late), len(r.frames))
+            r.step_frame(stick0=d, fire0=True)
+            for _ in range(n):
+                r.step_frame(stick0=d)
+            for _ in range(90):
+                r.step_frame()
+                if r.r("OnGround", ci):
+                    break
+            x, y = r.r("CharX", ci), r.r("CharY", ci)
+            ok = y + h == feet and x < right and x + w > left
+            if ok:
+                return d, n
+            r.frame = mark[0]
+            del r.lines[mark[1]:], r.late[mark[2]:], r.frames[mark[3]:]
+    r.m = saved
+    return None
+
+
+def the_meeting(rom, sym, c):
+    """Floor 11's way home, in the ROM. The solver proves it on its
+    model, one character at a time; the engine swaps everyone at once,
+    so this plays the order a person has to: up through world B
+    together, down onto the seam stone together, then the leaps."""
+    S = {name: sym[f"STATE_{name}"] for name in STATES}
+    r = Run(rom, sym)
+    settle(r, 30)
+    press(r, fire0=True)
+    for _ in range(900):
+        if r.r("State") == S["PLAY"]:
+            break
+        press(r, fire0=True)
+    r.w("FloorSeq", 10)
+    r.w("State", S["LOAD"])
+    settle(r, 3)
+    H = (9, 3, 6)
+    home = [r.home(ci) for ci in range(3)]
+    r._place(2, 4, 82)                       # Marcus in the rift, world A
+    r.w("Active", 2)
+    settle(r, 2)
+    press(r, stick0="U")
+    c.that("the meeting: UP in world A's rift swaps to B", r.r("CurWorld") == 1)
+    ok = True
+    for ci in range(3):                      # each takes the left door
+        r._place(ci, 10, 88 - H[ci])
+        r.w("Active", ci)
+        settle(r, 2)
+        press(r, stick0="U")
+        settle(r, 4)
+        ok &= r.r("CharX", ci) == 150 and r.r("CharY", ci) == 32 - H[ci]
+    c.that("the meeting: the left door lets out on world B's high walkway",
+           ok and r.r("CurWorld") == 1)
+    for ci in range(3):                      # gather at the very edge
+        r._place(ci, 152, 32 - H[ci])
+    r.w("Active", 0)
+    settle(r, 2)
+    press(r, stick0="U")
+    settle(r, 30)
+    at = [(r.r("CharX", ci), r.r("CharY", ci)) for ci in range(3)]
+    c.that("the meeting: one swap at the edge drops all three onto the seam stone",
+           r.r("CurWorld") == 0 and all(at[ci][1] == 36 - H[ci] for ci in range(3)),
+           f"world {r.r('CurWorld')}, at {at}")
+    # the leaps from the stone, each on a copy of that moment
+    import copy
+    stone = copy.deepcopy(r.m)
+    leaps = []
+    # The order is forced: Stella first, from Alex's head on the stone
+    # (he stands furthest in, at 137: 16 px wide, one on the stone);
+    # then Alex alone; then Marcus, onto Alex's head at home and up.
+    r.m = copy.deepcopy(stone)
+    r._place(1, 137, 36 - 3)
+    r._place(0, 131, 36 - 3 - 9)
+    r._place(2, 152, 36 - 6)
+    r.w("Active", 0)
+    settle(r, 2)
+    stacked = r.r("CharY", 0) == 24 and r.r("OnGround", 0)
+    a = find_leap(r, 0, 24, home[0][1], home[0][2], dirs=("L",))
+    c.that("the meeting: Stella leaps from Alex's head onto the top ledge",
+           stacked and a, f"stacked {stacked}, leap {a}")
+    r._place(1, 137, 33)
+    r.w("Active", 1)
+    settle(r, 2)
+    a = find_leap(r, 1, 56, home[1][1], home[1][2], dirs=("L",))
+    c.that("the meeting: then Alex leaps home from the stone alone", bool(a), str(a))
+    r._place(1, 87, 53)                      # Alex home, at its right end
+    r._place(2, 145, 36 - 6)                 # Marcus at the stone's inner edge
+    settle(r, 2)
+    r.w("Active", 2)
+    settle(r, 2)
+    a = find_leap(r, 2, 53, 87, 103, dirs=("L",))
+    b = None
+    if a:
+        settle(r, 4)
+        b = find_leap(r, 2, 40, home[2][1], home[2][2])
+    c.that("the meeting: then Marcus leaps onto Alex's head at home and hops up to his",
+           a and b, f"leap {a}, hop {b}")
+    held = r.r("State") == S["DONE"] or r.homes_hold()
+    c.that("the meeting: played in that order, the floor is finished", held)
+    # and only Alex can do it alone: from the stone's inner edge, with
+    # nobody to stand on, Stella and Marcus fall short
+    short = []
+    for ci, f in ((0, 24), (2, 40)):
+        r.m = copy.deepcopy(stone)
+        r._place(ci, 145, 36 - H[ci])       # the stone's inner edge
+        r._place(1 - ci if ci else 1, 40, 88 - H[1 - ci if ci else 1])
+        r.w("Active", ci)
+        settle(r, 2)
+        if find_leap(r, ci, f, home[ci][1], home[ci][2], dirs=("L",)):
+            short.append(ci)
+    c.that("the meeting: from the bare stone, Stella and Marcus can't leap home",
+           not short, str(short))
+    r.m = copy.deepcopy(stone)
+    r.goto_homes()
+    c.that("the meeting: all three home in world A finishes the game's last floor",
+           r.homes_hold())
+
+
 def clock_runs_out(r, sym, c):
     """A timed floor whose clock reaches zero starts over: through
     STATE_LOAD, so the reload runs in the next frame's vblank."""
@@ -1174,6 +1302,8 @@ def main():
     endless(rom, sym, c)
     if sym["NUM_FLOORS"] >= 10:
         the_seam(rom, sym, c)
+    if sym["NUM_FLOORS"] >= 11:
+        the_meeting(rom, sym, c)
     soak(r, args.frames - args.frames // 2, 2, sym, duo)
     c.that("two players never hold the same character", seen["clash"] == 0 and seen["two"] > 0,
            f"{seen['clash']} of {seen['two']} play frames")

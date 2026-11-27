@@ -98,13 +98,14 @@ STATE_SCORE = 7         ; the run's numbers (annex), fire for the title
                         ; holds on it instead of cutting to text)
 
 ; --- floor sequencing ------------------------------------------
-NUM_FLOORS  = 10        ; Act 1 (wrap):   Together Again / The Low Door
+NUM_FLOORS  = 11        ; Act 1 (wrap):   Together Again / The Low Door
                         ;   / The Wall
                         ; Act 2 (portal): The Fold / The High Door / The
                         ;   Cross
                         ; Act 3 (worlds): Two Truths / The Handoff /
                         ;   His Own Truth
-                        ; Act 4 (finale): The Seam
+                        ; Act 4 (finale): The Seam / Where They
+                        ;   Meet
 
 ; --- wake-up opening timing (frames) ---------------------------
 WAKE_BLACK  = 80        ; phase 0: black screen, Marcus alone
@@ -2441,27 +2442,27 @@ OtherBTbl:  .byte 2, 2, 1           ; for each character
 FloorRecLo:   .byte <Floor1Rec, <Floor2Rec, <Floor3Rec
         .byte <Floor4Rec, <Floor5Rec, <Floor6Rec
         .byte <Floor7Rec, <Floor8Rec, <Floor9Rec
-        .byte <Floor10Rec
+        .byte <Floor10Rec, <Floor11Rec
 FloorRecHi:   .byte >Floor1Rec, >Floor2Rec, >Floor3Rec
         .byte >Floor4Rec, >Floor5Rec, >Floor6Rec
         .byte >Floor7Rec, >Floor8Rec, >Floor9Rec
-        .byte >Floor10Rec
+        .byte >Floor10Rec, >Floor11Rec
 FloorHomeLo:  .byte <Floor1Home, <Floor2Home, <Floor3Home
         .byte <Floor4Home, <Floor5Home, <Floor6Home
         .byte <Floor7Home, <Floor8Home, <Floor9Home
-        .byte <Floor10Home
+        .byte <Floor10Home, <Floor11Home
 FloorHomeHi:  .byte >Floor1Home, >Floor2Home, >Floor3Home
         .byte >Floor4Home, >Floor5Home, >Floor6Home
         .byte >Floor7Home, >Floor8Home, >Floor9Home
-        .byte >Floor10Home
+        .byte >Floor10Home, >Floor11Home
 FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
         .byte 1, 1, 1                 ; (decision #18) — every act
         .byte 1, 1, 1
-        .byte 1
+        .byte 1, 1
 ; (The sky bases, FloorSkyTbl, live in the annex beside SkyJob.)
 ; Act boundaries are a comment, not a table (the ROM never read it):
 ; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
-; (world-swap), 10 = the finale (decision #18).
+; (world-swap), 10-11 = the finale (decision #18).
 ;
 ; RIFT TABLE (Act 3): the PF0 bit position of the floor's rift pair,
 ; as the left edge x of the left column (4 = PF0 bit5 -> px 4-7, with
@@ -2472,10 +2473,11 @@ FloorRiftL:  .byte 255,255,255
         .byte 255,255,255
         .byte   4,  4,  4
         .byte   4                     ; F10: the seam's rift
+        .byte   4                     ; F11: the same rift
 ; Solid boxes after the ground, per floor (ClampBoxes walks boxes
 ; 1..N). The same in both worlds: what differs between them is always
 ; one-way. check_levels.py audits it against every record.
-FloorSolidN: .byte 0, 2, 4, 1, 3, 1, 1, 0, 0, 0
+FloorSolidN: .byte 0, 2, 4, 1, 3, 1, 1, 0, 0, 0, 0
 ; char*3 — indexes both FloorBandByChar (char*3 + floor) and each
 ; floor's Floor?Home table (three bytes per character).
 MulThree:     .byte 0, 3, 6
@@ -2491,9 +2493,9 @@ MulFloors:    .byte 0, NUM_FLOORS, 2*NUM_FLOORS
 ; check_levels.py audits both of those rules; the table's own comment
 ; used to claim them and nothing checked.
 FloorBandByChar:
-        .byte 8, 7, 6, 1, 2, 2, 3, 5, 5, 5   ; Stella
-        .byte 9, 9, 8, 4, 9, 7, 5, 7, 7, 2   ; Alex
-        .byte 7, 8, 10, 2, 5, 5, 4, 6, 6, 7 ; Marcus
+        .byte 8, 7, 6, 1, 2, 2, 3, 5, 5, 5, 3   ; Stella
+        .byte 9, 9, 8, 4, 9, 7, 5, 7, 7, 2, 7   ; Alex
+        .byte 7, 8, 10, 2, 5, 5, 4, 6, 6, 7, 5  ; Marcus
 
 ; ---------------------------------------------------------------
 ; PORTAL TABLES (Act 2). Per floor: two column LEFT edges (columns
@@ -2521,9 +2523,9 @@ FloorBandByChar:
 ; 429 to spare.
 ; --------------------------------------------------------------
 FloorPortL:  .byte 255,255,255, 32, 76,  40
-        .byte 255,255,255,   8        ; F10: the seam's doors, in PF0
+        .byte 255,255,255,   8,   8   ; F10, F11: the doors, in PF0
 FloorPort2L: .byte 255,255,255,120,255, 112
-        .byte 255,255,255, 144
+        .byte 255,255,255, 144, 144
 FloorMouX:   .byte   0,  0,   0,  0,   0,   0
         .byte 124,  36                 ; F4: L col -> right column's
                                       ; shelf spot; R col -> left
@@ -2536,12 +2538,15 @@ FloorMouX:   .byte   0,  0,   0,  0,   0,   0
         .byte   0,  0,   0,   0,   0,   0 ; F7-F9: no portals, parked
         .byte   4,  4                 ; F10: both doors -> the seam
                                       ; ledge's left piece
+        .byte 150, 76                 ; F11: L door -> the walkway's
+                                      ; right end; R door -> the floor
 FloorMouY:   .byte   0,  0,   0,  0,   0,   0
         .byte  32, 88                 ; F4: shelf top / ground
         .byte  40,  0                 ; F5: shelf top
         .byte  62, 40                 ; F6: ledge top / shelf top
         .byte   0,  0,   0,   0,   0,   0 ; F7-F9
         .byte  40, 40                 ; F10: the seam ledge's top
+        .byte  32, 88                 ; F11: walkway top / ground
 
 ; 12 black bands for the wake-up opening's unlit playfield, and 12
 ; plain-grey bands for the reveal (lamps start with player control)
@@ -3171,6 +3176,74 @@ Floor10Rec:
         .byte $E0,$E0,$E0,$E0,$E0,$F0,$E0,$E0,$E0,$E0,$E0,$F0
 ;   PF0 world B, OFF (+138): minus rift and doors (the ledges stay)
         .byte $00,$00,$80,$00,$00,$F0,$00,$00,$00,$00,$00,$F0
+
+; ===============================================================
+; ACT 4, FLOOR 11 — "Where They Meet" (decision #56)
+;
+; The end of the game, and floor 1's totem again, upside down: three
+; centred one-way ledges, widest on top, true only in world A. From
+; the top: Stella's (24, px 48-111), Marcus's (40, 72-87), Alex's
+; (56, 72-87). Nothing reaches them from the floor, even on a friend.
+;
+; The way up is in world B. Swap at the rift, take the left door: it
+; lets out on the right half of a high walkway (32) that exists only
+; there. Gather at its very edge, where the rift is clear of the door
+; (x >= 152), and swap back. Everyone standing there falls onto
+; world A's seam stone (36, px 0-7 and 152-159: one stone across the
+; wrap), the only thing under the walkway's end. The swap is global,
+; so all of it happens before anyone is home: a later swap would
+; drop them off a totem world B doesn't have.
+;
+; From the stone, only Alex is fast enough to leap to the totem, and
+; the top ledge is a lid: wide enough to catch anyone who jumps high,
+; so it shuts Marcus out from above. The order is forced. Stella
+; first, from Alex's head (16 px wide, he stands furthest in on the
+; stone) straight onto the lid. Then Alex leaps home alone. Then
+; Marcus, last: Alex's head at the right end of his ledge is the one
+; step he can reach under the lid, and from it he hops up to his own.
+; (The solver's friends stand anywhere they could ever reach, so it
+; finds other orders; the harness plays this one in the ROM.)
+; The right door lets out on the floor in the middle: a way back down.
+; ===============================================================
+
+; home CharY + x extent: Stella 24-9, Alex 56-3, Marcus 40-6
+Floor11Home:
+        .byte 15,  48, 112      ; Stella: the totem's top (24), band 3
+        .byte 53,  72,  88      ; Alex: the totem's foot (56), band 7
+        .byte 34,  72,  88      ; Marcus: the totem's middle (40), band 5
+
+Floor11Rec:
+;   PF0 world A, ON: rift b5; band 4 the seam stone (px 0-7); floor
+        .byte $20,$20,$20,$20,$30,$20,$20,$20,$20,$20,$20,$F0
+;   PF1 world A: floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 world A: the totem, mirrored about the centre — band 3
+;   Stella's (px 48-79), band 5 Marcus's and band 7 Alex's (72-79)
+        .byte $00,$00,$00,$FF,$00,$C0,$00,$C0,$00,$00,$00,$FF
+;   boxes A: ground / the totem, top to foot / the seam stone x2
+        .byte  88, 24, 40, 56, 36, 36      ; tops
+        .byte  96, 24, 40, 56, 36, 36      ; bottoms (all one-way)
+        .byte   0, 48, 72, 72,  0,152      ; lefts
+        .byte 160,112, 88, 88,  8,160      ; rights (excl)
+        .byte  40, 79                      ; Stella: ground
+        .byte  56, 85                      ; Alex: ground
+        .byte 100, 82                      ; Marcus: ground
+;   PF0 world A, OFF (+66): minus the rift bit (the stone stays)
+        .byte $00,$00,$00,$00,$30,$00,$00,$00,$00,$00,$00,$F0
+;   PF1 world B (+78): band 4 the walkway's PF1 part (px 16-31); floor
+        .byte $00,$00,$00,$00,$F0,$00,$00,$00,$00,$00,$00,$FF
+;   PF2 world B (+90): floor only
+        .byte $00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$FF
+;   boxes B (+102): ground / the walkway, both halves
+        .byte  88, 32, 32,$FF,$FF,$FF      ; tops
+        .byte  96, 32, 32,$FF,$FF,$FF      ; bottoms (one-way)
+        .byte   0,  0,128,  0,  0,  0      ; lefts
+        .byte 160, 32,160,  0,  0,  0      ; rights (excl)
+;   PF0 world B, ON (+126): rift b5 + doors b6-b7; band 4 the
+;   walkway's PF0 part (px 0-15); floor
+        .byte $E0,$E0,$E0,$E0,$F0,$E0,$E0,$E0,$E0,$E0,$E0,$F0
+;   PF0 world B, OFF (+138): minus rift and doors (the walkway stays)
+        .byte $00,$00,$00,$00,$F0,$00,$00,$00,$00,$00,$00,$F0
 
 ; ---------------------------------------------------------------
 ; Narration text (generated by tools/gentext.py): ALL of it lives in
@@ -4094,7 +4167,7 @@ SkyJob:
         jmp GoBackBank0
 
 GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
-FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
+FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
         .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
         .byte FLOOR1_SKY

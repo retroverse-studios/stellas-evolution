@@ -71,6 +71,7 @@ SCREENS = [
     ["EACH TRUE", " IN TURN."],                             # 8: after F8
     ["THE WAY HOME", " WAS THROUGH."],                      # 9: after F9
     [" IT WAS", "ONE DOOR."],                               # 10: after F10
+    ["STELLA WAS", " TOGETHER."],                           # 11: after F11, the end
 ]
 
 

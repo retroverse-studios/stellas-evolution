@@ -7,11 +7,21 @@ Stella and Alex meet **Marcus** (blue square — fits where the others can't; se
 puzzles, and a spatial toolkit that grows across the game.
 
 - **Theme:** connection & difference — "Not every challenge could be overcome alone."
-- **Scope:** ~10 floors of a single climbed tower, 3 characters, narration between floors.
+- **Scope:** 11 floors of a single climbed tower, 3 characters, narration between floors.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-27): Act 4 begins — floor 10, "The Seam"
+## Status (2026-11-27): the finale — floor 11, "Where They Meet"
+
+- **Floor 11, "Where They Meet"** (decision #56), the last floor:
+  floor 1's totem upside down, true only in world A. Everyone swaps
+  into world B, takes the door up to a walkway that exists only there,
+  and swaps back down together onto one stone at the seam. Then the
+  order is forced: Stella leaps from Alex's head, Alex leaps home
+  alone, and Marcus comes last, by Alex's head at home. The harness
+  plays that order in the ROM; the solver proves the rest.
+
+## Earlier (2026-11-27): Act 4 begins — floor 10, "The Seam"
 
 - **Floor 10, "The Seam"** (decision #54): the wrap, the doors and
   the swap meet at the screen's edge. Doors stand only in world B,

@@ -2416,3 +2416,55 @@ FloorSkyTbl are now bank 1's `JOB_SKY`. Bank 0 keeps a three-byte stub.
 That frees 86 bytes for the finale (bank 0: 255 free). Frame timing is
 unchanged (vertical blank at least 5 ticks spare, overscan 2).
 
+## 56. Game 2: Floor 11, "Where They Meet"
+
+**Status:** Accepted (2026-11-27). The last floor of the game, and the
+hardest. Floor 1's totem comes back upside down, and nobody gets home
+the way they got onto the floor.
+
+**The floor.** The totem is three centred ledges in world A, widest
+on top: Stella's (24, 48-111), Marcus's (40, 72-87), Alex's (56,
+72-87). Nothing reaches them from the floor, even on a friend. The way
+up is in world B. Swap at the rift and take the left door, which lets
+out on a high walkway (32) that exists only in B. Everyone gathers at
+its very edge, where the rift is clear of the door, and one of them
+swaps back. All three fall onto world A's seam stone (36), the only
+thing under the walkway's end. From there:
+
+1. Stella jumps from Alex's head straight onto the top ledge. Alex
+   stands furthest in, since he is 16 px wide.
+2. Alex leaps home alone. He is the only one fast enough.
+3. Marcus goes last. The top ledge is a lid: it catches anyone who
+   jumps high enough to clear it, so it shuts him out from above.
+   Alex's head, at the right end of his ledge, is the one step Marcus
+   can reach under it. From there he hops up to his own ledge.
+
+Narration: "STELLA WAS / TOGETHER."
+
+**The swap is global, so the order is the puzzle.** The totem exists
+only in world A. Once anyone is home, another swap drops them off it.
+So every swap has to come before anyone gets home: up through B
+together, down onto the stone together. Then nobody is left to boost
+the first two to leap, so the order is forced. The solver judges one
+character at a time and lets a friend stand anywhere the friend could
+ever reach, so it calls other orders possible, including one that
+needs Alex in two places at once. A draft of this floor passed the
+solver on exactly that, and the ROM showed it couldn't be played. So
+the harness (`the_meeting`) plays the real order in the ROM. It
+searches for jump timings rather than assuming them, and it checks
+that Stella and Marcus can't leap home from the bare stone. The
+solver still proves what it can: everyone home in world A; nobody
+home without the doors, the swap, or a way back; a finishing order;
+and 86/52/102 ways in.
+
+**Getting here.** A centred totem with the homes in world B never made
+world A matter. The doors can drop anyone anywhere in B, so A's stones
+were never needed. Putting the homes in A and the doors in B forces
+everyone across and back. The wrap never shows up as a route of its
+own here, though the solver finds it needed (the stone is one stone
+across the seam, and a swap at the right edge needs x of 152 or more).
+The real-play model that found this layout, with friends fixed in
+one place, lives in the session's scratch search, not in the repo.
+
+**Cost:** bank 0 has 80 bytes free (from 255): the record is 150
+bytes, the tables the rest.
