@@ -1546,7 +1546,9 @@ SwapWorld:
         inx
         cpx #6
         bne .loop
-        jsr BuildSky            ; the full-screen tell, reversed ramp
+        lda #0                  ; no breath: Temp still holds the loop's
+        sta Temp                ; record offset, which painted world B's
+        jsr BuildSky            ; sky $72-$7A, a hue (fixed with #57)
         lda #5                  ; the two-world chime (UpdateSound
         sta SoundId             ; reads CurWorld for the direction)
         lda #8
@@ -2459,7 +2461,7 @@ FloorWrapTbl: .byte 1, 1, 1           ; wrap is the always-on baseline
         .byte 1, 1, 1                 ; (decision #18) — every act
         .byte 1, 1, 1
         .byte 1, 1
-; (The sky bases, FloorSkyTbl, live in the annex beside SkyJob.)
+; (The per-act skies, FloorSkyTbl, live in the annex beside SkyJob.)
 ; Act boundaries are a comment, not a table (the ROM never read it):
 ; floors 1-3 = Act 1 (wrap), 4-6 = Act 2 (portal), 7-9 = Act 3
 ; (world-swap), 10-11 = the finale (decision #18).
@@ -4129,11 +4131,6 @@ AnnexJob:
 ; ---------------------------------------------------------------
 SkyJob:
         SUBROUTINE
-        ldx FloorSeq
-        lda FloorSkyTbl,x
-        clc
-        adc Temp                ; Temp is the caller's breath: 0 during
-        sta Temp                ; play, +2 on the completion beat
         lda #16                 ; the clock's shadow, from the seconds
         sec                     ; left: none until the last sixteen,
         sbc TimerSec            ; then a luma step every four, to four
@@ -4143,34 +4140,42 @@ SkyJob:
         lsr
         lsr
         sta SkyDim
+        ldx FloorSeq            ; the act's ramp (decision #57): Y walks
+        ldy FloorSkyTbl,x       ; it from the horizon end, down in world
+        lda CurWorld            ; A; in world B it starts at the zenith
+        beq .a                  ; end and walks up, so the same ramp
+        tya                     ; reads backwards
+        sec
+        sbc #11
+        tay
+.a:
         ldx #11
 .loop:
-        lda GradOfs1,x
-        ldy CurWorld
-        beq .fwd
-        lda GradOfsR,x          ; world B: the ramp reversed
-.fwd:
+        lda SkyRamps,y
         clc
-        adc Temp
-        sec
+        adc Temp                ; Temp is the caller's breath: 0 during
+        sec                     ; play, +2 on the completion beat
         sbc SkyDim              ; the clock's shadow (0 untimed)
-        bcc .black              ; never borrow into the hue nibble
+        bcs .lit                ; never borrow into the hue nibble: the
+        lda #0                  ; clock can take the sky to black but
+.lit:                           ; not one luma step further
         sta SkyGrad,x
-        dex
-        bpl .loop
-        jmp GoBackBank0
-.black:
-        lda #0                  ; the clock can take the sky to black
-        sta SkyGrad,x           ; but not one luma step further
+        lda CurWorld
+        bne .up
+        dey
+        dey
+.up:
+        iny
         dex
         bpl .loop
         jmp GoBackBank0
 
-GradOfsR:   .byte 8,8,6,6,4,4,2,2,2,0,0,0   ; world B: the ramp reversed
-FloorSkyTbl:  .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
-        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY  ; per-act palettes: TODO
-        .byte FLOOR1_SKY, FLOOR1_SKY, FLOOR1_SKY
-        .byte FLOOR1_SKY
+; FloorSkyTbl: each floor's act, as the index of its ramp's horizon
+; band in SkyRamps (act*12 + 11). Altitude is the progress bar.
+FloorSkyTbl:  .byte 11, 11, 11          ; Act 1
+        .byte 23, 23, 23                ; Act 2
+        .byte 35, 35, 35                ; Act 3
+        .byte 47, 47                    ; Act 4
 
 ; PickFloor: FloorSeq = a floor at random, never the one just played.
 ; The frame counter is the dice: when a floor ends, or fire is pressed
@@ -4492,9 +4497,23 @@ LogoPF2R:   .byte $0E,$11,$11,$1F,$11,$11,$11
 ; transposed into the channel every player can see.
 LogoColr:   .byte $08,$0A,$0C,$0E,$0C,$0A,$08
 
-GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; per-band gradient shape:
-                                            ; brighter toward the horizon
-                                            ; (the title and SkyJob)
+; SkyRamps: one 12-band sky per act, zenith first (decision #57). The
+; light climbs the sky as they climb the tower: each act the grey
+; reaches higher and brighter, and at the summit Game 1's void is a
+; strip at the top. Two zenith bands stay black in every act because
+; world B reads the ramp backwards: they become the bands the cast
+; stands in (band 11 is under the ground, band 10 is where the feet
+; are), and that ground must stay black or dim Marcus ($82) vanishes
+; on it (#49). Lumas stay 0-8 (A is the platforms'), hue 0 always
+; (#27: colour means agency).
+SkyRamps:
+GradOfs1:   .byte 0,0,0,2,2,2,4,4,6,6,8,8  ; Act 1 (and the title and
+                                            ; the waking): the void
+                                            ; with a horizon
+            .byte 0,0,2,2,2,4,4,6,6,8,8,8  ; Act 2
+            .byte 0,0,2,2,4,4,6,6,8,8,8,8  ; Act 3
+            .byte 0,0,2,4,6,6,8,8,8,8,8,8  ; Act 4: dawn, a strip of
+                                            ; the void left
 
 ; The title's player count: Stella (tall, facing right) and, with two
 ; players, Alex (flat, facing left), feet on the same line, so the

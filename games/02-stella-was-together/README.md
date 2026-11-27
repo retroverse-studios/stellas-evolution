@@ -11,7 +11,19 @@ puzzles, and a spatial toolkit that grows across the game.
 - **Spatial ladder (decision #18):** **wrap → portal → world-swap**, wrap always-on.
   Acts: 1 = wrap, 2 = portal, 3 = world-swap, 4 = finale (composes them).
 
-## Status (2026-11-27): the finale — floor 11, "Where They Meet"
+## Status (2026-11-27): the sky climbs with them
+
+- **Per-act skies** (decision #57): one grey ramp per act, each
+  brighter than the last. Act 1's black zenith ("dusk", Stella
+  thinks) gives way to a dawn sky at the summit with a strip of dark
+  overhead. The manual's story for it is drafted in #57. World B still
+  reads its act's ramp backwards, and its ground bands stay black so
+  dim Marcus never vanishes.
+- **Fixed:** world B's sky has been blue ($72-$7A), not grey, since
+  world B arrived: `SwapWorld` painted it with a stale `Temp`.
+- `make picture` adds `sky-act1..4.png` and the world-B pair.
+
+## Earlier (2026-11-27): the finale — floor 11, "Where They Meet"
 
 - **Floor 11, "Where They Meet"** (decision #56), the last floor:
   floor 1's totem upside down, true only in world A. Everyone swaps
@@ -84,12 +96,12 @@ puzzles, and a spatial toolkit that grows across the game.
 2. ~~Two players~~ done (decision #47). Not yet tried on hardware
    or in an emulator with two people.
 3. ~~Every frame 262 lines~~ done (decisions #47, #48).
-4. Act 4 as two floors: ~~**the seam**~~ done (decision #54), then
-   **where they meet** (one shared home, each character arriving by a
-   different verb). Bank 0 has 169 bytes for it.
+4. ~~Act 4 as two floors~~ done: the seam (decision #54) and where
+   they meet (#56).
 5. ~~Endless mode and the run clock~~ done (decision #52). Not yet
    seen on a screen or played by a person.
-6. Per-act skies (dawn for Act 4) and the second sound voice.
+6. ~~Per-act skies~~ done (decision #57); the second sound voice.
+7. A manual, as Game 1 has; #57 drafts its sky section.
 
 Floors 8 and 9 are the same two worlds with A and B exchanged, so their
 reach figures match; the solver now also proves floor 9's "there and
@@ -241,8 +253,9 @@ world-swap re-attaches in Act 3.
       clock at all, which made the roomier cartridge strictly *more*
       forgiving than the 4K one
 - [x] Act 4, floor 10 "The Seam" (wrap + portal + swap at one edge)
-- [ ] Act 4, floor 11 "Where They Meet"
-- [ ] Per-act sky palettes (altitude as the progress bar), two-voice audio
+- [x] Act 4, floor 11 "Where They Meet"
+- [x] Per-act sky palettes (altitude as the progress bar; decision #57)
+- [ ] Two-voice audio
       (channel 1 is entirely unused — Game 1 has a level drone and Game 2
       has silence, which is another axis that shrank rather than grew)
 - [ ] Dual-gravity variation floors where Act 4 wants them (decision #25)

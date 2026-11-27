@@ -2468,3 +2468,98 @@ one place, lives in the session's scratch search, not in the repo.
 
 **Cost:** bank 0 has 80 bytes free (from 255): the record is 150
 bytes, the tables the rest.
+
+## 57. Game 2: The Sky Climbs With Them
+
+**Status:** DECIDED (2026-11-27).
+
+The kickoff's "altitude is the progress bar" asked for a sky that
+changes as the tower is climbed: dusk violet, deep night, strange hues,
+dawn. #27 later took hue away from the world (colour means agency), and
+said the sky would *brighten* as you climb instead. This is that sky.
+
+**Four ramps, one per act.** Each act's 12-band sky, zenith first:
+
+| Act | Bands (luma) | Bands 0-10 summed |
+|---|---|---|
+| 1 (wrap), the title, the waking | 0 0 0 2 2 2 4 4 6 6 8 8 | 34 |
+| 2 (portal) | 0 0 2 2 2 4 4 6 6 8 8 8 | 42 |
+| 3 (worlds) | 0 0 2 2 4 4 6 6 8 8 8 8 | 48 |
+| 4 (finale) | 0 0 2 4 6 6 8 8 8 8 8 8 | 58 |
+
+The grey climbs a little higher up the sky each act. At the summit most
+of the sky is light, and the black is a strip overhead.
+
+**What it means (the manual's story).** Game 1's world was grey rooms
+with a darker sky you could only look at. Game 2 opens on black
+overhead and a little light at the edge of the world. Stella, who has
+only known the end of things, takes it for dusk. It isn't. It is the
+hour before dawn, and every floor they climb together, the light climbs
+too. The game never says how high you are; the sky does. That keeps the
+series arc of #27: the world is still grey (colour is for those with a
+will), but in Game 2 it has started to change. Draft for the manual:
+
+> **THE SKY**
+>
+> The tower has a sky, and it is never quite the same twice.
+>
+> When the three of them set out, it is nearly all dark: black
+> overhead, a little grey at the edge of the world. Stella took it for
+> the end of a day. She had only ever known the end of things.
+>
+> It was not dusk. Every time they climb higher together, the grey
+> climbs too. By the top of the tower the light has nearly filled the
+> sky, and the dark is a thin strip overhead. It had been the hour
+> before dawn all along.
+>
+> Nobody will tell you how high you are. Look up.
+>
+> In the tower's other truth the sky runs the other way, light above
+> and dark at your feet. That is how you know which truth you are
+> standing in.
+
+**Why two black bands stay at the zenith in every act.** World B reads
+the same ramp backwards (the which-world tell). The ground's box covers
+band 11, so band 10 is where everyone's feet are, and in world B it
+gets the ramp's second entry. If that is not black, dim Marcus ($82) is
+dark blue on dark grey, the "vanishes on dark ground" fault of #49. A
+first draft lit the zenith for Act 4 ("no void left") and the render
+showed exactly that. The harness now fails the build if world B's
+bands 10 and 11 are not black.
+
+**Contrast, band by band** (#27 asks for it). Stella is luma 6/8,
+Marcus 2/4, Alex C/E, platforms A. Alex never meets the sky. Higher
+acts put more bands at 6-8, so Stella shares luma with more of the
+sky: in Act 4, world A, from band 6 down to her feet. Hue still
+separates her (orange on neutral), the same residual #27 accepted, and
+the render reads clearly. Marcus shares luma 2-4 with fewer bands as
+the acts climb. The sky never reaches A, so platforms always read, and
+the completion beat's +2 breath tops out at A only on the brightest
+bands, as it already did.
+
+**How.** `FloorSkyTbl` (bank 1, beside `SkyJob`) now holds each floor's
+act as the index of its ramp's horizon band in `SkyRamps`. `SkyJob`
+walks the ramp down from there in world A, or up from its zenith in
+world B, so one ramp serves both worlds and `GradOfsR` is gone.
+`GradOfs1`, which the title and the waking read, is Act 1's row. In the
+endless game a random floor keeps its own act's sky.
+
+**A fault found on the way.** `SwapWorld` called `BuildSky` with
+`Temp` still holding its pointer loop's record offset, and `SkyJob`
+adds `Temp` to every band as the beat's "breath". So since world B
+arrived, world B's sky has been $72-$7A: a blue, not grey, against #27.
+It held until the next repaint (the clock's dim, or the completion
+beat). Fixed by zeroing `Temp` before the call. The harness never saw
+it because its sky check read only the luma nibble; the new check
+compares whole bytes, both worlds, every act.
+
+**Checks.** `make headless` reads each act's sky in both worlds from the
+ROM's own play and checks: it is the act's ramp, world B is the same
+ramp backwards, every byte is grey with luma 0-8, world B's ground
+bands are black, and each act is brighter than the one below.
+`make picture` writes `sky-act1..4.png` and the world-B pair
+`sky-act3-b.png`/`sky-act4-b.png`. `check_levels.py`'s table-overrun
+check now measures a bank-1 table against bank-1 symbols; it had been
+measuring `FloorSkyTbl` against bank 0's, and passed by luck.
+
+**Cost:** bank 0, 4 bytes (76 free); bank 1, 36 bytes (1,107 free).

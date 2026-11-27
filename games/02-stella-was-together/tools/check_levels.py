@@ -143,10 +143,12 @@ def load(bin_path, sym_path, asm_path):
         b1src += open(os.path.join(os.path.dirname(asm_path), inc)).read()
     bank1 = set(re.findall(r"^([A-Za-z_]\w*):?\s", b1src, re.M))
     def span(name):
-        """Bytes available to `name` before the next bank-0 symbol."""
+        """Bytes available to `name` before the next symbol in its own
+        bank (FloorSkyTbl lives in bank 1, beside SkyJob)."""
         base = syms[name]
+        mine = name in bank1
         nxt = [a for n, a in syms.items()
-               if n not in bank1 and 0xF000 <= a and a > base]
+               if (n in bank1) == mine and 0xF000 <= a and a > base]
         return min(nxt) - base if nxt else 0x1000
 
     def need(name, count, why):
@@ -160,7 +162,7 @@ def load(bin_path, sym_path, asm_path):
     for tbl, why in (("FloorRecLo", "the floor record pointer"),
                      ("FloorHomeLo", "the home height table"),
                      ("FloorWrapTbl", "the edge mode"),
-                     ("FloorSkyTbl", "the sky base"),
+                     ("FloorSkyTbl", "the act's sky ramp"),
                      ("FloorRiftL", "the rift column"),
                      ("FloorPortL", "portal column A"),
                      ("FloorPort2L", "portal column B"),

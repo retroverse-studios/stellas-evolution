@@ -541,6 +541,11 @@ class Run:
         a = self.sym[label] - 0xF000
         return list(self.rom[a:a + n])
 
+    def bank1(self, label, n):
+        """n bytes of a bank-1 (annex) table, by label."""
+        a = self.sym[label] - 0xF000 + 0x1000
+        return list(self.rom[a:a + n])
+
     def _run_to_frame(self):
         m, guard = self.m, 0
         m.frame_start = False
@@ -722,10 +727,19 @@ def walkthrough(r, sym, c):
         press(r, fire0=True)
     c.that("the waking gives way to floor 1", r.r("State") == S["PLAY"] and r.r("FloorSeq") == 0)
     finished = 0
+    skies = {}                                  # act -> world A sky, world B sky
+    act_of = r.bank1("FloorSkyTbl", nf)
     for f in range(nf):
         settle(r, 10)
         c.that(f"floor {f + 1} is in play", r.r("State") == S["PLAY"] and r.r("FloorSeq") == f,
                f"State {r.r('State')}, FloorSeq {r.r('FloorSeq')}")
+        if "SwapWorld" in sym and act_of[f] not in skies:
+            w0 = r.r("CurWorld")
+            sky = [r.r("SkyGrad", i) for i in range(12)]
+            r.call("SwapWorld")
+            other = [r.r("SkyGrad", i) for i in range(12)]
+            r.call("SwapWorld")
+            skies[act_of[f]] = (other, sky) if w0 else (sky, other)
         r.goto_homes()
         if not r.homes_hold() and "SwapWorld" in sym:
             r.call("SwapWorld")                 # the homes may be in the other world
@@ -745,6 +759,17 @@ def walkthrough(r, sym, c):
             press(r, fire0=True)
         finished += 1
     c.that(f"all {nf} floors play in order", finished == nf)
+    if skies:                                   # decision #57: altitude is the progress bar
+        acts = [skies[k] for k in sorted(skies)]
+        c.that("each act's sky is its own ramp, world B's the same ramp backwards, "
+               "all grey and never platform-bright (luma 0-8), world B's ground band black",
+               len(acts) == 4 and all(b == a[::-1] for a, b in acts)
+               and all(v <= 8 for a, _ in acts for v in a)
+               and all(b[10] == b[11] == 0 for _, b in acts),   # band 10 is where feet are; dim Marcus (#49)
+               f"{acts}")
+        c.that("each act's sky is brighter than the act below it",
+               all(sum(acts[i][0][:11]) < sum(acts[i + 1][0][:11]) for i in range(len(acts) - 1)),
+               f"{[sum(a[:11]) for a, _ in acts]} (bands 0-10; 11 is under the ground)")
     c.that("with the clock off, the sky keeps its full ramp (brightest band luma 8+) "
            "in play and in the completion beat", getattr(r, "dim_frames", 0) == 0,
            f"{getattr(r, 'dim_frames', 0)} frames dimmed")

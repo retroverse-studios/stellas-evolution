@@ -13,7 +13,7 @@ approximate NTSC palette.
 
     python3 tools/picture.py ROM SYM OUTDIR
 
-writes title-1p.png, title-2p.png and play-2p.png (two players with a
+writes title-1p.png, title-2p.png, sky-act1..4.png and play-2p.png (two players with a
 pair split vertically, so P1 hops) and play-1p.png.
 """
 import colorsys
@@ -207,6 +207,23 @@ def main():
     r.w("Mode", 0)                              # the story's layout
     H.settle(r, 2)
     save(render(frame(r)), os.path.join(out, "score-story.png"))
+    # the per-act skies (decision #57): each act's first floor, world A,
+    # and world B for the acts that have one
+    H.press(r, reset=True)
+    H.press(r, select=True)                     # endless one -> two
+    H.press(r, select=True)                     # -> the story, one player
+    H.press(r, fire0=True)
+    while r.r("State") != sym["STATE_PLAY"]:
+        H.press(r, fire0=True)
+    for act, f in enumerate((0, 3, 6, 9), 1):
+        r.w("FloorSeq", f)
+        r.w("State", sym["STATE_LOAD"])
+        H.settle(r, 4)
+        save(render(frame(r)), os.path.join(out, f"sky-act{act}.png"))
+        if act >= 3:
+            r.call("SwapWorld")
+            H.settle(r, 2)
+            save(render(frame(r)), os.path.join(out, f"sky-act{act}-b.png"))
 
 if __name__ == "__main__":
     main()
