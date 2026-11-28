@@ -17,7 +17,8 @@
    - More sophisticated TIA utilization
 
 3. **"Stella's Journey" (16K ROM)**
-   - Atari 2600 cartridge with F6 bankswitching
+   - Atari 2600 cartridge with F6 bankswitching and the Superchip: 128
+     bytes of RAM on the cartridge (F6SC, decision #62)
    - Maximum program size of 16,384 bytes
    - Advanced TIA techniques
 
@@ -123,7 +124,7 @@ For the ARM version, we still respect the Atari's 128 bytes of RAM while using t
 | Bank 0: $F000-$FFFF | 4,096 bytes | Main game logic, core engine, kernel |
 | Bank 1: $F000-$FFFF | 4,096 bytes | Level data, graphics, audio, additional logic |
 
-#### "Stella's Journey" (16K with F6 Bankswitching)
+#### "Stella's Journey" (16K with F6 Bankswitching and the Superchip)
 | Address Range | Size | Usage |
 |---------------|------|-------|
 | Bank 0: $F000-$FFFF | 4,096 bytes | Core kernel and main game logic |

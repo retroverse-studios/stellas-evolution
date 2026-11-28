@@ -1,6 +1,6 @@
 # Stella's Journey design kickoff
 
-**Game 3 of 4 · 16K ROM · F6 bankswitching · kickoff 2026-11-28**
+**Game 3 of 4 · 16K ROM · F6 bankswitching with the Superchip (F6SC) · kickoff 2026-11-28**
 
 Nothing is built yet. This document records what the author settled on
 2026-11-28, what is still open, and what to prototype first. The decisions
@@ -213,9 +213,9 @@ plan. State packs into bits.
 About twelve bytes. Game 2 spends twelve on its sky table and twelve on
 its lamp colours, and Game 3 can read at least the sky from ROM.
 
-The Superchip variant of F6 puts 128 more bytes of RAM on the cartridge.
-Atari shipped it in 1983 and 1984. It stays in reserve, and its details
-need checking before anyone relies on it.
+The Superchip puts 128 more bytes of RAM on the cartridge. The author
+chose it on 2026-11-28, after prototype 1 left 5 bytes of zero page
+spare. See decision #62.
 
 ## How rooms get proved
 
@@ -273,7 +273,9 @@ Each is a small test ROM, built before any room is designed.
 
 1. **A tall room with four characters.** Vertical scrolling and the
    fourth sprite in the same drawing loop. This is the riskiest piece, and
-   #29 says to prove Flicker's blink early.
+   #29 says to prove Flicker's blink early. *Done 2026-11-28, decision
+   #61: it works, with 2.5 lines of vertical blank and 5 bytes of RAM
+   to spare.*
 2. **A fused stack through corruption.** Stack detection, the stack's
    outline, and what happens when a stack breaks up inside the corruption.
    #29 calls that last case the ending.

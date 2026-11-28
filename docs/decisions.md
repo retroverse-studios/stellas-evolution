@@ -2751,3 +2751,175 @@ the cartridge: extra RAM on the Superchip, the custom chip in
 the fourth character and the tall rooms, come from design and not from
 its 16K, and a 32K game would be Game 3 with more rooms. Even with an
 ARM the picture still goes through the TIA a line at a time.
+
+## 61. Game 3, Prototype 1: the Tall Room
+
+**Status:** DONE (2026-11-28). The first of the four prototypes in
+`games/03-stellas-journey/DESIGN-KICKOFF.md`, the one the kickoff
+called the riskiest. A test ROM, not the game:
+`games/03-stellas-journey/src/proto1.asm`, built and checked by `make`
+in that folder.
+
+**Question.** Can one drawing loop scroll a room taller than the screen
+and draw four characters with the TIA's two sprites, inside 262 lines?
+
+**Answer: yes, with little room to spare.**
+
+**What it is.** One room 32 bands tall, 256 du, two and two-thirds
+screens, called "the climb": rungs 16 du apart, a solid block, four
+homes near the top. Stella, Alex, Marcus and Flicker in it. The view
+moves a du at a time and follows the held character, with a dead zone
+of 12 du, at up to 3 du a frame, the fastest fall. On entry it holds on
+the homes for a second and a half, then pans down to the cast at 2 du a
+frame. Fire cuts the hold short. 16K, F6, all of it in bank 0.
+
+**How four go on two sprites.**
+
+- P0 is the held character, drawn on every frame (#19). When the held
+  character is Flicker, P0 draws it on even frames only and lends the
+  odd ones to whoever has waited longest (#29).
+- P1 draws up to three of the others in one frame. It moves between
+  them on the way down the screen, so they must be apart vertically.
+  A move takes two du, starts one du after the upper one ends, and is
+  nudged off the two lines of each band that the kernel spends on the
+  playfield. Two characters about four du apart or more can share P1.
+- Characters that overlap vertically take turns. Each frame the one
+  that has waited longest is placed first. With all four level on the
+  floor, the worst wait measured is two frames.
+- Flicker is drawn only on even frames, whoever holds it. Its blink is
+  the hardware's arithmetic, as #29 planned.
+- A character out of view needs no sprite. A tall room frees sprites
+  as well as costing them.
+- Pictures are a pointer per character to a table of rows, so a face
+  can change by changing the pointer. #23's eyes will want this.
+
+**What it costs.**
+
+| | Used | Spare |
+| --- | --- | --- |
+| Vertical blank, worst frame | about 40 lines | 2.5 lines |
+| Overscan, worst frame | about 19 lines | 3.4 lines |
+| Latest drawn line | cycle 71 | 4 cycles |
+| RAM | 117 of 128 bytes, the stack 6 more | 5 bytes |
+| ROM, bank 0 | 2,710 bytes | 1,376; banks 1-3 empty |
+
+Working out who P1 draws costs most of vertical blank. Overscan is the
+stick and physics. Four characters' landings stay cheap because a box
+is looked at only if its top lies in the bands the feet passed
+through: a table of where each band's boxes start, made with the room.
+
+**Found on the way.**
+
+1. The hop drew its tenant 6 px left. Vertical blank positions with
+   indexed stores, which take a cycle longer each, and the hop's
+   copy used plain ones. Copying vertical blank's routine exactly was
+   no good either: for x 150 it writes RESP1 on cycle 74, and the
+   hop's next WSYNC would land a line late. The hop now looks its
+   position up in a 160-byte table made at assembly time and writes
+   RESP1 by cycle 71.
+2. P0 put every character right of x 128 at x 0: a `bpl` meant as
+   "always". The picture check caught both of these.
+3. Hopping right at a tenant's last row cut that row's second line.
+   The hop starts one du later.
+4. A home's lamp is its band's colour, and the colour changes at
+   pixel 46 on the band's first line. So side walls drawn in a lamp
+   band light up with the lamp, and anything left of pixel 48 starts a
+   line late in the old colour. The room draws no side walls (x is
+   clamped, as Game 2 does), and `tools/genroom.py` fails a room that
+   draws left of pixel 48 in a home's band or the band below it.
+   Game 2 kept to this by hand.
+5. Gopher2600 shows a short black dash at the left edge on each hop's
+   line. It is the TIA's HMOVE comb. The picture tool doesn't model
+   it, and it is left alone.
+
+**How it is checked.** `tools/check_proto1.py`, 18 checks, about 20
+seconds. Every frame is 262 lines and no drawn line runs late, over a
+3,000-frame soak of random input with characters dropped on random
+ledges. The stack stays clear. The view stays in the room and comes
+back to the held character. A frame is replayed from the TIA writes
+(`tools/picture.py`). Each character is then either drawn exactly,
+row for row and pixel for pixel, or not at all. The only pixels
+allowed missing are those P0 covers, since the TIA draws P0 over P1.
+Flicker never shows on an odd frame. The held character shows on
+every frame it is in view. Scenes: power-on in each of the four
+banks, the opening, all four level, all four on different ledges
+(P1 hops twice), a character poking in at the top. Three frames
+were also rendered in Gopher2600 and agree with the picture tool.
+
+`tools/genroom.py` makes the room from one list of boxes, so what is
+drawn and what is solid can't differ (#35). It also writes the homes
+and spawns, reading heights and widths from the assembly source.
+
+**What this means for the game.**
+
+- **RAM decides what comes next.** Five bytes are spare. Carrying,
+  phasing, switches, gates and the corruption all need state. The
+  kickoff kept the Superchip in reserve. It is now likely, and should
+  be confirmed before prototype 2.
+- **Vertical blank is nearly full.** Work that doesn't depend on this
+  frame's view should move to overscan or into tables.
+- **Level design buys sprite time.** Characters on different ledges
+  are all drawn every frame. Characters at the same height take
+  turns. Tall rooms help, since characters spread out.
+
+**Not in this prototype:** markers at the edge of the view for
+characters out of it, two players, carrying, phasing, bodies that
+block, corruption, gates, sound.
+
+## 62. Game 3 Uses the Superchip
+
+**Status:** DECIDED (2026-11-28, the author). Game 3 is a 16K F6
+cartridge with the Superchip: F6SC.
+
+**Question.** Prototype 1 (#61) left 5 bytes of RAM. Carrying,
+phasing, switches, gates and the corruption all need state. The
+kickoff kept the Superchip in reserve. Is it time, and does it fit the
+series?
+
+**What it is.** A RAM chip on the cartridge, also called SARA, with
+128 bytes. It sits in the first 256 bytes of the cartridge's window:
+a byte is written at $F000-$F07F and read back at $F080-$F0FF. Atari
+used it in its own later cartridges; Dig Dug and Galaxian are two of
+them.
+
+**Why it fits the arc.** Every game runs on the same console, and
+each one moves something new onto the cartridge:
+
+| Game | Cartridge | What the cartridge adds |
+| --- | --- | --- |
+| 1 | 4K | the program |
+| 2 | 8K, F8 | more program than the console can see at once (bank switching) |
+| 3 | 16K, F6, Superchip | memory of its own |
+| 4 | ARM | a processor of its own |
+
+The console never changes. More of the machine moves onto the
+cartridge each time. That is the landing page's "the intelligence
+lives in the cart", told one step at a time. Each step is a real
+kind of cartridge, built in the order the industry built them.
+
+**What it costs.**
+
+- The first 256 bytes of every bank are the RAM's window, so 1K of the
+  16K holds no code. Code starts at $F100 in every bank.
+- A byte is written at one address and read at another. An `inc` or
+  `dec` on it does not work: those read and write the same address.
+  A value that counts goes in zero page, or takes a load, an add and
+  a store.
+- Reading the write half writes whatever is on the bus to it. Nothing
+  may read there. The harness counts any read and fails it.
+- Reads cost the same as any ROM read. The kernel's indexed loads
+  through a pointer don't care which they read.
+
+**What changed in prototype 1.** The home lamps (13 bytes, read by the
+kernel on every band) moved to the Superchip, as the first test of it
+in the hottest path. Zero page now holds 104 bytes and the Superchip
+13, so 24 bytes of zero page and 115 of cartridge RAM are free. The
+ROM is laid out so every bank's first 128 bytes repeat as its next
+128, which is how emulators tell a Superchip cartridge. Stella's
+`-rominfo` reports it as F6SC. Gopher2600 draws the lamps from it,
+and its frames match the build before the move. The harness models
+the chip, and `make` checks all of this: 22 checks.
+
+**Still to do.** Run it on a flash cartridge on a real console before
+anything ships. The Harmony and similar carts should support F6SC.
+That needs confirming, not assuming.
