@@ -2926,8 +2926,9 @@ That needs confirming, not assuming.
 
 ## 63. Game 3, Prototype 2: Through the Static
 
-**Status:** DONE (2026-11-28), with design rules for the author to
-confirm (below). The second prototype in
+**Status:** DONE (2026-11-28). Its design rules were confirmed by the
+author the same day. The frame budget it left unsolved is settled in
+#64. The second prototype in
 `games/03-stellas-journey/DESIGN-KICKOFF.md`:
 `games/03-stellas-journey/src/proto2.asm`, built and checked by `make`
 in that folder.
@@ -2963,7 +2964,9 @@ homes. Nobody gets up except through it.
 - **A stack without Flicker is as before.** A friend who walks away
   leaves you in the air, and you fall.
 
-**Design rules made while building it, for the author to confirm.**
+**Design rules made while building it.** The author confirmed 1, 2,
+3 and 5 on 2026-11-28; 4 is a detail of how the frame's time is
+spent.
 
 1. **Only the top leaves.** Fire from the middle of a stack jumps the
    whole stack. Letting the middle jump out split a tower into three
@@ -3038,7 +3041,7 @@ without Flicker. A soak of 2,400 frames keeps building random stacks
 with Flicker in them under random input. Gopher2600 renders the
 static as the picture tool does.
 
-**What is not solved.** Longer soaks find rarer frames. On one seed in
+**What was not solved here (settled in #64).** Longer soaks found rarer frames. On one seed in
 five, 3 frames in 8,000 ran 263-265 lines. Each had three or four
 characters falling at once while Flicker's stack changed shape.
 Physics costs about 4 lines a falling character, and the frame's
@@ -3055,3 +3058,65 @@ settled first.
 
 **ROM.** Bank 0 is full. Prototype 3 starts by moving the rooms and
 the pictures into bank 1.
+
+## 64. Game 3: Nobody Held Moves Every Other Frame; the Screen Keeps Its Height
+
+**Status:** DECIDED (2026-11-28, the author), built into prototype 2.
+
+**Question.** Prototype 2 (#63) left rare frames over 262 lines. Three
+or four characters were falling at once, each costing about 4 lines
+of physics. Two fixes were on the table: a shorter play area (92 du
+instead of 96, which frees 8 scanlines a frame) or physics at half
+rate for characters nobody holds.
+
+**Decision.** Half rate. The screen keeps its 96 du, 192 scanlines.
+The author's reasons: the screen is already small, Games 1 and 2 use
+all of it, and losing a strip 8 scanlines high would change how the
+game feels. Game 3 has at most two players, so at most two
+characters are held; four players wait for Game 4 (#62).
+
+**The rule.** Full rate, every frame, for:
+
+- the held character (two, with two players);
+- everyone in Flicker's stack, which the player drives.
+
+Everyone else is updated every other frame: characters 0 and 2 on
+one frame, 1 and 3 on the next. Each update moves them two frames'
+worth: gravity twice, then one collision sweep over the whole
+distance.
+
+**Why it changes nothing a player can solve.** A character nobody
+holds takes no input, so it can only fall or finish a jump already
+in the air. Its x doesn't change, and the sweep catches every box top
+and head between where it was and where it is. It lands on the same
+ledge at the same height; only the frame it lands on can differ by
+one. Characters nobody holds already share P1 and are often drawn
+every other frame, so moving at that rate doesn't show. The static
+still catches them: they move 6 du an update at most, and the static's
+band plus the shortest body is 11 du.
+
+A character whose turn is skipped stays marked as moving until its
+turn comes. Otherwise physics took one just put down on a friend's
+head for one standing still on a box, and it never landed.
+
+**Two more savings that made it fit.**
+
+- **The overscan timer starts first,** before the six stores that
+  clear the TIA. Started earlier, it can run 29 ticks (24.4 lines)
+  instead of 28, and its wait still ends mid-line, at cycle 36-41. A
+  wait ending near the end of a line gave frames of 263.
+- **Joining Flicker's stack needs no search.** Someone landing on a
+  member joins it, with anyone standing on them, and the stack's
+  bottom is unchanged. The full search runs only when a member's own
+  footing changes.
+
+**How it is checked.** Every check of #61 and #63 passes: 22 on each
+ROM, 26 mechanics checks. The stack soak was also run on ten seeds,
+8,000 frames each: 80,000 frames of random stacks under random input,
+every one 262 lines. Overscan's worst spare is 0-3 timer ticks;
+vertical blank's is 2-4.
+
+**What it leaves.** The frame is full. Prototype 3, bodies that
+block, will need time found first. The biggest consumer is P1's
+planning in vertical blank, up to 36 lines. Caching the plan between
+frames, or a cheaper rule for whose turn it is, is the place to look.

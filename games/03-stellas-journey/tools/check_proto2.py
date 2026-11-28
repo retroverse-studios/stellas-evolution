@@ -55,9 +55,15 @@ class Scene(Proto):
         r.w("BackN", 0)
 
     def on_head(self, rider, base, dx=0):
-        """Put rider standing on base's head."""
+        """Put rider standing on base's head, as if it had landed there:
+        recorded as on base, so the next stack search finds it. (Placed
+        and not recorded, a rider nobody holds waits a frame for its
+        physics, and on the rung under the static the static gets it
+        first. Play can only put a rider there by landing, which
+        records it in the same frame.)"""
         r = self.r
         self.place(rider, r.r("CharX", base) + dx, r.r("CharY", base))
+        r.w("OnHead", base, rider)
 
     def run(self, frames, stick="", fire=False, look=False):
         for _ in range(frames):
@@ -257,11 +263,12 @@ def main():
         stick = rng.choice(["", "", "L", "R", "D"])
         n0 = len(s.r.m.margins.get(os_t, []))
         s.step(look=(f % 20 == 0), stick=stick, fire=rng.random() < 0.05)
-        if f % 120:
+        if f % 120 > 1:
             os_left += s.r.m.margins.get(os_t, [])[n0:]
-    # The frame a new stack is placed is the harness's, not the game's:
-    # four characters land at once, which play can't arrange. Left out.
-    real = [t for t in s.timing if t[0] % 120 not in (1,)]
+    # The frames a new stack is placed are the harness's, not the game's:
+    # four characters land at once, which play can't arrange, and those
+    # nobody holds land a frame later (decision #64). Left out.
+    real = [t for t in s.timing if t[0] % 120 not in (1, 2)]
     c.that(f"{shapes} stacks, {a.stack_frames:,} frames: every one 262 lines, no drawn line late",
            not real, f"{len(real)} bad, first {real[:3]}")
     c.that("every character drawn whole or not at all", not s.bad, f"{s.bad[:2]}")

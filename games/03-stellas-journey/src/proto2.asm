@@ -105,13 +105,13 @@ CORRUPT_COL = $1C       ; the static: gold, luma C. The first colour that
 LAMP_OFF    = $02
 
 VB_TIM      = 48        ; about 40 lines of vertical blank, 193 drawn,
-OS_TIM      = 28        ; about 24 of overscan. Prototype 1 had 51 and
+OS_TIM      = 29        ; about 24.4 of overscan. Prototype 1 had 51 and
                         ; 26; stacks and the static cost overscan time,
-                        ; and the lamps' home test moved there. 28, not
-                        ; 29: at 29 the overscan wait ends at cycle
-                        ; 59-65 of its line, close enough to the end
-                        ; that some frames ran 263 lines. At 28 it ends
-                        ; past cycle 70, always on the same side
+                        ; and the lamps' home test moved there. The
+                        ; overscan timer starts before its six clearing
+                        ; stores, so its wait ends at cycle 36-41 of a
+                        ; line, far from either end: a wait ending near
+                        ; a line's end gave frames of 263 lines
 
 ; ---------------------------------------------------------------
 ; RAM
@@ -186,6 +186,8 @@ FRoot       ds 1        ; the bottom of Flicker's stack
 StackY0     ds 1        ; its y before physics: the carried move by
                         ; however far it moved
 StackG0     ds 1        ; and whether it stood
+Steps       = BotV      ; UpdatePhysics: frames' worth this update
+Defer       ds 1        ; UpdatePhysics: who waits for its turn
 
 ; --- scratch
 PrevFeet    ds 1
@@ -399,7 +401,9 @@ MainLoop:
         jsr GameKernel
 
         sta WSYNC
-        lda #2
+        lda #OS_TIM             ; the timer first: started six stores
+        sta TIM64T              ; earlier, it can run a tick longer and
+        lda #2                  ; still end mid-line (decision #64)
         sta VBLANK
         lda #0
         sta GRP0
@@ -407,8 +411,6 @@ MainLoop:
         sta PF0
         sta PF1
         sta PF2
-        lda #OS_TIM
-        sta TIM64T
         jsr ReadInput           ; the stick, then physics: the same order
         jsr UpdatePhysics       ; as reading it at the top of the frame,
                                 ; and vertical blank needs the room
@@ -1527,6 +1529,8 @@ GameKernel:
 
 UpdatePhysics:
         SUBROUTINE
+        lda #0
+        sta Defer
         ldx FRoot
         lda CharY,x
         sta StackY0
@@ -1550,12 +1554,33 @@ UpdatePhysics:
         bne .phys
         jmp .nextChar
 .phys:
+        cpx Active              ; held, or in Flicker's stack (which the
+        beq .one                ; player drives): every frame
+        lda Fused
+        and BitTbl,x
+        bne .one
+        txa                     ; nobody holds it: every other frame,
+        eor FrameCtr            ; two frames' worth at once (decision
+        lsr                     ; #64). It only falls, or finishes a
+        bcc .two                ; jump: no stick moves it, so it lands
+        lda Defer               ; where it would have, and the landing
+        ora BitTbl,x            ; sweeps the whole way. Its turn waits:
+        sta Defer               ; next frame it must not look like one
+        jmp .nextChar           ; standing still on a box
+.two:
+        lda #2
+        bne .steps
+.one:
+        lda #1
+.steps:
+        sta Steps
         lda #$FF                ; on nobody, until it lands on someone
         sta OnHead,x
         lda CharY,x
         clc
         adc HeightTbl,x
         sta PrevFeet
+.step:
         lda CharVYLo,x          ; vy += gravity
         clc
         adc #GRAV_LO
@@ -1586,6 +1611,8 @@ UpdatePhysics:
         sta CharVYLo,x
 .store:
         sta CharY,x
+        dec Steps
+        bne .step
         lda CharVYHi,x
         bpl .land
         jmp .bump
@@ -1734,7 +1761,7 @@ UpdatePhysics:
         bmi .done
         jmp .charLoop
 .done:
-        lda #0
+        lda Defer               ; who waits for its turn stays "moved"
         sta Moved
         rts
 
@@ -1779,12 +1806,15 @@ StackFollow:
 .done:
         rts
 
-; NewStacks: FindStacks, if a footing changed that touches Flicker's
-; stack: one of its members' footing, or someone landing on a member.
+; NewStacks: keeps Flicker's stack up to date when footings change.
 ; A stack that only walks or falls keeps its shape, and finding it
-; again cost a four-high tower four lines of overscan a frame. Changes
-; elsewhere (Stella landing on Alex, with Flicker apart) are noted and
-; nothing more.
+; again cost a four-high tower four lines of overscan a frame. So:
+;   - one of its own members' footing changed (the top jumped off, or
+;     the bottom landed on someone): FindStacks, the full search;
+;   - someone landed on one of its members: it joins, with anyone
+;     standing on it, and the bottom is the same (no search);
+;   - anything else (Stella landing on Alex, with Flicker apart) is
+;     noted, and nothing more.
 NewStacks:
         SUBROUTINE
         ldx #NUM_CHARS-1
@@ -1795,17 +1825,48 @@ NewStacks:
         lda Fused               ; one of the stack's own
         and BitTbl,x
         bne FindStacks
-        ldy OnHead,x            ; on one of the stack's own
-        bmi .note
+        ldy OnHead,x            ; landed on one of the stack's own:
+        bmi .note               ; it joins
         lda Fused
         and BitTbl,y
-        bne FindStacks
+        beq .note
+        lda Fused
+        ora BitTbl,x
+        sta Fused
+        jsr Riders
 .note:
         lda OnHead,x
         sta HeadsW,x
 .same:
         dex
         bpl .cmp
+        rts
+
+; Riders: anyone standing on a member of Flicker's stack is in it, up
+; a tower, pass by pass until a pass adds nobody. Keeps X.
+Riders:
+        SUBROUTINE
+        stx RV
+.again:
+        lda Fused
+        sta LV
+        ldy #NUM_CHARS-1
+.r:
+        ldx OnHead,y
+        bmi .n
+        lda Fused
+        and BitTbl,x
+        beq .n
+        lda Fused
+        ora BitTbl,y
+        sta Fused
+.n:
+        dey
+        bpl .r
+        lda Fused
+        cmp LV
+        bne .again
+        ldx RV
         rts
 
 ; FindStacks: the bottom of Flicker's stack, and who is in it. Nobody
