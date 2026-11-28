@@ -15,17 +15,25 @@ apart (Game 1's rule, decision #35: drawn is solid, both ways).
 - The playfield is mirrored, so the drawing is symmetric. A box whose
   mirror is not also a box draws something that isn't solid, and the
   build fails.
-- A home's lamp is its band's colour, and the kernel stores a band's
-  colour at cycle 38, pixel 46. So in a home's band, and the band below
-  it, nothing is drawn left of pixel 48 (or right of 111, its mirror):
-  the first line there would still be the band above's colour. Game 2
-  kept to the same rule by hand.
+- A home's lamp is its band's colour, so a home's band draws nothing
+  but the home. Prototype 1's kernel stores a band's colour at cycle
+  38, pixel 46, so in its room ("late_colour") a home's band and the
+  band below it also draw nothing left of pixel 48. Game 2 kept to the
+  same rule by hand. Prototype 2's kernel stores the colour inside
+  horizontal blank, and that rule goes.
+- The corruption (prototype 2) is a box nobody stands on. Its bands are
+  its colour, so they draw nothing else. It is drawn as static: the
+  room's playfield comes in four versions that differ only there, each
+  with half the corruption's columns lit, so the brightness holds still
+  while the pattern moves.
 
 Heights and widths are read from the assembly source, so a home's
 height can't disagree with the character standing on it.
 
-    python3 tools/genroom.py src/proto1.asm src/room1.inc [--show]
+    python3 tools/genroom.py src/proto1.asm src/room1.inc climb [--show]
+    python3 tools/genroom.py src/proto2.asm src/room2.inc static [--show]
 """
+import random
 import re
 import sys
 
@@ -69,7 +77,22 @@ CLIMB = {
     # whole band's COLUPF. So the screen's edge is the wall, and x is
     # clamped 4 px inside it, as Game 2 clamps when it doesn't wrap.
     "walls": False,
+    "late_colour": True,      # prototype 1's kernel: see the rules above
+    "corrupt": {},
 }
+
+# ---------------------------------------------------------------------
+# Prototype 2's room, "the static": the climb with band 14 turned to
+# corruption from wall to wall. Below it the climb as before; above it
+# the climb to the homes. The only way up is through the static, and
+# only Flicker, and whoever rides it, gets through. The rung under the
+# static (b15, top 120) and the one over it (b13, top 104) are 16 du
+# apart and overlap at x 48-56: Flicker's jump, 16.7 du, carries it
+# (and a rider) from one to the other.
+# ---------------------------------------------------------------------
+STATIC = dict(CLIMB, late_colour=False, corrupt={"c14": (0, 160, 112, 120)})
+
+ROOMS = {"climb": CLIMB, "static": STATIC}
 
 
 def consts(asm_path):
@@ -107,6 +130,21 @@ def build(room, c):
         for b in bands:
             draw[b] |= columns(x0, x1)
 
+    static = [set() for _ in range(BANDS)]        # corruption columns, per band
+    cor = room["corrupt"]
+    for name, (x0, x1, top, bot) in cor.items():
+        assert x0 % 4 == 0 and x1 % 4 == 0 and top % 8 == 0 and bot % 8 == 0, name
+        for b in range(top // 8, bot // 8):
+            assert not draw[b], f"{name}: band {b} is the corruption's colour, and draws boxes too"
+            static[b] |= columns(x0, x1)
+            covered = set()
+            for x0b, x1b, tb, bb in cor.values():
+                if tb // 8 <= b < bb // 8:
+                    covered |= set(range(x0b, x1b))
+            for col in static[b]:
+                for px in list(range(col * 4, col * 4 + 4)) + list(range(156 - col * 4, 160 - col * 4)):
+                    assert px in covered, f"band {b}: static at pixel {px} with no corruption there"
+
     # drawn is solid: every pixel the mirrored playfield shows must be in
     # some box covering that band (the walls are the clamp, not a box)
     for b in range(BANDS):
@@ -120,23 +158,31 @@ def build(room, c):
                 assert px in covered, f"band {b}: pixel {px} is drawn but no box is solid there"
 
     for name in room["homes"]:
-        hb = boxes[name][2] // 8
-        for b in (hb, hb + 1):
-            if b < BANDS and any(col < 12 for col in draw[b]):
-                sys.exit(f"genroom: band {b} is a home's lamp band (or just below one) and "
-                         f"draws left of pixel 48, where the colour changes late")
+        x0, x1, t, _ = boxes[name]
+        hb = t // 8
+        if draw[hb] != columns(x0, x1):
+            sys.exit(f"genroom: band {hb} is {name}'s lamp, and draws more than {name}")
+        if static[hb]:
+            sys.exit(f"genroom: band {hb} is both a lamp and corruption")
+        if room["late_colour"]:
+            for b in (hb, hb + 1):
+                if b < BANDS and any(col < 12 for col in draw[b]):
+                    sys.exit(f"genroom: band {b} is a home's lamp band (or just below one) and "
+                             f"draws left of pixel 48, where the colour changes late")
 
+    variants = 4 if cor else 1
     pf0, pf1, pf2 = [], [], []
-    for b in range(BANDS):
-        cols = set(draw[b])
-        if room["walls"]:
-            cols.add(0)
-        v0 = sum(1 << (4 + k) for k in range(4) if k in cols)
-        v1 = sum(1 << (7 - (k - 4)) for k in range(4, 12) if k in cols)
-        v2 = sum(1 << (k - 12) for k in range(12, 20) if k in cols)
-        pf0.append(v0)
-        pf1.append(v1)
-        pf2.append(v2)
+    for v in range(variants):
+        for b in range(BANDS):
+            cols = set(draw[b])
+            if static[b]:                         # half the static's columns lit
+                lit = sorted(static[b])
+                cols |= set(random.Random(b * 4 + v).sample(lit, len(lit) // 2))
+            if room["walls"]:
+                cols.add(0)
+            pf0.append(sum(1 << (4 + k) for k in range(4) if k in cols))
+            pf1.append(sum(1 << (7 - (k - 4)) for k in range(4, 12) if k in cols))
+            pf2.append(sum(1 << (k - 12) for k in range(12, 20) if k in cols))
 
     order = sorted(boxes, key=lambda n: (boxes[n][2], boxes[n][0]))
     idx = {n: i for i, n in enumerate(order)}
@@ -159,9 +205,12 @@ def build(room, c):
         w = c[(NAMES[ci], "W")]
         assert x0 <= x and x + w <= x1, f"{NAMES[ci]} does not start on {name}"
         spawns.append((x, t - c[(NAMES[ci], "H")]))
+    corrupt = [cor[n] for n in sorted(cor, key=lambda n: cor[n][2])]
+    cor_bands = sorted({b for b in range(BANDS) if static[b]})
     return dict(pf=(pf0, pf1, pf2), sky=room["sky"], top=top, bot=bot, left=left,
                 right=right, band_start=band_start, solids=solids, homes=homes,
-                spawns=spawns, draw=draw)
+                spawns=spawns, draw=draw, static=static, variants=variants,
+                corrupt=corrupt, cor_bands=cor_bands)
 
 
 def row(label, vals, fmt="{:d}"):
@@ -179,6 +228,7 @@ def emit(r, path):
         "; Generated by tools/genroom.py from its room list. Do not edit:",
         "; change the boxes there and rebuild.",
         f"ROOM_NB = {len(r['top'])}",
+        f"ROOM_VARIANTS = {r['variants']}    ; versions of the playfield, 32 bands each",
         row("RoomPF0:", pf0, h), row("RoomPF1:", pf1, h), row("RoomPF2:", pf2, h),
         row("RoomSky:", r["sky"], h),
         "; boxes, in order of top (the landing search walks them in this order)",
@@ -187,6 +237,10 @@ def emit(r, path):
         "; BandStart[b]: the first box whose top is in band b or below",
         row("BandStart:", r["band_start"]),
         row("SolidList:", r["solids"] + [255]),
+        "; the solids' highest top and lowest bottom: a character outside them",
+        "; can't walk into one",
+        f"SOLID_TOP = {min((r['top'][i] for i in r['solids']), default=255)}",
+        f"SOLID_BOT = {max((r['bot'][i] for i in r['solids']), default=0)}",
         "; homes: the CharY a character stands at, the ledge's x extent, its band",
         row("HomeY:", [hm[0] for hm in r["homes"]]),
         row("HomeL:", [hm[1] for hm in r["homes"]]),
@@ -194,21 +248,34 @@ def emit(r, path):
         row("HomeBand:", [hm[3] for hm in r["homes"]]),
         row("SpawnX:", [s[0] for s in r["spawns"]]),
         row("SpawnY:", [s[1] for s in r["spawns"]]),
-        "",
     ]
+    if r["corrupt"]:
+        cz = r["corrupt"]
+        lines += [
+            "; the corruption: boxes nobody stands on, and the bands it colours",
+            f"COR_N = {len(cz)}",
+            f"COR_TOP = {min(b[2] for b in cz)}    ; the highest top and lowest bottom:",
+            f"COR_BOT = {max(b[3] for b in cz)}    ; a character outside them can't touch it",
+            row("CorTop:", [b[2] for b in cz]), row("CorBot:", [b[3] for b in cz]),
+            row("CorL:", [b[0] for b in cz]), row("CorR:", [b[1] for b in cz]),
+            row("CorBands:", r["cor_bands"] + [255]),
+        ]
+    lines.append("")
     open(path, "w").write("\n".join(lines))
 
 
 def show(r, walls):
     for b in range(BANDS):
         cols = r["draw"][b] | ({0} if walls else set())
-        left = "".join("#" if k in cols else "." for k in range(20))
+        left = "".join("#" if k in cols else ":" if k in r["static"][b] else "."
+                       for k in range(20))
         print(f"{b:2d} {left}{left[::-1]}")
 
 
 if __name__ == "__main__":
     c = consts(sys.argv[1])
-    r = build(CLIMB, c)
+    room = ROOMS[sys.argv[3]]
+    r = build(room, c)
     emit(r, sys.argv[2])
     if "--show" in sys.argv:
-        show(r, CLIMB["walls"])
+        show(r, room["walls"])

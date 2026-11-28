@@ -25,7 +25,7 @@ time, and Stella, Alex, Marcus and Flicker drawn with the TIA's two
 sprites. See decision #61 for what it found.
 
 ```
-make            # build/proto1.bin, then 22 checks (about 20 seconds)
+make            # both prototypes and all their checks (about a minute)
 make pictures   # build/pictures: the hold, the pan, the cast
 make room       # the room, drawn as text
 ```
@@ -36,6 +36,18 @@ on the homes at the top, then pans down to the cast; fire skips the
 hold. There is no goal yet: the homes light up, and nothing happens
 when everyone is home.
 
+## Prototype 2: through the static (done)
+
+Prototype 1's room with a band of corruption across it: gold static
+that sends anyone who touches it back to their last lamp. Only Flicker
+gets through, and anyone in a stack with Flicker: stand on Flicker,
+or carry it, and you go too. A stack with Flicker in it walks and
+jumps as one; only its top can jump off. See decision #63.
+
+Play `build/proto2.bin` in Stella. To get through: climb to the rung
+just under the static (the one with gaps either side), put someone on
+Flicker's head, and jump with Flicker from the rung's inner end.
+
 | File | What it is |
 | --- | --- |
 | `src/proto1.asm` | The test ROM: 16K, F6 with the Superchip, all in bank 0 |
@@ -43,4 +55,7 @@ when everyone is home.
 | `tools/genroom.py` | Makes a room from a list of boxes and fails if what is drawn isn't solid |
 | `tools/vcs.py` | A headless 2600, Game 2's CPU with F6 and the Superchip added |
 | `tools/picture.py` | Pictures replayed from the ROM's TIA writes |
-| `tools/check_proto1.py` | The checks |
+| `tools/check_proto1.py` | The checks: timing, the stack, the view, every character drawn exactly |
+| `src/proto2.asm` | Prototype 2: the static, riding, stacks that move as one |
+| `src/room2.inc` | Its room, made by `tools/genroom.py` (four versions of the playfield) |
+| `tools/check_proto2.py` | Prototype 2's own checks, and a soak of stacks |

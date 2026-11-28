@@ -278,7 +278,9 @@ Each is a small test ROM, built before any room is designed.
    to spare.*
 2. **A fused stack through corruption.** Stack detection, the stack's
    outline, and what happens when a stack breaks up inside the corruption.
-   #29 calls that last case the ending.
+   #29 calls that last case the ending. *Done 2026-11-28, decision #63:
+   it works. The frame's time is spent, with rare overruns when three or
+   four fall at once; five design rules await the author.*
 3. **Bodies that block**, with a solver that can prove a room using them.
    The solver today moves one character at a time and treats friends as
    ledges. Floor 11 of Game 2 showed what that costs.

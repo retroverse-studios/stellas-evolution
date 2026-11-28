@@ -1,12 +1,13 @@
 ROM := build/proto1.bin
+ROM2 := build/proto2.bin
 
-all: $(ROM) check
+all: $(ROM) check $(ROM2) check2
 
-# Prototype 1, the tall room (DESIGN-KICKOFF.md). The room's playfield
-# and boxes are generated from one list of boxes (tools/genroom.py),
-# which fails the build if anything drawn is not solid.
+# Prototype 1, the tall room (decision #61). The room's playfield and
+# boxes are generated from one list of boxes (tools/genroom.py), which
+# fails the build if anything drawn is not solid.
 src/room1.inc: tools/genroom.py src/proto1.asm
-	python3 tools/genroom.py src/proto1.asm src/room1.inc
+	python3 tools/genroom.py src/proto1.asm src/room1.inc climb
 
 $(ROM): src/proto1.asm src/room1.inc src/vcs.h
 	@mkdir -p build
@@ -24,11 +25,34 @@ $(ROM): src/proto1.asm src/room1.inc src/vcs.h
 check: $(ROM)
 	python3 tools/check_proto1.py $(ROM) build/proto1.sym
 
+# Prototype 2, through the static (decision #63): prototype 1's room
+# with a band of corruption across it, which only Flicker's stack
+# passes. Four versions of the playfield, differing only in the static.
+src/room2.inc: tools/genroom.py src/proto2.asm
+	python3 tools/genroom.py src/proto2.asm src/room2.inc static
+
+$(ROM2): src/proto2.asm src/room2.inc src/vcs.h
+	@mkdir -p build
+	cd src && dasm proto2.asm -f3 -v0 -o../$(ROM2) -l../build/proto2.lst -s../build/proto2.sym
+	@size=$$(wc -c < $(ROM2)); \
+	if [ $$size -ne 16384 ]; then \
+		echo "ERROR: ROM is $$size bytes, expected 16384 (F6 = 4 x 4K)"; \
+		rm -f $(ROM2); exit 1; \
+	fi
+
+# Prototype 2 gets prototype 1's checks (timing, the stack, the view,
+# every character drawn exactly) and its own: the static, riding,
+# stacks that move as one, jumping off.
+check2: $(ROM2)
+	python3 tools/check_proto1.py $(ROM2) build/proto2.sym --quiet
+	python3 tools/check_proto2.py $(ROM2) build/proto2.sym
+
 # Pictures of the prototype, from the ROM's own TIA writes.
 pictures: $(ROM)
 	python3 tools/picture.py $(ROM) build/proto1.sym build/pictures
 
 room:
-	python3 tools/genroom.py src/proto1.asm src/room1.inc --show
+	python3 tools/genroom.py src/proto1.asm src/room1.inc climb --show
+	python3 tools/genroom.py src/proto2.asm src/room2.inc static --show
 
-.PHONY: all check pictures room
+.PHONY: all check check2 pictures room

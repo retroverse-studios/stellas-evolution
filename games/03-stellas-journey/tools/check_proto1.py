@@ -73,6 +73,10 @@ class Proto:
         for v in ("CharYLo", "CharVYHi", "CharVYLo", "SquashT"):
             r.w(v, 0, ci)
         r.w("OnGround", 1, ci)
+        if "Moved" in r.ram:                   # prototype 2 skips physics for
+            r.w("Moved", r.r("Moved") | 1 << ci)   # anyone standing still,
+            r.w("OnHead", 0xFF, ci)                # and lands it on whoever is
+                                                   # under it afresh
 
     def step(self, look=False, **kw):
         r = self.r
@@ -118,6 +122,9 @@ class Proto:
                 if s in (0, 1) and c in self.col:
                     seen.setdefault(self.col.index(c), set()).add((y, x))
         for ci in range(4):
+            if not 4 <= self.drawn_x[ci] <= 156 - self.width[ci]:
+                self.bad.append((f, f"{NAMES[ci]} at x {self.drawn_x[ci]}, off the screen"))
+                continue
             exp = self.expected(ci)
             got = seen.get(ci, set())
             in_view = bool(exp) and not (ci == 3 and odd)

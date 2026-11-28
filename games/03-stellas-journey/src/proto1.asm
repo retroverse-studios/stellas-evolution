@@ -1016,7 +1016,11 @@ AtHome:
         clc
         rts
 
-; A = x pixel (0-159), X = object (0 P0, 1 P1)
+; A = x pixel (0-159), X = object (0 P0, 1 P1). Its loop is timed to
+; the cycle, so it must not cross a page: a branch that does takes a
+; cycle more each time round. (Prototype 2 found this the hard way:
+; code added elsewhere pushed the loop over a page, and P0 drew 9 px
+; right.) The assembly fails if it ever crosses again.
 SetHorizPos:
         SUBROUTINE
         sta WSYNC
@@ -1024,6 +1028,10 @@ SetHorizPos:
 .div:
         sbc #15
         bcs .div
+        IF >* != >.div
+          ECHO "SetHorizPos: the loop crosses a page"
+          ERR
+        ENDIF
         eor #7
         asl
         asl
@@ -1126,6 +1134,10 @@ GameKernel:
 .hdly:
         dey
         bne .hdly
+        IF >* != >.hdly
+          ECHO "the hop's delay loop crosses a page"
+          ERR
+        ENDIF
         sta RESP1               ; lands on cycle 5n+1: 71 at x 150
         sta WSYNC               ; ---- hop line 2
         sta HMOVE

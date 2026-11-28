@@ -2923,3 +2923,135 @@ the chip, and `make` checks all of this: 22 checks.
 **Still to do.** Run it on a flash cartridge on a real console before
 anything ships. The Harmony and similar carts should support F6SC.
 That needs confirming, not assuming.
+
+## 63. Game 3, Prototype 2: Through the Static
+
+**Status:** DONE (2026-11-28), with design rules for the author to
+confirm (below). The second prototype in
+`games/03-stellas-journey/DESIGN-KICKOFF.md`:
+`games/03-stellas-journey/src/proto2.asm`, built and checked by `make`
+in that folder.
+
+**Question.** Can Flicker carry a stack through the corruption, and
+what does it cost?
+
+**Answer: yes. The mechanics work and are checked. The cost used up
+the frame: overscan and vertical blank each have 2-4 lines to spare
+in normal play, and none in the rarest frames.**
+
+**What it is.** Prototype 1's tall room with band 14 turned to
+corruption from wall to wall: below it the lower climb, above it the
+homes. Nobody gets up except through it.
+
+- **The static.** A band in gold ($1C, luma C), the first colour that
+  is nobody's (#27), at a brightness no character has, so Flicker shows
+  inside it. The room's playfield comes in four versions that differ
+  only in the static's band, each with exactly half its columns lit, so
+  its brightness never changes while the pattern does. The view picks
+  another version every fourth frame, never the same twice running:
+  15 changes a second. That costs no RAM and no kernel time, only 384
+  bytes of ROM, made by `tools/genroom.py`.
+- **Touching it** sends a character back to its last lamp: its home if
+  it has stood on it, otherwise where it started.
+- **Flicker passes through,** and so does anyone in a stack with
+  Flicker in it, whether they stand on Flicker or Flicker stands on
+  them (#29).
+- **A stack with Flicker in it is one body.** Whoever is held walks it,
+  at its base's pace, as far as every member can go. Fire jumps the
+  whole stack from its base. The one exception is the top member, which
+  jumps off alone.
+- **A stack without Flicker is as before.** A friend who walks away
+  leaves you in the air, and you fall.
+
+**Design rules made while building it, for the author to confirm.**
+
+1. **Only the top leaves.** Fire from the middle of a stack jumps the
+   whole stack. Letting the middle jump out split a tower into three
+   bodies at once, and three falls in one frame did not fit. It also
+   reads as one body, which #29 asks for.
+2. **Nobody jumps off in mid-air.** A rider stands only when the stack
+   stands, so a rising or falling stack carries everyone through. This
+   is Games 1 and 2's rule, since nobody there jumps in mid-air either.
+3. **Off the stack inside the static, you go back.** On the rung under
+   the static, a rider's head is already in it, and that's harmless.
+   Jumping off there sends the rider back at once, before the jump can
+   carry them clear. This is the ending's rule in miniature.
+4. **Jumping off replaces that frame's walk.**
+5. **The static changes 15 times a second.** It is a moving texture of
+   constant brightness, not a flash, but it is the largest moving area
+   in the series so far. It should be watched by someone sensitive to
+   flicker before it ships.
+
+**What it costs.**
+
+| | Prototype 1 | Prototype 2 |
+| --- | --- | --- |
+| Vertical blank, worst | 2.5 lines spare | 2.5 lines spare |
+| Overscan, worst in normal play | 3.4 lines spare | 4.2 lines spare |
+| Overscan, worst with stacks | | 0.8 lines spare (default soak) |
+| Zero page | 104 of 128 | 117 of 128 |
+| Superchip | 13 of 128 | 44 of 128 |
+| Bank 0 ROM free | 1,120 bytes | 96 bytes |
+
+Overscan only fits because of a run of savings, each found by
+measuring the worst frames:
+
+- Physics skips anyone standing still on a box.
+- The stack walk tests only the gap to the nearest edge, not the full
+  wall test for every member.
+- The search for Flicker's stack runs only when a footing change
+  touches it.
+- The lamp table covers the whole room in the Superchip and is written
+  once, so a frame rewrites four bands, not 13.
+- The home test runs for one character a frame.
+- The head test is inline.
+- Two timer ticks moved from vertical blank to overscan.
+
+**Found on the way.**
+
+1. **A timed loop crossed a page.** Code added elsewhere pushed
+   `SetHorizPos`'s divide loop over a page boundary. A branch that
+   crosses a page takes a cycle more each time round, so P0 drew 9 px
+   right. The picture check caught it. The assembly now fails if that
+   loop, or the hop's delay loop, ever crosses a page.
+2. **VSYNC started mid-line.** Moving a timer tick then gave frames of
+   261 and 263 lines. The frame now starts with a WSYNC. The overscan
+   timer is 28, not 29, because at 29 its wait ended so near a line's
+   end that some frames ran 263.
+3. **The wrong register.** A spawn's x was stored from the register
+   holding its y, so the static sent Marcus to x 226.
+4. **A hang from the harness.** Placing characters by hand made two of
+   them each recorded as standing on the other, and the stack search
+   never ended. Play can't do that, but the search now stops after four
+   steps anyway.
+5. **The kernel's colour store moved into horizontal blank.** The band
+   before a new one now ends in a line that fetches, then a line that
+   stores. Prototype 1's rule, nothing drawn left of pixel 48 under a
+   lamp, is gone.
+
+**How it is checked.** Prototype 1's 22 checks run on this ROM too:
+timing, the stack, the view, and pixel-exact pictures. On top of them,
+`tools/check_proto2.py` runs 26 checks. Scenes cover the static's
+colour, density and movement; being sent back; Flicker passing;
+riding; any member driving; Flicker on top; jumping off; no carry
+without Flicker. A soak of 2,400 frames keeps building random stacks
+with Flicker in them under random input. Gopher2600 renders the
+static as the picture tool does.
+
+**What is not solved.** Longer soaks find rarer frames. On one seed in
+five, 3 frames in 8,000 ran 263-265 lines. Each had three or four
+characters falling at once while Flicker's stack changed shape.
+Physics costs about 4 lines a falling character, and the frame's
+logic time is spent. The likely fixes are bigger than tuning:
+
+- a slightly shorter play area, where 92 du instead of 96 frees 8
+  lines a frame;
+- physics for characters nobody holds, run on alternate frames when
+  more than two are falling;
+- moving work into the other banks' time, which needs no RAM.
+
+Prototype 3, bodies that block, adds physics, so this has to be
+settled first.
+
+**ROM.** Bank 0 is full. Prototype 3 starts by moving the rooms and
+the pictures into bank 1.
